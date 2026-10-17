@@ -76,7 +76,7 @@ cd nalmeok
 
 | 항목 | 필요한 기능 | 없어도 되는 기능 |
 | --- | --- | --- |
-| **ffmpeg** | `convert`(MP4 → M4A), `estimate`(길이 측정) | — |
+| **ffmpeg** | `convert`(MP4 → M4A), `estimate`(길이 측정), MP4만 있는 폴더의 `upload`(자동 변환) | — |
 | **Gemini API 키** | `upload` · `status` · `wait` · `download` | `convert` · `estimate` · `stats` |
 
 ffmpeg 설치:
@@ -140,6 +140,22 @@ echo 'export GEMINI_API_KEY="AIza..."' >> ~/.bashrc && source ~/.bashrc
 ./app.py upload ./lecture_folder --key "AIza..."
 ```
 
+키를 찾는 순서는 `--key` → `GEMINI_API_KEY` 환경변수 → 저장해 둔 키 순서입니다.
+
+### 3-1단계 · 키 저장 (선택, 권장)
+
+터미널 메뉴(`./app.py`)로 실행하면 키가 없을 때 **최초 1회만** 물어보고, 이어서 "저장할까요?"를 묻습니다. **저장**을 고르면 `~/.config/nalmeok/config.json`에 **소유자만 읽을 수 있는 권한(0600)** 으로 남겨 두고 다음 실행부터는 묻지 않습니다. (Windows는 `%APPDATA%\nalmeok\config.json`)
+
+```bash
+# 저장 확인
+cat ~/.config/nalmeok/config.json
+
+# 저장된 키 지우기 (파일 전체 삭제도 됩니다)
+rm ~/.config/nalmeok/config.json
+```
+
+> 키를 저장하지 않으려면 메뉴에서 **이번만 사용**을 고르면 됩니다. 저장한 키가 유효하지 않으면(401 오류) 자동으로 지워져 다음 실행 때 다시 물어봅니다.
+
 ### 4단계 · 동작 확인
 
 `convert`·`estimate`·`stats`는 키 없이 동작하므로, 키 검증은 첫 업로드로 합니다.
@@ -156,7 +172,7 @@ echo 'export GEMINI_API_KEY="AIza..."' >> ~/.bashrc && source ~/.bashrc
 | `429 RESOURCE_EXHAUSTED` | 무료 등급 키입니다. 프로젝트에 결제 프로필을 연결하세요. |
 | `403 PERMISSION_DENIED` | 키가 다른 프로젝트에 속해 있습니다. 해당 프로젝트에 결제가 연결됐는지 확인하세요. |
 | `API key not valid` | 복사한 키 앞뒤의 공백·줄바꿈을 확인하세요. |
-| `API 키가 필요합니다` | `GEMINI_API_KEY`가 export 되지 않았습니다. 새 터미널에서 export 후 다시 실행하세요. |
+| `API 키가 필요합니다` | `GEMINI_API_KEY`가 export 되지 않았습니다. 새 터미널에서 export 후 다시 실행하거나, 터미널 메뉴에서 한 번 입력하고 **저장**을 선택하세요. |
 
 ---
 
@@ -191,7 +207,7 @@ export GEMINI_API_KEY="your-api-key"
 # 2. 오디오 길이 기준 예상 토큰 및 청구 금액 확인
 ./app.py estimate ./lecture_folder
 
-# 3. 오디오 업로드 및 Batch 전사 작업 제출 (제출 전 예상 비용을 확인합니다)
+# 3. 오디오 업로드 및 Batch 전사 작업 제출 (M4A가 없으면 MP4에서 자동 추출, 제출 전 예상 비용 확인)
 ./app.py upload ./lecture_folder
 
 # 4. Batch 작업 처리 상태 확인
@@ -207,7 +223,7 @@ export GEMINI_API_KEY="your-api-key"
 ./app.py stats
 ```
 
-> `upload`는 길이·토큰·예상 금액을 보여주고 확인을 받은 뒤 제출합니다. 사람 없이 돌리는 자동화에서는 `--yes`로 확인을 건너뜁니다.
+> `upload`는 길이·토큰·예상 금액을 보여주고 확인을 받은 뒤 제출합니다. 사람 없이 돌리는 자동화에서는 `--yes`로 확인을 건너뜁니다. 폴더에 M4A가 없고 MP4만 있으면 M4A를 먼저 만들어 준비하므로 `convert`를 따로 실행하지 않아도 됩니다.
 >
 > `wait`는 Batch가 끝날 때까지 폴링하며 완료되면 터미널 벨과 (가능하면) macOS 알림으로 알려줍니다. `--download`를 붙이면 곧바로 결과 병합까지 이어서 수행합니다.
 
@@ -216,6 +232,9 @@ export GEMINI_API_KEY="your-api-key"
 ## 처리 파이프라인 및 안전장치
 
 * **제출 전 비용 확인**: `upload`는 길이·토큰·예상 금액을 먼저 보여주고 확인을 받은 뒤 제출합니다. 실수로 과금되는 일을 막고, 자동화에서는 `--yes`로 건너뜁니다.
+* **MP4 자동 변환**: `upload`는 M4A가 없고 MP4만 있으면 M4A를 먼저 추출합니다. MP4만 넣어 두고 바로 업로드해도 되고, 이미 M4A가 있으면 그대로 씁니다.
+* **API 키 기억**: 최초 1회 입력한 키를 저장하면 다음 실행부터는 묻지 않습니다. 저장 위치는 `~/.config/nalmeok/config.json`(0600)입니다.
+* **최근 작업 목록**: 최근에 쓴 작업 폴더를 저장해 두고, 폴더 선택 화면에서 `최근 ·` 표시와 함께 다시 보여줍니다.
 * **완료 대기와 알림**: `wait`가 Batch가 끝날 때까지 폴링하며 상태와 경과 시간을 보여주고, 완료되면 알림을 보냅니다. `--download`를 붙이면 결과 병합까지 자동으로 이어집니다. 터미널 메뉴에서는 "완료까지 대기 후 다운로드" 항목이 같은 일을 합니다.
 * **폴더 상태 표시**: 터미널 메뉴의 폴더 목록이 각 작업의 단계(제출 전 · 전사 중 · 완료 등)를 보여줍니다. API 키가 있으면 원격 Batch 상태까지 조회해 표시합니다.
 * **한글 파일명 지원**: 오디오·PDF 파일 이름이 한글이어도 업로드됩니다. (SDK가 파일명을 HTTP 헤더에 넣어 깨지는 문제를 파일 객체 업로드로 우회합니다.)
@@ -245,6 +264,14 @@ export GEMINI_API_KEY="your-api-key"
 **Q. OpenRouter API Key로 사용 가능한가요?**
 
 불가능합니다. OpenRouter Batch 엔드포인트는 멀티모달 오디오 바이너리 입력을 지원하지 않으므로 Google AI Studio 직접 발급 키만 사용해야 합니다.
+
+**Q. API 키는 어디에 저장되나요?**
+
+터미널 메뉴에서 **저장**을 고른 경우에만 `~/.config/nalmeok/config.json`에 소유자 전용 권한(0600)으로 저장합니다. `--key`나 `GEMINI_API_KEY` 환경변수가 있으면 그쪽이 우선하므로 저장된 키는 쓰이지 않습니다. 지우려면 그 파일에서 `api_key` 항목을 지우거나 파일을 삭제하세요. 같은 파일에 최근 작업 폴더 목록(`recent`)도 함께 들어갑니다.
+
+**Q. MP4만 있어도 전사할 수 있나요?**
+
+됩니다. `./app.py upload ./lecture_folder`를 실행하면 M4A가 없다는 것을 감지해 ffmpeg로 먼저 추출한 뒤 이어서 업로드합니다. MP4 변환과 업로드가 한 번에 처리되므로 `convert`를 먼저 실행할 필요가 없습니다.
 
 ---
 

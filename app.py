@@ -8,18 +8,22 @@
   ./app.py                          # 터미널 메뉴
   ./app.py estimate ./lecture       # 길이·토큰·예상 비용
   ./app.py convert ./lecture        # MP4 -> M4A (ffmpeg, 원본 유지)
-  ./app.py upload ./lecture         # 업로드 후 Batch 제출
+  ./app.py upload ./lecture         # M4A 없으면 자동 변환 후 Batch 제출
   ./app.py status ./lecture         # Batch 상태
   ./app.py wait ./lecture --download # 완료까지 대기 후 자동 다운로드
   ./app.py download ./lecture       # 결과 병합 후 실제 비용 보고
   ./app.py stats                    # 지금까지 쓴 금액 합계와 평균
 
-GEMINI_API_KEY 환경변수나 --key 로 키를 넘깁니다. google-genai SDK가 없으면 처음
-실행할 때 설치할지 물어보고, 저장소 안에 .venv 를 만들어 거기서 다시 실행합니다.
-convert·estimate·stats 는 SDK 없이도 동작합니다.
+GEMINI_API_KEY 환경변수나 --key 로 키를 넘깁니다. 키가 없으면 터미널에서 한 번
+물어보고, 저장해 두면 다음 실행부터는 묻지 않습니다(~/.config/nalmeok/config.json).
+google-genai SDK가 없으면 처음 실행할 때 설치할지 물어보고, 저장소 안에 .venv 를
+만들어 거기서 다시 실행합니다. convert·estimate·stats 는 SDK 없이도 동작합니다.
 
 폴더 이름이 제목이 되고, 폴더에 PDF가 하나 있으면 참고자료로 함께 보냅니다.
 Batch 상태와 임시 파일은 모두 그 폴더 안에 남습니다.
+
+upload 는 M4A가 없고 MP4만 있으면 MP4를 먼저 M4A로 변환합니다. 최근에 쓴 작업
+폴더는 설정 파일에 남겨 두고 폴더를 고를 때 목록에 다시 보여줍니다.
 """
 
 import argparse
@@ -49,6 +53,7 @@ __version__ = "0.1.0"
 SDK = "google-genai"
 DEFAULT_MODEL = "gemini-3.8-flash"
 MAX_FILES = 10
+RECENT_LIMIT = 8
 
 STATE_FILE = ".gemini_batch.json"
 REQUEST_FILE = ".gemini_batch.requests.jsonl"
@@ -215,6 +220,78 @@ def save(path, data):
     temp = path.with_name(path.name + ".tmp")
     temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(path)
+
+
+def config_path():
+    """API 키와 최근 작업 목록을 두는 설정 파일. XDG 규약을 따릅니다."""
+    base = os.getenv("XDG_CONFIG_HOME")
+    if not base and os.name == "nt":
+        base = os.getenv("APPDATA")
+    root = Path(base) if base else Path.home() / ".config"
+    return root / "nalmeok" / "config.json"
+
+
+def load_config():
+    try:
+        data = json.loads(config_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_config(data):
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    # API 키가 들어가므로 소유자만 읽도록 0600 으로 씁니다.
+    handle = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+    os.chmod(temp, 0o600)
+    temp.replace(path)
+
+
+def env_key():
+    key = os.getenv("GEMINI_API_KEY")
+    return key.strip() if key and key.strip() else None
+
+
+def saved_key():
+    key = load_config().get("api_key")
+    return key.strip() if isinstance(key, str) and key.strip() else None
+
+
+def remember_key(key):
+    data = load_config()
+    data["api_key"] = key
+    save_config(data)
+
+
+def forget_key():
+    data = load_config()
+    if data.pop("api_key", None) is not None:
+        save_config(data)
+
+
+def recent_folders():
+    """설정에 남겨 둔 최근 작업 폴더. 아직 있는 폴더만 돌려줍니다."""
+    folders = []
+    for item in load_config().get("recent") or []:
+        try:
+            path = Path(str(item)).expanduser().resolve()
+        except OSError:
+            continue
+        if path.is_dir() and path not in folders:
+            folders.append(path)
+    return folders[:RECENT_LIMIT]
+
+
+def remember_folder(folder):
+    folder = Path(folder).expanduser().resolve()
+    data = load_config()
+    data["recent"] = [str(folder)] + [str(p) for p in recent_folders()
+                                      if p != folder]
+    save_config(data)
 
 
 def natural_key(filename):
@@ -416,6 +493,14 @@ def stats_lines(root):
     return lines
 
 
+def needs_conversion(folder):
+    """M4A가 아직 없는 MP4가 하나라도 있는지."""
+    converted = {p.stem for p in folder.iterdir()
+                 if p.is_file() and p.suffix.lower() == ".m4a"}
+    return any(p.is_file() and p.suffix.lower() == ".mp4" and p.stem not in converted
+               for p in folder.iterdir())
+
+
 def convert(folder):
     """폴더 안 모든 MP4를 M4A로 바꿉니다. 원본과 이미 만든 M4A는 건드리지 않습니다."""
     videos = sorted((p for p in folder.iterdir()
@@ -505,7 +590,7 @@ def validate_local_files(folder, job):
 
 def get_client(key):
     ensure_sdk()
-    api_key = key or os.getenv("GEMINI_API_KEY")
+    api_key = key or env_key() or saved_key()
     if not api_key:
         fail("API 키가 필요합니다: --key API-KEY 또는 GEMINI_API_KEY 환경변수")
     from google import genai
@@ -564,6 +649,10 @@ def upload(folder, client, model=DEFAULT_MODEL, confirm=None):
             return
         validate_local_files(folder, job)
     else:
+        if needs_conversion(folder):
+            log("M4A가 없어 MP4를 먼저 변환합니다.")
+            convert(folder)
+            log("")
         audios, pdf = list_media(folder)
         job = {
             "model": model,
@@ -1293,21 +1382,38 @@ def folder_candidates(base):
     return candidates
 
 
+def folder_label(path, base):
+    """폴더를 짧게 부르는 이름. 작업 폴더 밖이면 홈 기준으로 줄입니다."""
+    if path == base:
+        return "."
+    for root, prefix in ((base, ""), (Path.home(), "~/")):
+        try:
+            return prefix + str(path.relative_to(root))
+        except ValueError:
+            continue
+    return str(Path(*path.parts[-2:]))
+
+
 def select_folder(key=None):
     base = Path.cwd()
     candidates = folder_candidates(base)
+    seen = {p.resolve() for p in candidates}
+    recent = [p for p in recent_folders() if p.resolve() not in seen]
     probe = probe_client(key)
     try:
-        options = []
-        for path in candidates:
-            name = "." if path == base else str(path.relative_to(base))
-            options.append((str(path), name, folder_summary(path, probe)))
+        options = [(str(path), folder_label(path, base), folder_summary(path, probe))
+                   for path in candidates]
+        if recent:
+            if candidates:
+                options.append(None)
+            options += [(str(path), folder_label(path, base),
+                         "최근 · " + folder_summary(path, probe)) for path in recent]
     finally:
         if probe:
             probe.close()
     options += [None, ("?", "경로 직접 입력"), ("", "종료")]
     info = [("위치", str(base))]
-    if not candidates:
+    if not candidates and not recent:
         info.append(("안내", "작업할 하위 폴더가 없습니다. 경로를 직접 입력하세요."))
     while True:
         answer = select_menu("폴더", options, info)
@@ -1358,8 +1464,10 @@ def choose_spend(lines, folder=None):
 def interactive():
     if not sys.stdin.isatty():
         fail("터미널 메뉴는 터미널에서 실행하세요. 명령어 사용법: app.py --help")
-    key = os.getenv("GEMINI_API_KEY")
+    key = env_key() or saved_key()
     folder = select_folder(key)
+    if folder is not None:
+        remember_folder(folder)
     while folder is not None:
         answer = select_menu("작업", [
             ("1", "업로드 및 Batch 제출"),
@@ -1378,6 +1486,8 @@ def interactive():
             return
         if answer == "b":
             folder = select_folder(key)
+            if folder is not None:
+                remember_folder(folder)
             continue
         if answer == "5":
             screen("MP4 → M4A 일괄 변환", str(folder))
@@ -1406,10 +1516,15 @@ def interactive():
             wait()
             continue
         if not key:
-            screen("API 키 입력", "화면에 표시되지 않고 파일에도 저장하지 않습니다")
+            screen("API 키 입력", "화면에 표시되지 않습니다 · " + str(config_path()))
             key = prompt_box("GEMINI_API_KEY", hidden=True)
             if not key:
                 continue
+            if select_menu("이 키를 저장할까요?", [
+                ("yes", "저장", "다음 실행부터 자동으로 사용합니다"),
+                ("no", "이번만 사용", "이 실행에서만 씁니다", True),
+            ], [("권한", "소유자만 읽도록 0600 으로 저장")]) == "yes":
+                remember_key(key)
         command = {"1": "upload", "2": "status",
                    "3": "wait", "4": "download"}[answer]
         screen({"upload": "Batch 제출", "status": "상태 확인",
@@ -1429,6 +1544,8 @@ def interactive():
                 notice(f"API 오류: {exc}")
                 if exc.code in (401, 403):
                     key = None
+                    if exc.code == 401:
+                        forget_key()
             except (RuntimeError, OSError, ValueError, KeyError) as exc:
                 notice(str(exc))
         finally:
@@ -1462,6 +1579,8 @@ def main():
         convert(folder)
         return
     confirm = (lambda lines: True) if getattr(args, "yes", False) else None
+    if args.command in ("upload", "status", "wait", "download"):
+        remember_folder(folder)
     client = get_client(args.key)
     try:
         run_command(args.command, folder, client, DEFAULT_MODEL,
