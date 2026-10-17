@@ -18,6 +18,32 @@ Gemini Flash 모델과 **Batch API**를 사용해 강의 음성을 저비용으�
 
 기본 모델(`gemini-3.8-flash`) 기준 시간당 약 $0.053 (약 74원)이 소요되며, 실시간 STT API 대비 비용을 대폭 낮췄습니다.
 
+## 빠른 시작
+
+Python 3.10 이상이 필요합니다. 클론한 뒤 실행하면 폴더 선택부터 시작하는 터미널 메뉴가 열립니다.
+
+### uv 사용 시 (권장)
+
+```bash
+git clone https://github.com/jseook11/nalmeok
+cd nalmeok
+uv run app.py
+```
+
+### uv 없이 실행
+
+```bash
+git clone https://github.com/jseook11/nalmeok
+cd nalmeok
+./app.py
+```
+
+> `google-genai` 라이브러리가 없으면 최초 실행 시 설치 여부를 물어보고, 저장소 안에 `.venv`를 만들어 그 안에서 다시 실행합니다. 시스템 파이썬은 건드리지 않습니다. `convert`·`estimate`·`stats`는 SDK 없이도 동작합니다.
+
+전사를 제출하려면 **결제가 연결된 Gemini API 키**가 필요합니다. [API 키 발급 안내](#gemini-api-키-발급)를 참고하세요. MP4 변환과 길이 측정에는 [ffmpeg 설치](#사전-요구사항)도 필요합니다.
+
+---
+
 ## 비용 비교
 
 2026년 10월 기준 공식 요율 및 실제 전사 테스트 기준입니다. (`gemini-3.8-flash` Batch 요금: 1M 토큰당 입력 $0.375 / 출력 $1.875)
@@ -131,28 +157,6 @@ echo 'export GEMINI_API_KEY="AIza..."' >> ~/.bashrc && source ~/.bashrc
 | `403 PERMISSION_DENIED` | 키가 다른 프로젝트에 속해 있습니다. 해당 프로젝트에 결제가 연결됐는지 확인하세요. |
 | `API key not valid` | 복사한 키 앞뒤의 공백·줄바꿈을 확인하세요. |
 | `API 키가 필요합니다` | `GEMINI_API_KEY`가 export 되지 않았습니다. 새 터미널에서 export 후 다시 실행하세요. |
-
----
-
-## 설치 및 실행
-
-### uv 사용 시 (권장)
-
-```bash
-git clone https://github.com/jseook11/nalmeok
-cd nalmeok
-uv run app.py
-```
-
-### Python 단독 실행
-
-```bash
-git clone https://github.com/jseook11/nalmeok
-cd nalmeok
-./app.py
-```
-
-> `google-genai` 라이브러리가 없으면 최초 실행 시 설치 여부를 물어보고, 저장소 안에 `.venv`를 만들어 그 안에서 다시 실행합니다. 시스템 파이썬은 건드리지 않습니다. `convert`·`estimate`·`stats`는 SDK 없이도 동작합니다.
 
 ---
 
