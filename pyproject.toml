@@ -1,0 +1,10 @@
+[project]
+name = "nalmeok"
+version = "0.1.0"
+description = "Gemini Batch API로 강의 음성을 시간당 70원대로 전사하는 도구"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "google-genai>=2.31.0",
+]

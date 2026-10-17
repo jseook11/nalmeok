@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# 가상환경
+.venv
+
+# macOS
+.DS_Store
+
+# 강의 원본 음성·영상과 참고자료는 올리지 않습니다.
+*.mp4
+*.m4a
+*.mp3
+*.wav
+*.flac
+*.mov
+*.mkv
+*.pdf
+
+# Batch 작업 상태 파일 (.gemini_batch.json 등)
+.gemini_batch*
+
+# 전사 결과가 <폴더명>.md 로 강의 폴더마다 생기므로 md 전체를 막고 README만 허용합니다.
+# docs/ 같은 폴더에 md를 추가한다면 여기에 예외를 적어주세요.
+*.md
+!README.md
+
+# Command Code 세션 설정
+.commandcode/
