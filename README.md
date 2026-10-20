@@ -7,6 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Gemini Batch API](https://img.shields.io/badge/Gemini-Batch%20API-8E75B2?logo=googlegemini&logoColor=white)](https://ai.google.dev/gemini-api/docs/batch-api)
+[![Free live](https://img.shields.io/badge/free%20tier-live%20supported-brightgreen)](#%EB%AC%B4%EB%A3%8C-live-%EB%AA%A8%EB%93%9C)
 [![uv](https://img.shields.io/badge/uv-ready-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
 [![ffmpeg](https://img.shields.io/badge/ffmpeg-required-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Cost](https://img.shields.io/badge/1%EC%8B%9C%EA%B0%84-%EC%95%BD%2074%EC%9B%90-brightgreen)](#%EB%B9%84%EC%9A%A9-%EB%B9%84%EA%B5%90)
@@ -14,9 +15,11 @@
 
 </div>
 
-Gemini Flash 모델과 **Batch API**를 사용해 강의 음성을 저비용으로 텍스트로 변환(STT)하는 CLI 도구입니다.
+Gemini Flash 모델과 **Batch API**, 또는 무료 등급에서도 쓸 수 있는 **live 모드**로 강의 음성을 텍스트로 변환(STT)하는 CLI 도구입니다.
 
-기본 모델(`gemini-3.8-flash`) 기준 시간당 약 $0.053 (약 74원)이 소요되며, 실시간 STT API 대비 비용을 대폭 낮췄습니다.
+유료 Batch는 기본 모델(`gemini-3.8-flash`) 기준 시간당 약 $0.053(약 74원)이고, 무료 등급은 live로 같은 모델을 한도 내에서 $0로 사용할 수 있습니다. 무료 live는 130분 단위로 자동 분할하고 80초 간격으로 순차 요청합니다.
+
+무료 키와 유료 키를 여러 개 등록하고 `free`/`paid` 라벨을 붙일 수 있습니다. **자동 전사**는 무료 키를 먼저 live로 소진하고, 무료 한도를 넘는 분량만 유료 Batch로 보냅니다. 예를 들어 300분짜리 파일 하나와 무료 키 2개(각 130분)라면 `무료 130분 + 무료 130분 + 유료 Batch 40분`이 됩니다.
 
 ## 빠른 시작
 
@@ -47,7 +50,7 @@ cd nalmeok
 
 > `google-genai` 라이브러리가 없으면 최초 실행 시 설치 여부를 물어보고, 저장소 안에 `.venv`를 만들어 그 안에서 다시 실행합니다. 시스템 파이썬은 건드리지 않습니다. `convert`·`estimate`·`stats`는 SDK 없이도 동작합니다.
 
-전사를 제출하려면 **결제가 연결된 Gemini API 키**가 필요합니다. [API 키 발급 안내](#gemini-api-키-발급)를 참고하세요. MP4 변환과 길이 측정에는 [ffmpeg 설치](#사전-요구사항)도 필요합니다.
+무료 live는 **무료 등급 키**로 바로 사용할 수 있고, 유료 Batch를 쓰려면 **결제가 연결된 Gemini API 키**가 필요합니다. [API 키 발급 안내](#gemini-api-키-발급)를 참고하세요. MP4 변환과 길이 측정에는 [ffmpeg 설치](#사전-요구사항)도 필요합니다.
 
 ---
 
@@ -57,23 +60,31 @@ cd nalmeok
 
 ### 1. API 키 (처음 한 번만)
 
-키가 없으면 첫 화면에서 붙여넣습니다. Enter를 누르면 과금 없이 유효성을 확인하고 `~/.config/nalmeok/config.json`(0600)에 저장한 뒤 바로 작업 화면으로 넘어갑니다. `GEMINI_API_KEY` 환경변수가 있으면 이 화면은 건너뜁니다. 화면에 키가 남지 않으며, 입력은 `•`로만 표시됩니다.
+키가 없으면 첫 화면에서 **무료 키**와 **유료 키** 중 하나를 고르고, 구분용 이름(`free1`, `paid1` 등)과 키를 입력합니다. Enter를 누르면 과금 없이 유효성을 확인하고 `~/.config/nalmeok/config.json`(0600)에 저장한 뒤 바로 작업 화면으로 넘어갑니다. 이후 `k` 또는 설정에서 키를 추가·삭제할 수 있고, 무료/유료 라벨을 바꿀 수 있습니다.
 
 ```text
-  API 키   Gemini 결제 프로젝트 키 · ~/.config/nalmeok/config.json
+  키 추가   free / paid
   ───────────────────────────────────────────
 
-  붙여넣고 Enter. 입력은 화면에 남지 않습니다.
+  API 키   GEMINI_API_KEY 환경변수도 사용할 수 있습니다
 
-  ❯ GEMINI_API_KEY   ••••••••••••••••••••
+  ❯ 무료 키   live 전용 · 기본 130분/키
+    유료 키   Batch 전용 · 남는 오디오 처리
+    ← 뒤로
 
-  API ✓ · ffmpeg ✓ · SDK ✓
+  API ✓ 무료 2 · 유료 1 · ffmpeg ✓ · SDK ✓
+  ↑↓ 이동 · Enter 선택 · Esc 뒤로
 ```
+
+* **무료 키**는 live 전용입니다. Batch API는 무료 등급에서 지원되지 않으므로 무료 키를 Batch에 쓰지 않습니다.
+* **유료 키**는 Batch 전용입니다. 무료 키로 처리하고 남은 분량만 유료 Batch로 넘깁니다.
+* `GEMINI_API_KEY` 환경변수도 키로 인식합니다. 등급은 `GEMINI_API_KEY_TIER=free` 또는 `paid`로 정하고, 생략하면 `paid`입니다.
+* 저장 파일에는 키가 배열로 들어가며 화면에는 `••••1111`처럼 뒤 4자리만 보입니다.
 
 ### 2. 작업
 
 ```text
-  날먹   강의 음성을 Batch로 전사   v0.2.0
+  날먹   강의 음성을 Batch·live로 전사   v0.3.0
   ───────────────────────────────────────────
 
   작업
@@ -88,7 +99,7 @@ cd nalmeok
     설정
     종료
 
-  API ✓ · ffmpeg ✓ · SDK ✓
+  API ✓ 무료 2 · 유료 1 · ffmpeg ✓ · SDK ✓
   ↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 일괄 · q 종료
 ```
 
@@ -98,10 +109,12 @@ cd nalmeok
 
 | 폴더 상태 | 화면에서 하는 일 |
 | --- | --- |
-| 준비됨 / 제출 전 | 예상 비용 확인 → MP4 변환 → 업로드 → 완료 대기 → 결과 병합 |
+| 준비됨 / 제출 전 | 무료 키가 있으면 Enter: 자동(무료 live → 남는 분량 유료 Batch) / `p`: 유료 Batch만 / `l`: 무료 live만 |
 | 제출됨 | 완료 대기. `Esc`는 백그라운드 전환 |
 | 전사 중 | 백그라운드 상태와 로그 |
-| 결과 수신 | 결과 병합 |
+| live 전사 | 남은 그룹부터 live 이어서 |
+| 혼합 전사 | 무료 live 그룹과 유료 Batch를 이어서 진행 |
+| 결과 수신 | 결과 병합 (혼합 작업 포함) |
 | 완료 | 결과 열기 · 비용 보기 · 새 작업 시작 |
 | 파일 없음 / 변경됨 / 손상 | 안내 후 고급 메뉴로 위임 |
 
@@ -111,13 +124,16 @@ cd nalmeok
 
   오디오 2개 · PDF 참고자료
 
-  파일         2개 · 총 1시간 12분
+  파일         2개 · 총 2시간 10분
   입력 토큰    109,535 (오디오 109,535 + 프롬프트 0)
   출력 토큰    9,000 ~ 10,800
   예상 비용    $0.0572 (약 80원)
 
-  API ✓ · ffmpeg ✓ · SDK ✓
-  Enter 전사 시작 · e 비용 · b 파일 · a 고급 · Esc 뒤로
+  무료 free1 1시간 10분
+  유료 Batch 1시간 0분 · 약 $0.0530 (약 74원)
+
+  API ✓ 무료 2 · 유료 1 · ffmpeg ✓ · SDK ✓
+  Enter 자동 전사 · p 유료 Batch · l 무료 live · e 비용 · b 파일 · a 고급 · Esc 뒤로
 ```
 
 * 대기 화면은 스피너와 흐르는 막대로 경과 시간을 보여줍니다. `Esc` 또는 `b`로 **백그라운드 대기**로 전환하면 완료 시 알림이 오고 결과가 자동으로 병합됩니다.
@@ -133,12 +149,14 @@ cd nalmeok
 | `Enter` / `→` | 선택·시작 |
 | `←` / `Esc` | 뒤로 (대기 중이면 백그라운드 전환) |
 | `b` | 대기 중 백그라운드 전환 |
-| `k` | API 키 변경 |
+| `k` | API 키 관리 (추가·삭제) |
 | `u` | 사용량 |
 | `s` | 설정 |
 | `m` | 여러 폴더 한꺼번에 제출 |
 | `r` | 원격 상태 새로고침 |
 | `a` | (전사·완료 화면) 고급 메뉴 |
+| `p` | (준비 화면) 유료 Batch만 실행 |
+| `l` | (전사 화면) 무료 live만 실행 |
 | `?` | 도움말 |
 | `Space` | 여러 폴더 선택에서 선택/해제 |
 | `q` / `Ctrl+C` | 종료 |
@@ -151,15 +169,17 @@ cd nalmeok
 
 | 방식 | 1시간 비용 | 원화 (환율 1,400원) | 비고 |
 | --- | --- | --- | --- |
-| **본 도구 (Gemini 3.8 Flash Batch)** | **$0.053** | **약 74원** | 기본 설정 |
+| **본 도구 (Gemini 3.8 Flash Batch)** | **$0.053** | **약 74원** | 유료 Batch 기본 설정 |
+| **본 도구 (Gemini 3.8 Flash live, 무료 등급)** | **$0** | **0원** | 5 RPM · 250k TPM · 20 RPD 예시, 모델/계정별 상이 |
 | Gemini 3.5 Flash-Lite Batch | $0.026 | 약 36원 | 초저비용 모드: `--model gemini-3.5-flash-lite` |
-| Gemini 3.8 Flash (실시간 API) | $0.106 | 약 148원 |  |
+| Gemini 3.8 Flash (유료 실시간 API) | $0.106 | 약 148원 |  |
 | OpenAI gpt-4o-mini-transcribe | $0.180 | 약 250원 |  |
 | Gemini 3.5 Transcribe (음성 전용) | $0.300 | 약 420원 |  |
 | OpenAI Whisper / gpt-4o-transcribe | $0.360 | 약 500원 | 약 7배 차이 |
 
 > **단가 산정 기준**
 > * **Batch API 50% 할인**: 즉시 응답 대신 비동기 큐(최대 24시간 이내 완료)로 처리하여 절반 요금 적용.
+> * **무료 live**: 3.8 Flash의 일반(live) 호출은 무료 등급에서 $0입니다. 대신 RPM/TPM/RPD 한도가 있고, 3.8 Flash Batch는 무료 등급에서 지원되지 않습니다.
 > * **고정 오디오 토큰**: 오디오 입력은 초당 25토큰(1시간 90,000 토큰, 입력비 약 $0.034)으로 환산.
 > * **Thinking 최소화**: `thinking_level`을 `low`로 두어 불필요한 출력 토큰 청구를 줄입니다. (thinking도 출력으로 청구됩니다.)
 
@@ -177,8 +197,8 @@ cd nalmeok
 
 | 항목 | 필요한 기능 | 없어도 되는 기능 |
 | --- | --- | --- |
-| **ffmpeg** | `convert`(MP4 → M4A), `estimate`(길이 측정), MP4만 있는 폴더의 `upload`(자동 변환) | — |
-| **Gemini API 키** | `upload` · `status` · `wait` · `download` | `convert` · `estimate` · `stats` |
+| **ffmpeg** | `convert`(MP4 → M4A), `estimate`(길이 측정), `live`(긴 파일 130분 분할), MP4만 있는 폴더의 `upload`(자동 변환) | — |
+| **Gemini API 키** | `live`(무료 등급 가능) · `upload` · `status` · `wait` · `download`(유료 Batch) | `convert` · `estimate` · `stats` |
 
 ffmpeg 설치:
 
@@ -196,13 +216,13 @@ sudo apt install ffmpeg
 ffmpeg -version
 ```
 
-> **API 키는 무료 등급으로 사용할 수 없습니다.** Batch API는 결제 프로필이 연결된 종량제(Pay-as-you-go) 프로젝트에서만 동작합니다. 발급 절차는 아래 [Gemini API 키 발급](#gemini-api-키-발급)을 참고하세요.
+> **무료 등급은 live 모드로 사용할 수 있습니다.** 3.8 Flash의 일반(live) 호출은 무료 등급에서 $0이고, 한도(예: 5 RPM · 250k TPM · 20 RPD)가 적용됩니다. 반면 **3.8 Flash Batch는 무료 등급에서 지원되지 않습니다.** 유료 Batch를 쓰려면 결제가 연결된 프로젝트가 필요합니다. 발급 절차는 아래 [Gemini API 키 발급](#gemini-api-키-발급)을 참고하세요.
 
 ---
 
 ## Gemini API 키 발급
 
-Batch API는 무료 등급에서 사용할 수 없습니다. **결제가 연결된 Google Cloud 프로젝트**에서 키를 발급해야 합니다. 아래 순서대로 따라 하면 됩니다.
+무료 등급은 **live 모드**로 바로 사용할 수 있습니다. **Batch API(3.8 Flash)는 무료 등급에서 사용할 수 없으므로**, Batch를 쓰려면 **결제가 연결된 Google Cloud 프로젝트**에서 키를 발급해야 합니다. 아래 순서는 유료 Batch 기준입니다.
 
 ### 1단계 · 결제 프로필 만들기 (최초 1회)
 
@@ -223,57 +243,88 @@ Batch API는 무료 등급에서 사용할 수 없습니다. **결제가 연결�
 
 ### 3단계 · 키 등록
 
-환경변수로 넘기거나 `--key` 옵션으로 직접 전달합니다.
+환경변수로 넘기거나 `--key` 옵션으로 직접 전달할 수 있습니다. 대시보드에서는 키마다 **무료/유료 등급**과 **라벨**을 붙여 여러 개를 등록합니다.
 
 ```bash
-# 현재 셸에만 적용
+# 무료 등급 키 (live 전용)
 export GEMINI_API_KEY="AIza..."
+export GEMINI_API_KEY_TIER=free
+
+# 유료 등급 키 (Batch 전용, 기본값)
+export GEMINI_API_KEY="AIza..."
+export GEMINI_API_KEY_TIER=paid
 
 # 영구 등록 (zsh)
-echo 'export GEMINI_API_KEY="AIza..."' >> ~/.zshrc && source ~/.zshrc
-
-# bash라면
-echo 'export GEMINI_API_KEY="AIza..."' >> ~/.bashrc && source ~/.bashrc
+echo 'export GEMINI_API_KEY="AIza..."' >> ~/.zshrc
+echo 'export GEMINI_API_KEY_TIER=paid' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ```bash
 # 또는 실행할 때마다 직접 지정
 ./app.py upload ./lecture_folder --key "AIza..."
+./app.py live ./lecture_folder --key "AIza..."
 ```
 
-키를 찾는 순서는 `--key` → `GEMINI_API_KEY` 환경변수 → 저장해 둔 키 순서입니다.
+> `live`는 무료 키 전용입니다. 등록된 유료 라벨 키를 `--key`로 넘기면 거부합니다. 등록되지 않은 키를 직접 넘길 때만 그대로 사용합니다.
+
+키를 찾는 순서는 모드마다 다릅니다.
+
+| 모드 | 키 선택 |
+| --- | --- |
+| `live` / 자동의 무료 구간 | `--key` → 무료 라벨이 붙은 `GEMINI_API_KEY` → 등록된 무료 키 |
+| `upload`·`status`·`wait`·`download` / 자동의 유료 구간 | `--key`(무료 라벨 키는 거부) → 유료 라벨이 붙은 `GEMINI_API_KEY` → 등록된 유료 키 |
+| 대시보드 자동 | 등록된 무료 키를 순서대로 모두 사용 → 남는 분량은 등록된 유료 키로 Batch |
+
+> 무료 키는 Batch API에서 지원되지 않으므로 무료 라벨이 붙은 키를 Batch에 쓰지 않습니다. 유료 키만 있는데 `p`(유료 Batch)를 누르면 그대로 진행하고, 무료 키만 있는데 `p`를 누르면 유료 키를 추가하라는 안내가 나옵니다.
 
 ### 3-1단계 · 키 저장 (선택, 권장)
 
-터미널 메뉴(`./app.py`)로 실행하면 키가 없을 때 **최초 1회만** 물어보고, 이어서 "저장할까요?"를 묻습니다. **저장**을 고르면 `~/.config/nalmeok/config.json`에 **소유자만 읽을 수 있는 권한(0600)** 으로 남겨 두고 다음 실행부터는 묻지 않습니다. (Windows는 `%APPDATA%\nalmeok\config.json`)
+터미널 메뉴(`./app.py`)로 실행하면 첫 화면에서 **무료 키** 또는 **유료 키**를 고르고, 라벨과 키를 입력합니다. Enter를 누르면 키 유효성을 확인한 뒤 `~/.config/nalmeok/config.json`에 **소유자만 읽을 수 있는 권한(0600)** 으로 저장합니다. (Windows는 `%APPDATA%\nalmeok\config.json`)
+
+설정 파일은 키 배열과 라벨을 가집니다.
+
+```json
+{
+  "keys": [
+    {"id": "f1", "label": "free1", "tier": "free", "api_key": "AIza...", "limit_minutes": 130},
+    {"id": "f2", "label": "free2", "tier": "free", "api_key": "AIza...", "limit_minutes": 130},
+    {"id": "p1", "label": "paid1", "tier": "paid", "api_key": "AIza...", "limit_minutes": 130}
+  ]
+}
+```
 
 ```bash
-# 저장 확인
+# 저장 확인 (키가 그대로 보이므로 주의)
 cat ~/.config/nalmeok/config.json
 
-# 저장된 키 지우기 (파일 전체 삭제도 됩니다)
+# 저장된 키 전체 지우기
 rm ~/.config/nalmeok/config.json
 ```
 
-> 키를 저장하지 않으려면 메뉴에서 **이번만 사용**을 고르면 됩니다. 저장한 키가 유효하지 않으면(401 오류) 자동으로 지워져 다음 실행 때 다시 물어봅니다.
+대시보드에서 `k`(API 키)를 누르면 등록된 키 목록, 무료/유료 등급, 라벨, 마스킹된 키를 보고 추가·삭제할 수 있습니다. 예전 단일 `api_key` 설정은 자동으로 `기본`이라는 유료 키로 읽힙니다.
+
+> 저장한 키가 유효하지 않으면(401 오류) 해당 키를 지우고 다시 입력을 요청합니다.
 
 ### 4단계 · 동작 확인
 
-`convert`·`estimate`·`stats`는 키 없이 동작하므로, 키 검증은 첫 업로드로 합니다.
+`convert`·`estimate`·`stats`는 키 없이 동작합니다. 무료 키는 live로, 유료 키는 Batch 업로드로 검증하세요.
 
 ```bash
 ./app.py estimate ./lecture_folder   # 키 불필요
-./app.py upload ./lecture_folder     # 키 필요 — 여기까지 통과하면 정상
+./app.py live ./lecture_folder       # 무료 키 검증
+./app.py upload ./lecture_folder     # 유료 키 검증
 ```
 
 ### 자주 겪는 문제
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
-| `429 RESOURCE_EXHAUSTED` | 무료 등급 키입니다. 프로젝트에 결제 프로필을 연결하세요. |
+| `429 RESOURCE_EXHAUSTED` | 무료 등급 live 한도(RPM/TPM/RPD)이거나 Batch 미지원일 수 있습니다. live는 잠시 후/다음 날 재시도하고, Batch는 프로젝트에 결제를 연결하세요. |
 | `403 PERMISSION_DENIED` | 키가 다른 프로젝트에 속해 있습니다. 해당 프로젝트에 결제가 연결됐는지 확인하세요. |
 | `API key not valid` | 복사한 키 앞뒤의 공백·줄바꿈을 확인하세요. |
-| `API 키가 필요합니다` | `GEMINI_API_KEY`가 export 되지 않았습니다. 새 터미널에서 export 후 다시 실행하거나, 터미널 메뉴에서 한 번 입력하고 **저장**을 선택하세요. |
+| `API 키가 필요합니다` | `GEMINI_API_KEY`가 export 되지 않았습니다. 새 터미널에서 export 후 다시 실행하거나, 대시보드 첫 화면에서 무료/유료 키를 등록하세요. |
+| `유료 API 키가 필요합니다` | 무료 키만 등록된 상태에서 유료 Batch(`p`, `upload`)를 실행했습니다. 유료 키를 추가하거나 `live`/`auto`를 사용하세요. |
 
 ---
 
@@ -288,7 +339,9 @@ lecture_folder/
 ├── 03.m4a
 ├── 참고자료.pdf               # (선택) 전문 용어 매칭용 문맥 파일 (최대 1개)
 ├── lecture_folder.md          # 전사 완료 후 생성되는 최종 결과물
-├── .gemini_batch.*            # 상태·요청·결과 체크포인트 (자동 생성)
+├── .gemini_batch.*            # 유료 Batch 상태·요청·결과 체크포인트 (자동 생성)
+├── .gemini_live.*             # 무료 live 상태·결과 체크포인트 (자동 생성)
+├── .gemini_mixed.*            # 혼합 작업의 유료 Batch 요청·결과 (자동 생성)
 ├── .gemini_batch.wait.log     # 백그라운드 대기 로그 (자동 생성)
 └── .nalmeok-archive/<시각>/    # 새 작업 시작 시 상태·결과·Markdown 보관
 ```
@@ -301,10 +354,14 @@ lecture_folder/
 
 ## CLI 사용법
 
-인자 없이 `./app.py`를 실행하면 최근 작업 대시보드가 열립니다. 자동화할 때는 아래 서브커맨드를 쓰세요. 백그라운드 대기는 `wait --background`로도 시작할 수 있습니다. 원샷 파이프라인(변환·비용 확인·제출·대기·병합)은 대시보드 전용입니다.
+인자 없이 `./app.py`를 실행하면 최근 작업 대시보드가 열립니다. 자동화할 때는 아래 서브커맨드를 쓰세요. 백그라운드 대기는 `wait --background`로도 시작할 수 있습니다. 무료 live와 유료 Batch를 한 번에 처리하는 `auto`도 CLI에서 실행할 수 있습니다.
 
 ```bash
+# 유료 Batch용 키 (기본값 paid)
 export GEMINI_API_KEY="your-api-key"
+
+# 무료 live용 키라면 등급을 명시
+# export GEMINI_API_KEY_TIER=free
 
 # 1. MP4에서 음성 추출 (M4A 생성, 원본 보존)
 ./app.py convert ./lecture_folder
@@ -315,40 +372,80 @@ export GEMINI_API_KEY="your-api-key"
 # 3. 오디오 업로드 및 Batch 전사 작업 제출 (M4A가 없으면 MP4에서 자동 추출, 제출 전 예상 비용 확인)
 ./app.py upload ./lecture_folder
 
-# 4. Batch 작업 처리 상태 확인
+# 4. 무료 키를 먼저 live로 쓰고, 남는 분량만 유료 Batch로 자동 처리
+./app.py auto ./lecture_folder
+
+# 비용 확인 없이 자동 실행
+./app.py auto ./lecture_folder --yes
+
+# 5. Batch 작업 처리 상태 확인
 ./app.py status ./lecture_folder
 
-# 5. 완료까지 대기 후 자동 다운로드 (상태와 경과 시간을 실시간으로 표시)
+# 6. 완료까지 대기 후 자동 다운로드 (상태와 경과 시간을 실시간으로 표시)
 ./app.py wait ./lecture_folder --download
 
-# 5-1. 기다리지 않고 백그라운드 감시 시작 (완료되면 자동 병합)
+# 6-1. 기다리지 않고 백그라운드 감시 시작 (완료되면 자동 병합)
 ./app.py wait ./lecture_folder --background
 
-# 6. 전사 결과 다운로드, 취합 및 단일 마크다운(.md) 생성
+# 7. 전사 결과 다운로드, 취합 및 단일 마크다운(.md) 생성
 ./app.py download ./lecture_folder
+
+# 8. 무료 등급 live 전사 (Batch 없이, 130분 그룹 · 80초 간격 · 이어서 가능)
+./app.py live ./lecture_folder
+
+# 그룹 길이/간격/모델 조정
+./app.py live ./lecture_folder --chunk-minutes 120 --gap 80 \
+  --model gemini-3.8-flash
 
 # 누적 사용 비용 통계 확인
 ./app.py stats
 ```
 
-> `upload`는 길이·토큰·예상 금액을 보여주고 확인을 받은 뒤 제출합니다. 사람 없이 돌리는 자동화에서는 `--yes`로 확인을 건너뜁니다. 폴더에 M4A가 없고 MP4만 있으면 M4A를 먼저 만들어 준비하므로 `convert`를 따로 실행하지 않아도 됩니다.
+> `upload`는 유료 키가 필요하고, 길이·토큰·예상 금액을 보여주고 확인을 받은 뒤 제출합니다. `auto`는 등록된 무료 키를 먼저 live로 소진한 뒤 남는 분량만 유료 Batch로 보내며, 유료 분량이 있으면 예상 금액을 확인합니다. 사람 없이 돌리는 자동화에서는 `--yes`로 확인을 건너뜁니다. 폴더에 M4A가 없고 MP4만 있으면 M4A를 먼저 만들어 준비하므로 `convert`를 따로 실행하지 않아도 됩니다. `auto`는 `--key` 대신 설정에 등록했거나 환경변수로 지정한 무료/유료 키를 사용합니다.
 >
 > `wait`는 Batch가 끝날 때까지 폴링하며 완료되면 터미널 벨과 (가능하면) macOS 알림으로 알려줍니다. `--download`를 붙이면 곧바로 결과 병합까지 이어서 수행합니다. `--background`는 분리된 프로세스로 감시를 시작하고 PID만 출력합니다. 진행 상태는 폴더의 `.gemini_batch.wait.json`, 로그는 `.gemini_batch.wait.log`에 남으며, 일부 파일이 실패하면 자동 병합을 멈추고 오류를 기록합니다. 그때는 `download --retry live` 또는 `--retry batch`로 재시도하세요.
 
 ---
 
+## 무료 live 모드
+
+무료 등급 키로 Batch 없이 바로 전사합니다. 대시보드의 전사 화면에서 `l`을 누르거나 CLI에서 실행하세요.
+
+```bash
+./app.py live ./lecture_folder
+```
+
+* **130분 고정 그룹**: 한 요청의 오디오가 130분을 넘지 않게 자동으로 나눕니다.
+  - 6시간 파일 → `130 + 130 + 100분` = **3요청**
+  - 20분 파일 7개 → `4개(80분) + 3개(60분)` = **2요청**
+* **작은 파일은 한 요청에 묶음**: 파일을 각각 업로드한 뒤 한 요청에 여러 audio part로 넣습니다. 로컬 concat은 하지 않습니다.
+* **순차 + 80초 간격**: 요청 시작 간 최소 80초를 둡니다. 130분(195k tokens)도 250k TPM 아래에서 안전합니다. 80초는 요청 타임아웃이 아니라 **시작 간격**입니다.
+* **그룹별 체크포인트**: 성공한 그룹은 `.gemini_live.result.jsonl`에 즉시 저장됩니다. 중단하거나 한도에 걸리면 다시 실행할 때 완료된 그룹을 건너뜁니다.
+* **이어서 하기**: 대시보드에서 `live 전사 · n/m 그룹`으로 표시되고, 같은 폴더에서 `l`을 다시 누르면 남은 그룹부터 이어갑니다.
+* **PDF**: 있으면 각 그룹 요청에 그대로 포함합니다. PDF 때문에 TPM이 빠듯하면 `--chunk-minutes`를 낮추세요.
+* **Batch 미지원**: 3.8 Flash Batch는 무료 등급에서 지원되지 않습니다. 무료 키로는 live만 사용하세요.
+* **여러 무료 키**: 자동 전사에서는 무료 키를 라벨 순서대로 하나씩 사용합니다. 무료 키 하나가 130분을 처리하고, 다음 무료 키가 다음 130분을 처리한 뒤, 남는 분량만 유료 Batch로 넘어갑니다. `l`(무료 live만)은 첫 번째 무료 키로 실행하므로, 여러 무료 키를 함께 쓰려면 Enter(자동)를 사용하세요.
+* **한도**: 예시 계정 기준 5 RPM · 250k TPM · 20 RPD입니다. 모델·계정별로 다르며 AI Studio에서 확인하세요. 429가 나면 잠시 후 재시도하거나 다음 날 이어갑니다.
+* **과금 fallback**: `auto`(대시보드 Enter)는 무료 한도를 넘는 분량을 유료 Batch로 자동 전환합니다. `live`만 실행하면 자동 전환하지 않고, 완료된 그룹을 저장한 뒤 중단합니다.
+* **데이터 사용**: 무료 등급 입력/출력은 Google 제품 개선에 사용될 수 있습니다. 민감한 강의는 유료 프로젝트를 사용하세요.
+
+---
+
 ## 처리 파이프라인 및 안전장치
 
-* **상태 기반 대시보드**: 최근 작업과 현재 폴더 아래의 작업을 모아 `폴더 없음 · 파일 없음 · 입력 확인 필요 · 준비됨 · 제출 전 · 제출됨 · 전사 중 · 결과 수신 · 완료 · 입력 변경됨 · 상태 손상`으로 구분합니다. 메뉴는 이 상태에서 파생되므로 이미 끝난 작업에 업로드를 다시 요청하는 일이 없습니다.
+* **상태 기반 대시보드**: 최근 작업과 현재 폴더 아래의 작업을 모아 `폴더 없음 · 파일 없음 · 입력 확인 필요 · 준비됨 · 제출 전 · 제출됨 · 전사 중 · live 전사 · 혼합 전사 · 결과 수신 · 완료 · 입력 변경됨 · 상태 손상`으로 구분합니다. 메뉴는 이 상태에서 파생되므로 이미 끝난 작업에 업로드를 다시 요청하는 일이 없습니다.
 * **원샷 전사**: `전사 시작`은 변환·비용 확인·제출·대기·병합을 한 흐름으로 실행합니다. 중간에 실패하면 성공한 단계의 체크포인트를 남기고 멈춥니다.
+* **자동(무료 → 유료)**: 무료 키 용량 안의 파일은 live로, 남는 파일은 유료 Batch로 나눕니다. 무료 키를 먼저 소진하고, 유료 Batch가 끝나면 결과를 파일 순서대로 합쳐 하나의 Markdown으로 만듭니다. 중간에 멈춰도 `.gemini_live.*`와 `.gemini_mixed.*` 상태로 이어서 합니다.
+* **무료 live**: 130분 고정 그룹으로 나누고, 작은 파일은 한 요청에 묶어 RPD를 아낍니다. 순차 요청 + 80초 시작 간격, 그룹별 체크포인트로 중단 후 이어서 합니다. 3.8 Flash Batch는 무료 등급에서 지원되지 않습니다.
+* **live 그룹 계획**: 총 길이를 130분으로 나눈 최소 요청 수를 계산하고, 파일 순서를 유지한 채 그룹을 균형 있게 배분합니다. 7×20분은 4+3(80/60분) 두 요청이 됩니다.
 * **백그라운드 대기**: 대기 화면에서 `Esc`/`b`를 누르면 별도 프로세스가 완료를 감시합니다. 진행 상태는 폴더 안 `.gemini_batch.wait.json`에 기록되어 대시보드가 네트워크 없이 읽고, 완료되면 알림과 함께 결과를 자동 병합합니다. 로그는 `.gemini_batch.wait.log`에 남습니다.
 * **다중 폴더 제출**: 여러 폴더를 골라 예상 비용을 한 번에 확인하고 일괄 제출합니다. 제출 후 모두 백그라운드 감시로 넘길 수 있습니다.
 * **제출 전 비용 확인**: `upload`와 대시보드 파이프라인은 길이·토큰·예상 금액을 먼저 보여주고 확인을 받은 뒤 제출합니다. 실수로 과금되는 일을 막고, 자동화에서는 `--yes`로 건너뜁니다. ffprobe가 없어 길이를 읽지 못하면 예상 비용 없이 한 번 더 확인합니다.
 * **MP4 자동 변환**: `upload`는 M4A가 없고 MP4만 있으면 M4A를 먼저 추출합니다. 변환 중에는 파일별 진행률과 경과 시간을 보여줍니다.
-* **API 키 기억**: 최초 1회 입력한 키를 저장하면 다음 실행부터는 묻지 않습니다. 저장 위치는 `~/.config/nalmeok/config.json`(0600)입니다. 대시보드 `설정`에서 변경·삭제할 수 있습니다.
+* **API 키 기억**: 등록한 키는 라벨·등급과 함께 `~/.config/nalmeok/config.json`(0600)에 저장됩니다. 무료 키는 live, 유료 키는 Batch에만 쓰며, 대시보드 `k`에서 추가·삭제할 수 있습니다. 예전 단일 `api_key`는 `기본` 유료 키로 자동 이전됩니다.
 * **사전 점검**: 대시보드와 설정 화면에 ffmpeg·ffprobe·SDK·키 상태를 표시합니다. MP4 변환에 ffmpeg가 없으면 제출 전에 안내합니다.
 * **한글 파일명 지원**: 오디오·PDF 파일 이름이 한글이어도 업로드됩니다. (SDK가 파일명을 HTTP 헤더에 넣어 깨지는 문제를 파일 객체 업로드로 우회합니다.)
-* **체크포인트 보존**: Batch 결과는 로컬 `.gemini_batch.result.jsonl`에 먼저 저장됩니다. 다운로드 도중 연결이 끊겨도 원격 재요청 없이 복구됩니다.
+* **체크포인트 보존**: Batch 결과는 `.gemini_batch.result.jsonl`, live 결과는 `.gemini_live.result.jsonl`, 혼합 작업의 유료 결과는 `.gemini_mixed.result*`에 먼저 저장됩니다. 중단되어도 완료된 그룹/파일을 다시 요청하지 않습니다.
 * **동시 작업 잠금**: macOS·Linux에서 같은 폴더에 업로드와 다운로드가 동시에 실행되지 않도록 잠급니다. 대시보드의 백그라운드 대기와 수동 병합이 겹쳐도 안전합니다.
 * **원자적 파일 쓰기**: 상태·결과·Markdown은 고유한 임시 파일에 쓴 뒤 교체합니다. 중간에 프로세스가 죽어도 반쯤 쓰인 파일이 남지 않습니다.
 * **파일 무결성 검증**: 업로드 후 로컬 파일의 수정 시각이나 크기가 변경되면 제출 작업을 즉시 중단하여 누락/중복 전사를 방지합니다. 대시보드는 이 상태를 `입력 변경됨`으로 표시합니다.
@@ -365,6 +462,24 @@ export GEMINI_API_KEY="your-api-key"
 
 인위적인 문장 윤문이나 요약을 배제하고, 발화자의 구어체와 전문 용어를 그대로 전사하도록 프롬프팅되어 있습니다. 음질 불량 구간은 임의로 환각(Hallucination)을 생성하지 않고 `[불명확]` 태그로 처리합니다.
 
+**Q. 무료 API 키로도 사용할 수 있나요?**
+
+됩니다. `./app.py live ./lecture_folder` 또는 전사 화면에서 `l`을 누르세요. 3.8 Flash의 live 호출은 무료 등급에서 $0이고, 예시 계정 기준 5 RPM · 250k TPM · 20 RPD 한도가 있습니다. 반면 **3.8 Flash Batch는 무료 등급에서 지원되지 않습니다.** 정확한 한도는 AI Studio의 Rate Limit 화면에서 확인하세요.
+
+무료 키와 유료 키를 함께 등록했다면 `./app.py auto ./lecture_folder` 또는 대시보드 Enter로 무료 live를 먼저 쓰고 남는 분량만 유료 Batch로 보낼 수 있습니다.
+
+**Q. live는 6시간짜리 파일을 어떻게 처리하나요?**
+
+130분을 넘지 않게 자동으로 나눕니다. 6시간이면 `130 + 130 + 100분`으로 **3요청**입니다. 20분 파일 7개처럼 작은 파일은 순서를 유지한 채 `4개(80분) + 3개(60분)`으로 묶어 **2요청**으로 보냅니다. 요청은 순차 실행하고 시작 간 80초를 둡니다.
+
+**Q. 무료 한도를 다 쓰면 유료 Batch로 자동 전환되나요?**
+
+`auto`(대시보드 Enter)는 **처음부터** 무료 키 용량을 계산해 무료 live를 먼저 쓰고, 남는 분량만 유료 Batch로 보냅니다. 실행 중 무료 한도(429)에 걸리면 완료된 그룹을 저장하고 멈추며, 다시 실행하면 이어서 진행합니다. `live`만 실행하면 유료 Batch로 자동 전환하지 않습니다.
+
+**Q. PDF가 있으면 live에서 어떻게 되나요?**
+
+있으면 각 그룹 요청에 그대로 포함합니다. PDF 토큰 때문에 TPM이 빠듯하면 `--chunk-minutes`를 120 이하로 낮추세요.
+
 **Q. Batch 결과 수신까지 얼마나 걸리나요?**
 
 구글 배치 큐 상태에 따라 다르지만 보통 10분~1시간 내외로 완료됩니다. (API SLA 최대 24시간) 대시보드에서 `완료까지 기다리기`를 고르거나, `./app.py wait ./lecture_folder --download`로 완료 시점을 자동으로 잡을 수 있습니다.
@@ -375,7 +490,7 @@ export GEMINI_API_KEY="your-api-key"
 
 **Q. 여러 강의 폴더를 한 번에 제출할 수 있나요?**
 
-됩니다. 대시보드에서 `여러 폴더 한꺼번에 제출`을 고르고 Space로 폴더를 선택하세요. 예상 비용을 한 번만 확인한 뒤 폴더마다 Batch를 제출하고, 이어서 모두 백그라운드 감시로 넘길 수 있습니다. 이미 제출된 폴더는 건너뛰거나 이어서 제출합니다.
+됩니다. 대시보드에서 `여러 폴더 한꺼번에 제출`을 고르고 Space로 폴더를 선택하세요. 목록에는 제출 준비가 끝난(준비됨·제출 전) 폴더만 나옵니다. 예상 비용을 한 번만 확인한 뒤 폴더마다 Batch를 제출하고, 이어서 모두 백그라운드 감시로 넘길 수 있습니다. 무료 live는 폴더별로 실행하세요.
 
 **Q. 오디오 파일 이름이 한글이어도 되나요?**
 
@@ -387,11 +502,15 @@ export GEMINI_API_KEY="your-api-key"
 
 **Q. API 키는 어디에 저장되나요?**
 
-터미널 메뉴에서 **저장**을 고른 경우에만 `~/.config/nalmeok/config.json`에 소유자 전용 권한(0600)으로 저장합니다. `--key`나 `GEMINI_API_KEY` 환경변수가 있으면 그쪽이 우선하므로 저장된 키는 쓰이지 않습니다. 대시보드 `설정`에서 키를 변경하거나 삭제할 수 있고, 파일을 직접 지워도 됩니다. 같은 파일에 최근 작업 폴더 목록(`recent`)도 함께 들어갑니다.
+대시보드에서 등록한 키는 `~/.config/nalmeok/config.json`에 소유자 전용 권한(0600)으로 저장합니다. 키마다 `id`, `label`, `tier`(free/paid), `api_key`, `limit_minutes`가 들어가며, 화면에는 뒤 4자리만 보입니다. `--key`나 `GEMINI_API_KEY` 환경변수는 저장된 키보다 우선합니다. 대시보드 `k`(API 키)에서 추가·삭제할 수 있고, 파일을 직접 지워도 됩니다. 같은 파일에 최근 작업 폴더 목록(`recent`)도 함께 들어갑니다.
+
+**Q. 키를 여러 개 등록할 수 있나요?**
+
+됩니다. 무료 키와 유료 키를 각각 여러 개 등록하고 `free1`, `free2`, `paid1`처럼 라벨을 붙이세요. 자동 전사는 무료 키를 먼저 쓰고, 유료 분량은 유료 키 여러 개에 나눠 Batch로 제출합니다. 무료 키는 live에만, 유료 키는 Batch에만 쓰입니다.
 
 **Q. MP4만 있어도 전사할 수 있나요?**
 
-됩니다. `./app.py upload ./lecture_folder` 또는 대시보드의 `전사 시작`을 실행하면 M4A가 없다는 것을 감지해 ffmpeg로 먼저 추출한 뒤 이어서 업로드합니다. MP4 변환과 업로드가 한 번에 처리되므로 `convert`를 먼저 실행할 필요가 없습니다.
+됩니다. `./app.py upload ./lecture_folder`, `./app.py live ./lecture_folder`, `./app.py auto ./lecture_folder`, 또는 대시보드의 `자동 전사`/`유료 Batch`/`무료 live`를 실행하면 M4A가 없다는 것을 감지해 ffmpeg로 먼저 추출합니다. MP4 변환과 전사가 한 번에 처리되므로 `convert`를 먼저 실행할 필요가 없습니다.
 
 **Q. 완료된 폴더에서 다시 전사하려면?**
 
@@ -419,13 +538,13 @@ python -m unittest discover -s tests -v
 
 `tests/__init__.py`가 있어 저장소 루트에서 `python -m unittest discover`만 실행해도 테스트를 찾습니다.
 
-테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정(준비·제출 전·제출됨·전사 중·결과 수신·완료·입력 변경·손상), 결과 병합과 실패 검증, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택.
+테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정(준비·제출 전·제출됨·전사 중·live·혼합·결과 수신·완료·입력 변경·손상), live 그룹핑(7×20분 → 2요청, 130분 상한), 무료/유료 키 레지스트리와 라벨·마이그레이션, 혼합 배분(130/130/40)·긴 파일 분할·무료 키 우선·유료 키 분산, 혼합 결과 병합, live 상태·아카이브·CLI 인자, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택.
 
 ## 프로젝트 구조
 
 ```text
 app.py                 # 실행 진입점 (./app.py)
-nalmeok.py             # CLI 본체 (TUI, Batch 파이프라인, 설정)
+nalmeok.py             # CLI 본체 (TUI, Batch·live 파이프라인, 설정)
 tests/test_nalmeok.py  # 순수 로직·상태 전이 테스트
 pyproject.toml         # 패키지 정의와 nalmeok 콘솔 스크립트
 ```

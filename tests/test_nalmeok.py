@@ -337,6 +337,142 @@ class StateTests(unittest.TestCase):
             self.assertEqual(names, ["01.m4a", "02.mp4"])
 
 
+class LiveGroupTests(unittest.TestCase):
+    def entries(self, count, minutes=20):
+        return [{"key": f"audio_{index:03d}", "seconds": minutes * 60}
+                for index in range(1, count + 1)]
+
+    def test_seven_twenty_minute_files_make_two_balanced_groups(self):
+        groups = app.plan_live_groups(self.entries(7), 130 * 60)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(sorted(group["seconds"] for group in groups),
+                         [3600.0, 4800.0])
+        self.assertEqual([key for group in groups for key in group["files"]],
+                         [f"audio_{index:03d}" for index in range(1, 8)])
+
+    def test_six_files_fit_one_group(self):
+        groups = app.plan_live_groups(self.entries(6), 130 * 60)
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["seconds"], 7200.0)
+
+    def test_eight_files_make_two_even_groups(self):
+        groups = app.plan_live_groups(self.entries(8), 130 * 60)
+        self.assertEqual([group["seconds"] for group in groups],
+                         [4800.0, 4800.0])
+
+    def test_ten_files_make_two_even_groups(self):
+        groups = app.plan_live_groups(self.entries(10), 130 * 60)
+        self.assertEqual([group["seconds"] for group in groups],
+                         [6000.0, 6000.0])
+
+    def test_cap_is_respected(self):
+        entries = [
+            {"key": "a", "seconds": 130 * 60},
+            {"key": "b", "seconds": 130 * 60},
+            {"key": "c", "seconds": 100 * 60},
+        ]
+        groups = app.plan_live_groups(entries, 130 * 60)
+        self.assertEqual(len(groups), 3)
+        self.assertTrue(all(group["seconds"] <= 130 * 60 for group in groups))
+
+
+class LiveStateTests(unittest.TestCase):
+    def test_live_stages_progress_to_done(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            app.save(app.live_state_path(folder), {
+                "mode": "live",
+                "model": app.DEFAULT_MODEL,
+                "files": [],
+                "groups": [
+                    {"key": "group_001", "files": [], "seconds": 60},
+                    {"key": "group_002", "files": [], "seconds": 60},
+                ],
+            })
+            app.atomic_write_text(
+                app.live_result_path(folder),
+                json.dumps({"key": "group_001", "response": {}}) + "\n")
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "live")
+            self.assertEqual(facts["live_completed"], 1)
+
+            app.atomic_write_text(
+                app.live_result_path(folder),
+                json.dumps({"key": "group_001", "response": {}}) + "\n"
+                + json.dumps({"key": "group_002", "response": {}}) + "\n")
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "received")
+            self.assertTrue(facts["live_result"])
+
+            app.atomic_write_text(app.output_path(folder), "done\n")
+            self.assertEqual(app.inspect_folder(folder)["stage"], "done")
+
+    def test_live_usage_is_standard_price(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            app.save(app.live_state_path(folder), {
+                "mode": "live", "model": app.DEFAULT_MODEL,
+                "files": [], "groups": [],
+            })
+            row = {
+                "key": "group_001",
+                "response": {
+                    "usageMetadata": {
+                        "promptTokensDetails": [
+                            {"modality": "AUDIO", "tokenCount": 90000},
+                            {"modality": "TEXT", "tokenCount": 1000},
+                        ],
+                        "candidatesTokenCount": 10000,
+                    },
+                },
+            }
+            app.atomic_write_text(app.live_result_path(folder),
+                                  json.dumps(row) + "\n")
+            entry = app.usage_entry(folder)
+            self.assertTrue(entry["live"])
+            self.assertAlmostEqual(entry["cost"], 0.10575, places=6)
+            lines = app.stats_lines_from([entry], root=folder.parent)
+            self.assertTrue(any("live" in line for line in lines))
+
+    def test_archive_moves_live_state_and_segments(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            app.save(app.live_state_path(folder), {"mode": "live"})
+            app.atomic_write_text(app.live_result_path(folder), "{}\n")
+            app.atomic_write_text(app.output_path(folder), "done\n")
+            segment = app.live_segment_dir(folder)
+            segment.mkdir()
+            (segment / "part001.m4a").write_bytes(b"part")
+            destination = app.archive_job(folder)
+            self.assertIsNotNone(destination)
+            self.assertTrue((destination / app.LIVE_STATE_FILE).exists())
+            self.assertTrue((destination / app.LIVE_RESULT_FILE).exists())
+            self.assertTrue((destination / app.LIVE_SEGMENT_DIR).is_dir())
+            self.assertFalse(app.live_state_path(folder).exists())
+            self.assertTrue((folder / "01.m4a").exists())
+
+
+class LiveArgTests(unittest.TestCase):
+    def test_live_defaults(self):
+        args = app.parse_args(["live", "."])
+        self.assertEqual(args.command, "live")
+        self.assertEqual(args.gap, app.LIVE_GAP_SECONDS)
+        self.assertEqual(args.chunk_minutes, 130)
+
+    def test_live_rejects_bad_values(self):
+        with self.assertRaises(SystemExit):
+            app.parse_args(["live", ".", "--gap", "-1"])
+        with self.assertRaises(SystemExit):
+            app.parse_args(["live", ".", "--chunk-minutes", "131"])
+
+    def test_auto_accepts_yes(self):
+        args = app.parse_args(["auto", ".", "--yes"])
+        self.assertEqual(args.command, "auto")
+        self.assertTrue(args.yes)
+
+
 class MergeTests(unittest.TestCase):
     def setUp(self):
         self.files = [
@@ -430,6 +566,311 @@ class UsageTests(unittest.TestCase):
                 "pending_batch": {"batch_id": "batches/other", "keys": []},
             })
             self.assertEqual(app.wait_target(folder, job), "batches/main")
+
+
+class KeyRegistryTests(unittest.TestCase):
+    def test_legacy_migration_and_free_paid_labels(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = {"XDG_CONFIG_HOME": str(Path(temp) / "config"),
+                   "GEMINI_API_KEY": "", "GEMINI_API_KEY_TIER": ""}
+            with mock.patch.dict(os.environ, env, clear=False):
+                app.remember_key("legacy-secret")
+                entries = app.saved_key_entries()
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["tier"], "paid")
+                self.assertEqual(entries[0]["label"], "기본")
+
+                free = app.add_key_entry("free1", "free", "free-secret")
+                paid = app.add_key_entry("paid1", "paid", "paid-secret")
+                self.assertEqual(free["tier"], "free")
+                self.assertEqual(paid["tier"], "paid")
+                self.assertEqual(app.key_for_tier("free"), "free-secret")
+                self.assertEqual(app.key_for_tier("paid"), "legacy-secret")
+                self.assertEqual(app.paid_key_for_batch("free-secret"),
+                                 "legacy-secret")
+                self.assertEqual(app.key_summary(), "무료 1 · 유료 2")
+                self.assertTrue(app.mask_key("paid-secret").endswith("cret"))
+
+                self.assertTrue(app.delete_key_entry(free["id"]))
+                self.assertIsNone(app.key_for_tier("free"))
+                self.assertEqual(app.paid_key_for_batch("free-secret"),
+                                 "legacy-secret")
+
+    def test_free_key_is_never_used_for_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = {"XDG_CONFIG_HOME": str(Path(temp) / "config"),
+                   "GEMINI_API_KEY": "", "GEMINI_API_KEY_TIER": ""}
+            with mock.patch.dict(os.environ, env, clear=False):
+                app.add_key_entry("free1", "free", "free-secret")
+                self.assertEqual(app.key_for_tier("free"), "free-secret")
+                self.assertIsNone(app.key_for_tier("paid"))
+                self.assertIsNone(app.paid_key_for_batch("free-secret"))
+                self.assertIsNone(app.paid_key_for_batch())
+                self.assertIsNone(app.paid_key_for_batch("unknown-secret"))
+                self.assertEqual(
+                    app.paid_key_for_batch("unknown-secret", allow_unknown=True),
+                    "unknown-secret")
+
+    def test_same_key_updates_instead_of_duplicating(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = {"XDG_CONFIG_HOME": str(Path(temp) / "config"),
+                   "GEMINI_API_KEY": "", "GEMINI_API_KEY_TIER": ""}
+            with mock.patch.dict(os.environ, env, clear=False):
+                app.add_key_entry("free1", "free", "same-secret")
+                app.add_key_entry("renamed", "free", "same-secret")
+                entries = app.saved_key_entries()
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["label"], "renamed")
+
+
+class MixedAllocationTests(unittest.TestCase):
+    def keys(self, count, tier, limit=130):
+        return [{"id": f"{tier}{index}", "label": f"{tier}{index}",
+                 "tier": tier, "limit_minutes": limit}
+                for index in range(1, count + 1)]
+
+    def entries(self, minutes):
+        return [{"key": f"u{index}", "seconds": value * 60}
+                for index, value in enumerate(minutes, 1)]
+
+    def test_canonical_300_minutes_splits_130_130_40(self):
+        plan = app.allocate_mixed_entries(
+            self.entries([130, 130, 40]), self.keys(2, "free"),
+            self.keys(1, "paid"), 130 * 60)
+        self.assertEqual([group["seconds"] for group in plan["groups"]],
+                         [130 * 60, 130 * 60])
+        self.assertEqual([group["seconds"] for group in plan["paid"]],
+                         [40 * 60])
+        self.assertFalse(plan["unassigned"])
+
+    def test_short_work_uses_free_only(self):
+        plan = app.allocate_mixed_entries(
+            self.entries([60]), self.keys(2, "free"), self.keys(1, "paid"),
+            130 * 60)
+        self.assertEqual(len(plan["groups"]), 1)
+        self.assertFalse(plan["paid"])
+        self.assertEqual(plan["paid_seconds"], 0)
+
+    def test_whole_files_are_not_split_across_free_keys(self):
+        plan = app.allocate_mixed_entries(
+            self.entries([100, 100, 100]), self.keys(2, "free"),
+            self.keys(1, "paid"), 130 * 60)
+        self.assertEqual([group["seconds"] for group in plan["groups"]],
+                         [100 * 60, 100 * 60])
+        self.assertEqual([group["seconds"] for group in plan["paid"]],
+                         [100 * 60])
+
+    def test_overflow_without_paid_is_marked_unassigned(self):
+        plan = app.allocate_mixed_entries(
+            self.entries([130, 130, 60]), self.keys(2, "free"), [],
+            130 * 60)
+        self.assertEqual([group["seconds"] for group in plan["groups"]],
+                         [130 * 60, 130 * 60])
+        self.assertEqual(plan["unassigned"], ["u3"])
+        self.assertEqual(plan["paid_seconds"], 0)
+
+    def test_paid_work_balances_across_paid_keys(self):
+        plan = app.allocate_mixed_entries(
+            self.entries([100, 100, 100]), [], self.keys(2, "paid"),
+            130 * 60)
+        self.assertFalse(plan["groups"])
+        self.assertEqual(len(plan["paid"]), 2)
+        self.assertEqual(plan["paid_seconds"], 300 * 60)
+        self.assertEqual(sorted(group["seconds"] for group in plan["paid"]),
+                         [100 * 60, 200 * 60])
+
+
+class MixedPrepareTests(unittest.TestCase):
+    def test_prepare_uses_whole_files_first(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for name in ("01.m4a", "02.m4a", "03.m4a"):
+                (folder / name).write_bytes(b"audio")
+            free = [
+                {"id": "free1", "label": "free1", "tier": "free",
+                 "limit_minutes": 130},
+                {"id": "free2", "label": "free2", "tier": "free",
+                 "limit_minutes": 130},
+            ]
+            paid = [{"id": "paid1", "label": "paid1", "tier": "paid"}]
+            with mock.patch.object(app, "probe_duration", return_value=6000):
+                state = app.prepare_mixed(
+                    folder, app.DEFAULT_MODEL, free, paid)
+            self.assertEqual(state["mode"], "mixed")
+            self.assertEqual([group["seconds"] for group in state["groups"]],
+                             [6000, 6000])
+            self.assertEqual([group["seconds"] for group in state["paid"]],
+                             [6000])
+            self.assertTrue(app.live_state_path(folder).exists())
+            self.assertEqual(len(state["files"]), 3)
+
+    def test_prepare_splits_long_file_at_130_minutes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "long.m4a").write_bytes(b"audio")
+
+            def fake_split(path, duration, cap, segment_dir):
+                self.assertEqual(cap, 130 * 60)
+                segment_dir.mkdir(parents=True, exist_ok=True)
+                parts = []
+                for index, seconds in enumerate((130 * 60, 130 * 60, 40 * 60), 1):
+                    part = segment_dir / f"{path.stem}.part{index:03d}{path.suffix}"
+                    part.write_bytes(b"part")
+                    parts.append((part, seconds))
+                return parts
+
+            free = [
+                {"id": "free1", "label": "free1", "tier": "free",
+                 "limit_minutes": 130},
+                {"id": "free2", "label": "free2", "tier": "free",
+                 "limit_minutes": 130},
+            ]
+            paid = [{"id": "paid1", "label": "paid1", "tier": "paid"}]
+            with mock.patch.object(app, "probe_duration", return_value=300 * 60), \
+                    mock.patch.object(app, "split_audio_for_live",
+                                      side_effect=fake_split):
+                state = app.prepare_mixed(
+                    folder, app.DEFAULT_MODEL, free, paid)
+            self.assertEqual([group["seconds"] for group in state["groups"]],
+                             [130 * 60, 130 * 60])
+            self.assertEqual([group["seconds"] for group in state["paid"]],
+                             [40 * 60])
+            self.assertEqual(len(state["files"]), 3)
+            self.assertEqual(state["files"][0]["source"], "segment")
+            self.assertEqual(state["files"][0]["parent"], "long.m4a")
+
+
+class MixedStateTests(unittest.TestCase):
+    def test_mixed_stages_include_paid_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            state = {
+                "mode": "mixed", "model": app.DEFAULT_MODEL,
+                "files": [{"key": "u1", "name": "01.m4a", "seconds": 60},
+                          {"key": "u2", "name": "01.m4a", "seconds": 60}],
+                "groups": [{"key": "free_001", "key_id": "free1",
+                            "label": "free1", "files": ["u1"],
+                            "seconds": 60}],
+                "paid": [{"key": "paid_001", "key_id": "paid1",
+                          "label": "paid1", "files": ["u2"],
+                          "seconds": 60, "done": False}],
+            }
+            app.save(app.live_state_path(folder), state)
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "live")
+            self.assertTrue(facts["mixed"])
+            self.assertEqual(facts["live_groups"], 1)
+            self.assertEqual(facts["paid_groups"], 1)
+            self.assertEqual(facts["paid_done"], 0)
+
+            app.save_live_row(folder, state, "free_001",
+                              response_row("free_001"))
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "live")
+            self.assertEqual(facts["live_completed"], 1)
+
+            state["paid"][0]["done"] = True
+            app.save(app.live_state_path(folder), state)
+            app.atomic_write_text(
+                app.mixed_result_path(folder, state["paid"][0]),
+                json.dumps(response_row("u2")) + "\n")
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "received")
+            self.assertTrue(facts["live_result"])
+            self.assertIn("혼합", app.stage_label(facts))
+
+            app.atomic_write_text(app.output_path(folder), "done\n")
+            self.assertEqual(app.inspect_folder(folder)["stage"], "done")
+
+    def test_merged_text_keeps_free_then_paid_order(self):
+        state = {
+            "files": [{"key": "u1"}, {"key": "u2"}, {"key": "u3"}],
+            "groups": [{"key": "free_001", "files": ["u1"]}],
+            "paid": [{"key": "paid_001", "files": ["u2", "u3"]}],
+        }
+        free_rows = {"free_001": response_row("free_001", "free text")}
+        paid_rows = {"u2": response_row("u2", "paid two"),
+                     "u3": response_row("u3", "paid three")}
+        text = app.merged_mixed_text(state, free_rows, paid_rows)
+        self.assertEqual(text, "free text\n\npaid two\n\npaid three\n")
+
+
+class MixedRunTests(unittest.TestCase):
+    def test_mixed_run_merges_free_and_paid_results(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for name in ("01.m4a", "02.m4a", "03.m4a"):
+                (folder / name).write_bytes(b"audio")
+            free = [
+                {"id": "free1", "label": "free1", "tier": "free",
+                 "api_key": "free-key-1", "limit_minutes": 130},
+                {"id": "free2", "label": "free2", "tier": "free",
+                 "api_key": "free-key-2", "limit_minutes": 130},
+            ]
+            paid = [{"id": "paid1", "label": "paid1", "tier": "paid",
+                     "api_key": "paid-key-1"}]
+
+            class FakeResponse:
+                def __init__(self, text):
+                    self.text = text
+
+                def model_dump(self, **kwargs):
+                    return response_row("unused", self.text)["response"]
+
+            class FakeClient:
+                def close(self):
+                    pass
+
+            live_texts = iter(("free one", "free two"))
+
+            def fake_live_generate(client, model, contents, gap):
+                return FakeResponse(next(live_texts))
+
+            def fake_uploads(folder, state, client, key_id, unit_keys):
+                units = {entry["key"]: entry for entry in state["files"]}
+                for unit_key in unit_keys:
+                    units[unit_key].setdefault("uris", {})[key_id] = {
+                        "uri": f"files/{unit_key}", "uploaded_at": 1e12}
+                if state.get("pdf"):
+                    state.setdefault("pdfs", {})[key_id] = {
+                        "uri": "files/pdf", "uploaded_at": 1e12}
+                return state
+
+            def fake_submit(folder, state, group, client):
+                group["batch_id"] = "batches/paid"
+                app.save(app.live_state_path(folder), state)
+
+            def fake_wait(folder, state, group, client, interval=30):
+                unit = group["files"][0]
+                path = app.mixed_result_path(folder, group)
+                app.atomic_write_text(
+                    path, json.dumps(response_row(unit, "paid three")) + "\n")
+                group["done"] = True
+                app.save(app.live_state_path(folder), state)
+
+            with mock.patch.object(app, "key_entries_for_tier",
+                                   side_effect=lambda tier: (
+                                       free if tier == "free" else paid)), \
+                    mock.patch.object(app, "key_entries",
+                                      return_value=free + paid), \
+                    mock.patch.object(app, "get_client",
+                                      side_effect=lambda key: FakeClient()), \
+                    mock.patch.object(app, "probe_duration",
+                                      return_value=6000), \
+                    mock.patch.object(app, "ensure_mixed_uploads",
+                                      side_effect=fake_uploads), \
+                    mock.patch.object(app, "live_generate",
+                                      side_effect=fake_live_generate), \
+                    mock.patch.object(app, "submit_mixed_paid",
+                                      side_effect=fake_submit), \
+                    mock.patch.object(app, "wait_mixed_paid",
+                                      side_effect=fake_wait), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                output = app.mixed_transcribe(folder)
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "free one\n\nfree two\n\npaid three\n")
 
 
 class PackagingTests(unittest.TestCase):
