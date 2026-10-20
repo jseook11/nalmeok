@@ -2048,10 +2048,11 @@ def mixed_plan_lines(state):
     return lines or ["처리할 오디오가 없습니다."]
 
 
-def mixed_preview_lines(folder, model=DEFAULT_MODEL):
+def mixed_preview_lines(folder, model=DEFAULT_MODEL, paid_keys=None):
     """시작 화면용 계획. prepare_mixed 와 같은 규칙으로 미리 계산합니다."""
     free_keys = key_entries_for_tier("free")
-    paid_keys = key_entries_for_tier("paid")
+    if paid_keys is None:
+        paid_keys = key_entries_for_tier("paid")
     if not free_keys:
         return []
     chunk_seconds = min(
@@ -2517,33 +2518,35 @@ def merged_mixed_text(state, free_rows, paid_rows):
 
 
 def mixed_transcribe(folder, model=None, gap=LIVE_GAP_SECONDS,
-                     interval=POLL_SECONDS):
-    """무료 키를 먼저 쓰고, 남는 오디오는 유료 Batch로 전사합니다."""
+                     interval=POLL_SECONDS, include_paid=True):
+    """무료 키를 먼저 쓰고, include_paid 이면 남는 오디오를 Batch로 보냅니다."""
     folder = Path(folder).resolve()
     with job_lock(folder, "혼합 전사"):
-        return _mixed_transcribe(folder, model, gap, interval)
+        return _mixed_transcribe(folder, model, gap, interval, include_paid)
 
 
 def _mixed_transcribe(folder, model=None, gap=LIVE_GAP_SECONDS,
-                      interval=POLL_SECONDS):
+                      interval=POLL_SECONDS, include_paid=True):
     clients = {}
     try:
-        return _mixed_run(folder, model, gap, interval, clients)
+        return _mixed_run(folder, model, gap, interval, clients, include_paid)
     finally:
         for client in clients.values():
             with contextlib.suppress(Exception):
                 client.close()
 
 
-def _mixed_run(folder, model, gap, interval, clients):
+def _mixed_run(folder, model, gap, interval, clients, include_paid=True):
     state_path = live_state_path(folder)
     if state_path.exists():
         state = load_live_state(folder)
         if not state or state.get("mode") != "mixed":
             fail("혼합 작업 상태가 아닙니다.")
+        if state.get("paid") and not include_paid:
+            fail("이미 유료 Batch가 포함된 작업입니다. 이어서 실행하세요.")
     else:
         free_keys = key_entries_for_tier("free")
-        paid_keys = key_entries_for_tier("paid")
+        paid_keys = key_entries_for_tier("paid") if include_paid else []
         state = prepare_mixed(folder, model or DEFAULT_MODEL,
                               free_keys, paid_keys)
     entries = {entry["id"]: entry for entry in key_entries()}
@@ -2563,16 +2566,9 @@ def _mixed_run(folder, model, gap, interval, clients):
     if state.get("paid_seconds"):
         log("계획: " + " · ".join(mixed_plan_lines(state)))
         log("")
-    if state.get("paid"):
-        if not any(entry["tier"] == "paid" for entry in entries.values()):
-            fail("유료 Batch에 사용할 유료 키가 없습니다.")
-        for group in state["paid"]:
-            if group.get("done"):
-                continue
-            if not group.get("batch_id"):
-                client, _ = client_for(group["key_id"])
-                submit_mixed_paid(folder, state, group, client)
-        log("")
+    if state.get("paid") and not any(
+            entry["tier"] == "paid" for entry in entries.values()):
+        fail("유료 Batch에 사용할 유료 키가 없습니다.")
     rows = live_row_map(folder)
     last_start = {}
     for index, group in enumerate(state.get("groups") or [], 1):
@@ -2615,6 +2611,13 @@ def _mixed_run(folder, model, gap, interval, clients):
         rows[group["key"]] = row
         log(f"live 저장 완료 ({index}/{len(state['groups'])})")
     if state.get("paid"):
+        log("")
+        for group in state["paid"]:
+            if group.get("done"):
+                continue
+            if not group.get("batch_id"):
+                client, _ = client_for(group["key_id"])
+                submit_mixed_paid(folder, state, group, client)
         log("")
         for group in state["paid"]:
             if group.get("done"):
@@ -3434,15 +3437,16 @@ def inspect_folder(folder):
 def stage_label(facts):
     stage = facts["stage"]
     if facts.get("mixed") and stage in ("live", "received"):
+        has_paid = bool(facts.get("paid_groups"))
         if stage == "received":
-            return "혼합 결과 병합 대기"
+            return "혼합 결과 병합 대기" if has_paid else "무료 결과 병합 대기"
         free = (f"무료 {facts.get('live_completed', 0)}/"
                 f"{facts.get('live_groups', 0)}")
         paid = ""
-        if facts.get("paid_groups"):
+        if has_paid:
             paid = (f" · Batch {facts.get('paid_done', 0)}/"
                     f"{facts.get('paid_groups', 0)}")
-        return f"혼합 전사 · {free}{paid}"
+        return f"{'혼합' if has_paid else '무료'} 전사 · {free}{paid}"
     if stage == "live":
         return (f"live 전사 · {facts.get('live_completed', 0)}/"
                 f"{facts.get('live_groups', 0)} 그룹")
@@ -4285,7 +4289,7 @@ def transcribe_flow(folder, key):
     if not key:
         return key
     if facts["needs_convert"] and not caps["ffmpeg"]:
-        screen("전사 시작", folder.name)
+        screen("유료 Batch", folder.name)
         notice("MP4 → M4A 변환에 ffmpeg가 필요합니다.")
         log("  macOS: brew install ffmpeg")
         log("  Ubuntu: sudo apt install ffmpeg")
@@ -4332,7 +4336,7 @@ def transcribe_flow(folder, key):
                show_estimate=False)
         return True
 
-    key, done = run_with_client(key, action, "전사 시작", "paid")
+    key, done = run_with_client(key, action, "유료 Batch", "paid")
     if not done:
         wait()
         return key
@@ -4416,17 +4420,17 @@ def draw_home(entries, cursor, key, folder_count):
             print(f"    {text}   {tail}")
     print()
     status_bar(key)
-    print(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 일괄 · q 종료')}")
+    print(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
 
 
 def help_screen():
     header("도움말", "날먹 v" + __version__)
     for label, desc in (
-        ("Enter", "선택 · 전사 시작"),
+        ("Enter", "선택 · 전사"),
         ("Esc / ←", "뒤로"),
         ("k", "API 키 변경"),
         ("s", "설정 · 환경 점검"),
-        ("m", "여러 폴더 한꺼번에 제출"),
+        ("m", "여러 폴더 유료 Batch"),
         ("u", "사용량 · 누적 비용"),
         ("r", "제출한 Batch 원격 상태 새로고침"),
         ("a", "고급 메뉴 (재시도 · 보관 · 상태)"),
@@ -4468,7 +4472,7 @@ def home_screen(key):
         entries += [
             None,
             ("open", "새 전사", "폴더를 고르거나 경로를 붙여넣기"),
-            ("multi", "여러 폴더 제출", f"{candidates}개 준비됨", not candidates),
+            ("multi", "여러 폴더 유료 Batch", f"{candidates}개 준비됨", not candidates),
             ("refresh", "원격 상태 새로고침", "제출한 Batch 상태 확인",
              not has_remote),
             ("stats", "사용량", "지금까지 쓴 금액과 평균"),
@@ -4524,11 +4528,30 @@ def folder_menu(folder, facts):
         options.append(("browse", "폴더 내용 확인",
                         facts["reason"] or "MP4/M4A를 넣어 주세요"))
     elif stage == "ready":
-        options.append(("start", "전사 시작", "변환 · 비용 확인 · 제출 · 완료 대기"))
+        free_keys = key_entries_for_tier("free")
+        paid_keys = key_entries_for_tier("paid")
+        if free_keys:
+            options.append(("mixed_free", "무료 키로 전사",
+                            "무료 live · Batch 없음 · 부족하면 안내"))
+            if paid_keys:
+                options.append(("mixed_paid", "무료 + 유료 Batch",
+                                "무료를 먼저 쓰고 남는 분량만 Batch"))
+            options.append(("start", "유료 Batch로만 전사",
+                            "유료 키로 한 번에 제출"))
+        else:
+            options.append(("keys", "무료 키 추가",
+                            "무료 live로 전사하려면 키가 필요합니다"))
+            if paid_keys:
+                options.append(("start", "유료 Batch로 전사",
+                                "유료 키로 한 번에 제출"))
     elif stage == "prepared":
         options.append(("start", "제출 이어서 하기", "이미 준비된 작업을 제출합니다"))
     elif stage == "live":
-        label = "혼합 이어서 하기" if facts.get("mixed") else "live 이어서 하기"
+        if facts.get("mixed"):
+            label = ("혼합 이어서 하기" if facts.get("paid_groups")
+                     else "무료 전사 이어서 하기")
+        else:
+            label = "live 이어서 하기"
         options.append(("live", label, stage_label(facts)))
     elif stage == "submitted":
         label = ("재시도 완료까지 기다리기" if facts["pending_retry"]
@@ -4552,7 +4575,8 @@ def folder_menu(folder, facts):
     if stage == "ready" and facts["mp4"]:
         extra.append(("convert", "MP4 → M4A 변환", "원본은 그대로 둡니다"))
     if stage in ("ready", "prepared"):
-        extra.append(("live", "무료 live 전사", "Batch 없이 130분 그룹으로"))
+        if key_entries_for_tier("free"):
+            extra.append(("live", "무료 live (첫 키)", "Batch 없이 130분 그룹으로"))
         extra.append(("estimate", "예상 비용 계산", "길이와 토큰을 계산"))
     if stage == "prepared":
         extra.append(("newjob", "새 작업 시작", "기존 준비 기록은 보관합니다"))
@@ -4625,6 +4649,12 @@ def folder_session(folder, key):
             return key
         if answer == "start":
             key = transcribe_flow(folder, key)
+        elif answer == "keys":
+            key = manage_keys(key)
+        elif answer == "mixed_free":
+            key = mixed_session(folder, key, include_paid=False)
+        elif answer == "mixed_paid":
+            key = mixed_session(folder, key, include_paid=True)
         elif answer == "live":
             key = live_session(folder, key)
         elif answer == "watch":
@@ -4839,7 +4869,8 @@ def settings_menu(key):
 
 
 def ensure_key(key):
-    existing = key or key_for_tier("paid") or current_key()
+    existing = (key or key_for_tier("free") or key_for_tier("paid")
+                or current_key())
     if existing:
         return existing
     return key_screen()
@@ -4857,13 +4888,17 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
 
 
 def start_screen(folder, facts, key):
-    """화면 3-1. 비용을 보여주고 Enter 로 시작을 받습니다."""
+    """화면 3-1. 무료 계획을 먼저 보여주고 Enter 로 시작을 받습니다."""
+    free_keys = key_entries_for_tier("free")
+    paid_keys = key_entries_for_tier("paid")
+    prepared = facts["stage"] == "prepared"
     lines = []
     error = ""
-    try:
-        lines = estimate_lines(folder, folder_model(folder))
-    except (RuntimeError, OSError) as exc:
-        error = str(exc)
+    if not free_keys or prepared:
+        try:
+            lines = estimate_lines(folder, folder_model(folder))
+        except (RuntimeError, OSError) as exc:
+            error = str(exc)
     while True:
         header("전사", short_path(folder))
         detail = f"오디오 {facts['m4a'] + facts['mp4']}개"
@@ -4876,43 +4911,76 @@ def start_screen(folder, facts, key):
         if lines:
             for line in lines:
                 print(f"  {line}")
-        else:
+        elif not free_keys or prepared:
             notice("예상 비용을 계산하지 못했습니다.")
             if error:
                 print(f"  {dim(clip(error, WIDTH - 4))}")
-        free_keys = key_entries_for_tier("free")
-        auto = bool(free_keys) and facts["stage"] != "prepared"
         preview = []
-        if auto:
+        overflow = False
+        if free_keys and not prepared:
             try:
-                preview = mixed_preview_lines(folder, folder_model(folder))
+                preview = mixed_preview_lines(folder, folder_model(folder),
+                                              paid_keys=[])
             except (RuntimeError, OSError, ValueError):
                 preview = []
+            overflow = any("유료 키 필요" in line for line in preview)
         if preview:
             print()
             for line in preview:
                 print(f"  {line}")
-        print(f"  {dim('l 무료 live · Batch 없이 130분 그룹 · 자동 간격')}")
+        elif free_keys and not prepared:
+            notice("무료 계획을 계산하지 못했습니다. e로 예상 비용을 확인하세요.")
+        print(f"  {dim('l 무료 live · 첫 번째 무료 키 · 130분 그룹 · 자동 간격')}")
         print()
         status_bar(key)
-        if auto:
-            footer("Enter 자동 전사 · p 유료 Batch · l 무료 live · "
-                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
-        elif facts["stage"] == "prepared":
+        if prepared:
             footer("Enter 제출 이어서 하기 · p 유료 Batch · l 무료 live · "
                    "e 비용 · b 파일 · a 고급 · Esc 뒤로")
+        elif free_keys and overflow:
+            footer("Enter 무료 키만으론 부족 · p 유료 Batch 포함 · "
+                   "k 키 관리 · e 비용 · b 파일 · a 고급 · Esc 뒤로")
+        elif free_keys:
+            footer("Enter 무료 전사 · p 유료 Batch 포함 · l 무료 live · "
+                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
         else:
-            footer("Enter Batch 전사 · l 무료 live · e 비용 · "
-                   "b 파일 · a 고급 · Esc 뒤로")
+            footer("Enter 무료 키 추가 · p 유료 Batch · "
+                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
         pressed = read_key()
         if pressed in ("enter", "right"):
-            return "mixed" if auto else "start"
+            if prepared:
+                return "start"
+            if not free_keys:
+                return "keys"
+            if overflow:
+                print()
+                notice("무료 키 용량을 넘는 분량이 있습니다. p를 눌러 "
+                       "유료 Batch를 포함하거나 k에서 무료 키를 추가하세요.")
+                wait()
+                continue
+            return "mixed_free"
         if pressed == "p":
-            return "start"
+            if prepared:
+                return "start"
+            if not paid_keys:
+                print()
+                notice("유료 Batch에 사용할 유료 키가 없습니다. 설정에서 "
+                       "유료 키를 추가하거나 Enter로 무료 전사를 실행하세요.")
+                wait()
+                continue
+            if not free_keys:
+                return "start"
+            return "mixed_paid"
         if pressed in ("esc", "left"):
             return "back"
         if pressed == "l":
+            if not free_keys:
+                print()
+                notice("무료 live에는 무료 키가 필요합니다. k에서 키를 추가하세요.")
+                wait()
+                continue
             return "live"
+        if pressed == "k":
+            return "keys"
         if pressed == "a":
             return "advanced"
         if pressed == "e":
@@ -4934,24 +5002,32 @@ def upload_session(folder, key):
                    show_estimate=False)
         return True
 
-    key, done = run_with_client(key, action, "전사 시작", "paid")
+    key, done = run_with_client(key, action, "유료 Batch", "paid")
     sys.stdout.write("\r\033[K")
     sys.stdout.flush()
     return key, done
 
 
-def mixed_session(folder, key):
-    """무료 live를 먼저 돌리고 남는 오디오는 유료 Batch로 보냅니다."""
+def mixed_session(folder, key, include_paid=True):
+    """무료 live를 먼저 돌리고, 필요할 때만 유료 Batch를 붙입니다."""
     state = read_json_object(live_state_path(folder))
-    header("자동 전사", folder.name)
-    print(f"  {dim('무료 키를 먼저 쓰고, 남는 오디오는 유료 Batch로 보냅니다.')}")
+    resume = bool(state and state.get("mode") == "mixed")
+    paid_keys = key_entries_for_tier("paid") if include_paid else []
+    show_paid = include_paid and (
+        bool(state.get("paid")) if resume else bool(paid_keys))
+    header("자동 전사" if show_paid else "무료 전사", folder.name)
+    if show_paid:
+        print(f"  {dim('무료 키를 먼저 쓰고, 남는 오디오는 유료 Batch로 보냅니다.')}")
+    else:
+        print(f"  {dim('무료 키만 사용합니다 · Batch 없음')}")
     print()
     plan = []
-    if state and state.get("mode") == "mixed":
+    if resume:
         plan = mixed_plan_lines(state)
     else:
         try:
-            plan = mixed_preview_lines(folder, folder_model(folder))
+            plan = mixed_preview_lines(folder, folder_model(folder),
+                                       paid_keys=paid_keys)
         except (RuntimeError, OSError, ValueError):
             plan = []
     if plan:
@@ -4961,16 +5037,27 @@ def mixed_session(folder, key):
         print(f"  {dim('ffprobe로 길이를 읽지 못해 계획을 미리 표시하지 못했습니다.')}")
     if any("유료 키 필요" in line for line in plan):
         print()
-        notice("무료 키 용량을 넘는 분량이 있습니다. 유료 키를 추가하거나 "
-               "l(무료 live 전체)로 실행하세요.")
+        if include_paid:
+            notice("유료 키로도 남는 분량이 있습니다. 유료 키를 추가하세요.")
+        else:
+            notice("무료 키 용량을 넘는 분량이 있습니다. 유료 Batch를 포함하거나 "
+                   "무료 키를 추가하세요.")
         wait()
         return folder_session(folder, key)
+    will_use_paid = (bool(state.get("paid")) if resume
+                     else any("유료 Batch" in line for line in plan))
+    if include_paid and will_use_paid and not resume:
+        print()
+        footer("Enter 유료 Batch 포함 실행 · Esc 취소")
+        if read_key() not in ("enter", "right"):
+            return folder_session(folder, key)
     print()
     status_bar(key)
     print()
     try:
         with capture_logs(live_status):
-            mixed_transcribe(folder, model=folder_model(folder))
+            mixed_transcribe(folder, model=folder_model(folder),
+                             include_paid=include_paid)
     except KeyboardInterrupt:
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
@@ -5157,8 +5244,13 @@ def session_screen(folder, key):
             return key
         if choice == "advanced":
             return folder_session(folder, key)
-        if choice == "mixed":
-            return mixed_session(folder, key)
+        if choice == "keys":
+            key = manage_keys(key)
+            return session_screen(folder, key)
+        if choice == "mixed_free":
+            return mixed_session(folder, key, include_paid=False)
+        if choice == "mixed_paid" or choice == "mixed":
+            return mixed_session(folder, key, include_paid=True)
         if choice == "live":
             return live_session(folder, key)
         if facts["needs_convert"]:

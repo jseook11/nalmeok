@@ -810,6 +810,51 @@ class MixedStateTests(unittest.TestCase):
         self.assertEqual(text, "free text\n\npaid two\n\npaid three\n")
 
 
+class MixedPreviewTests(unittest.TestCase):
+    def test_default_preview_is_free_only_and_paid_preview_adds_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            free = [{"id": "free1", "label": "free1", "tier": "free",
+                     "api_key": "free-key-1", "limit_minutes": 130}]
+            paid = [{"id": "paid1", "label": "paid1", "tier": "paid",
+                     "api_key": "paid-key-1"}]
+            with mock.patch.object(app, "key_entries_for_tier",
+                                   side_effect=lambda tier: (
+                                       free if tier == "free" else paid)), \
+                    mock.patch.object(app, "probe_duration",
+                                      return_value=200 * 60):
+                free_preview = app.mixed_preview_lines(folder, paid_keys=[])
+                paid_preview = app.mixed_preview_lines(folder)
+            self.assertTrue(any("유료 키 필요" in line
+                                for line in free_preview))
+            self.assertTrue(any("유료 Batch" in line
+                                for line in paid_preview))
+            self.assertFalse(any("유료 키 필요" in line
+                                 for line in paid_preview))
+
+
+class FreeOnlyStageTests(unittest.TestCase):
+    def test_free_only_mixed_state_is_not_labelled_paid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            state = {
+                "mode": "mixed", "model": app.DEFAULT_MODEL,
+                "files": [{"key": "u1", "name": "01.m4a", "seconds": 60}],
+                "groups": [{"key": "free_001", "key_id": "free1",
+                            "label": "free1", "files": ["u1"],
+                            "seconds": 60}],
+                "paid": [],
+            }
+            app.save(app.live_state_path(folder), state)
+            facts = app.inspect_folder(folder)
+            self.assertTrue(facts["mixed"])
+            self.assertEqual(facts["paid_groups"], 0)
+            self.assertIn("무료 전사", app.stage_label(facts))
+            self.assertNotIn("혼합", app.stage_label(facts))
+
+
 class MixedRunTests(unittest.TestCase):
     def test_mixed_run_merges_free_and_paid_results(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -885,6 +930,59 @@ class MixedRunTests(unittest.TestCase):
             self.assertEqual(
                 output.read_text(encoding="utf-8"),
                 "free one\n\nfree two\n\npaid three\n")
+
+
+class FreeOnlyRunTests(unittest.TestCase):
+    def test_free_only_never_submits_paid_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"audio")
+            free = [{"id": "free1", "label": "free1", "tier": "free",
+                     "api_key": "free-key-1", "limit_minutes": 130}]
+            paid = [{"id": "paid1", "label": "paid1", "tier": "paid",
+                     "api_key": "paid-key-1"}]
+
+            class FakeResponse:
+                text = "free only"
+
+                def model_dump(self, **kwargs):
+                    return response_row("unused", self.text)["response"]
+
+            class FakeClient:
+                def close(self):
+                    pass
+
+            def fake_uploads(folder, state, client, key_id, unit_keys):
+                units = {entry["key"]: entry for entry in state["files"]}
+                for unit_key in unit_keys:
+                    units[unit_key].setdefault("uris", {})[key_id] = {
+                        "uri": f"files/{unit_key}", "uploaded_at": 1e12}
+                return state
+
+            def forbidden_submit(*args, **kwargs):
+                raise AssertionError("무료 전용 실행에서 Batch를 제출했습니다")
+
+            with mock.patch.object(app, "key_entries_for_tier",
+                                   side_effect=lambda tier: (
+                                       free if tier == "free" else paid)), \
+                    mock.patch.object(app, "key_entries",
+                                      return_value=free + paid), \
+                    mock.patch.object(app, "get_client",
+                                      side_effect=lambda key: FakeClient()), \
+                    mock.patch.object(app, "probe_duration",
+                                      return_value=6000), \
+                    mock.patch.object(app, "ensure_mixed_uploads",
+                                      side_effect=fake_uploads), \
+                    mock.patch.object(app, "live_generate",
+                                      return_value=FakeResponse()), \
+                    mock.patch.object(app, "submit_mixed_paid",
+                                      side_effect=forbidden_submit), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                output = app.mixed_transcribe(folder, include_paid=False)
+            self.assertEqual(output.read_text(encoding="utf-8"), "free only\n")
+            state = json.loads(app.live_state_path(folder).read_text())
+            self.assertFalse(state["paid"])
+            self.assertTrue(state["finished"])
 
 
 class PackagingTests(unittest.TestCase):
