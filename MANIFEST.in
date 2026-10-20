@@ -1,0 +1,3 @@
+recursive-include assets *.png
+include LICENSE
+include app.py

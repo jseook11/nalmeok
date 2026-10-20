@@ -1,10 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "nalmeok"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gemini Batch API로 강의 음성을 시간당 70원대로 전사하는 도구"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
-    "google-genai>=2.31.0",
+    "google-genai>=2.31.0,<3",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+]
+
+[project.scripts]
+nalmeok = "nalmeok:cli"
+
+[tool.setuptools]
+py-modules = ["nalmeok"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
