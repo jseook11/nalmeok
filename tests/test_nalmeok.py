@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import re
@@ -89,6 +91,26 @@ class DisplayTests(unittest.TestCase):
             app.refresh_layout()
             self.assertGreaterEqual(app.WIDTH, app.MIN_WIDTH)
         app.refresh_layout()
+
+    def test_menu_has_no_box_drawing(self):
+        entries = [("a", "항목", "설명", False), ("b", "다른 항목", "", True)]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            app.draw_menu(entries, [0, 1], 0, "Enter 선택")
+        text = captured.getvalue()
+        self.assertNotIn("╭", text)
+        self.assertNotIn("│", text)
+        self.assertIn("❯", text)
+        self.assertIn("Enter 선택", text)
+
+    def test_multi_menu_marks_selection(self):
+        entries = [("a", "항목", "설명", False), ("b", "다른 항목", "설명", False)]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            app.draw_multi(entries, [0, 1], 1, {0}, "Enter 확정")
+        text = captured.getvalue()
+        self.assertIn("●", text)
+        self.assertIn("○", text)
 
 
 class PathTests(unittest.TestCase):

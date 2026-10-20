@@ -1640,7 +1640,6 @@ accent = _paint("36")
 warn = _paint("33")
 
 WIDTH = 64
-INNER = WIDTH - 4
 BACK = object()
 ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left",
           "OA": "up", "OB": "down", "OC": "right", "OD": "left"}
@@ -1662,10 +1661,9 @@ def term_size():
 
 
 def refresh_layout():
-    """터미널 폭에 맞춰 WIDTH·INNER 를 다시 계산합니다."""
-    global WIDTH, INNER
+    """터미널 폭에 맞춰 WIDTH 를 다시 계산합니다."""
+    global WIDTH
     WIDTH = max(MIN_WIDTH, min(MAX_WIDTH, term_size().columns - 4))
-    INNER = WIDTH - 4
 
 
 @contextlib.contextmanager
@@ -1684,19 +1682,25 @@ def fullscreen():
         sys.stdout.flush()
 
 
+def _title_line(title, subtitle=""):
+    room = max(8, WIDTH - display_width(title) - 4)
+    tail = f"   {dim(clip(subtitle, room))}" if subtitle else ""
+    print(f"  {bold(title)}{tail}")
+    print(f"  {dim('─' * WIDTH)}")
+    print()
+
+
 def header(title="", subtitle=""):
     """화면 상단을 새로 그립니다. 제목이 없으면 로고를 씁니다."""
     refresh_layout()
     clear_screen()
     print()
     if title:
-        room = max(8, WIDTH - display_width(title) - 4)
-        tail = f"   {dim(clip(subtitle, room))}" if subtitle else ""
-        print(f"  {bold(title)}{tail}")
+        _title_line(title, subtitle)
     else:
         print(f"  {bold('날먹')}   {dim('강의 음성을 Batch로 전사')}")
-    print(f"  {dim('─' * WIDTH)}")
-    print()
+        print(f"  {dim('─' * WIDTH)}")
+        print()
 
 
 def footer(hint):
@@ -1726,17 +1730,17 @@ def pulse_bar(width, step, size=3):
 
 
 def banner():
+    refresh_layout()
     print()
-    print(f"  {bold('날먹')}  {dim('·  강의 음성을 Batch로 전사')}")
+    print(f"  {bold('날먹')}   {dim('강의 음성을 Batch로 전사')}")
     print(f"  {dim('─' * WIDTH)}")
     print()
 
 
 def section(title, subtitle=""):
-    tail = f"   {dim(subtitle)}" if subtitle else ""
+    refresh_layout()
     print()
-    print(f"  {accent('▌')} {bold(title)}{tail}")
-    print()
+    _title_line(title, subtitle)
 
 
 def screen(title="", subtitle=""):
@@ -1744,7 +1748,8 @@ def screen(title="", subtitle=""):
     refresh_layout()
     clear_screen()
     if title:
-        section(title, subtitle)
+        print()
+        _title_line(title, subtitle)
     else:
         banner()
 
@@ -1767,31 +1772,23 @@ def clip(text, width):
     return out + "…"
 
 
-def box_top(label):
-    return f"  {dim('╭─')} {bold(label)} {dim('─' * (WIDTH - 5 - display_width(label)) + '╮')}"
-
-
-def box_bottom():
-    return f"  {dim('╰' + '─' * (WIDTH - 2) + '╯')}"
-
-
-def box_line(inner):
-    return f"  {dim('│')} {pad(inner, INNER)} {dim('│')}"
-
-
 def prompt_box(label, hidden=False):
-    """글자를 직접 입력받는 상자. 메뉴 선택은 select_menu 를 씁니다."""
-    print(box_top(label))
+    """한 줄 입력. 상자 없이 화면 헤더와 같은 톤으로 그립니다."""
+    print()
     try:
         if hidden:
-            return getpass.getpass(f"  {accent('│')} ").strip()
-        return input(f"  {accent('│')} ").strip()
+            return getpass.getpass(f"  {accent('❯')} {label}  ").strip()
+        return input(f"  {accent('❯')} {label}  ").strip()
     finally:
-        print(box_bottom())
+        print()
 
 
-def wait(title="Enter · 작업 메뉴로"):
-    prompt_box(title)
+def wait(title="Enter 돌아가기"):
+    footer(title)
+    try:
+        input()
+    except EOFError:
+        print()
 
 
 def normalize(option):
@@ -1810,30 +1807,32 @@ def _line_count(text):
     return max(1, (display_width(text) + columns - 1) // columns)
 
 
-def draw_menu_box(title, entries, rows, cursor, footer=None):
-    """메뉴를 상자로 그립니다. rows 의 None 은 구분선입니다."""
-    rendered = [box_top(title)]
+def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
+    """메뉴를 목록으로 그립니다. rows 의 None 은 구분선입니다."""
+    refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
-    label_width = min(max((display_width(entry[1]) for entry in with_desc), default=0), 24)
+    label_width = min(
+        max((display_width(entry[1]) for entry in with_desc), default=8), 28)
+    rendered = []
     for row in rows:
         if row is None:
-            rendered.append(box_line(dim(' ' + '─' * 16)))
+            rendered.append(f"  {dim('─' * WIDTH)}")
             continue
         _, label, desc, faded = entries[row]
-        marker = accent('❯') if row == cursor else ' '
-        if not desc:
-            body = dim(label) if faded else (bold(label) if row == cursor else label)
-            rendered.append(box_line(f"{marker} {body}"))
-            continue
-        body = pad(clip(label, label_width), label_width)
+        text = pad(clip(label, label_width), label_width)
+        room = max(8, WIDTH - label_width - 5)
+        tail = dim(clip(desc, room)) if desc else ""
         if faded:
-            body = dim(body)
+            rendered.append(f"    {dim(text)}   {tail}")
         elif row == cursor:
-            body = bold(body)
-        room = max(8, INNER - 2 - label_width - 3)
-        rendered.append(box_line(f"{marker} {body}   {dim(clip(desc, room))}"))
-    rendered.append(box_bottom())
-    rendered.append(f"  {dim(footer or '↑↓ 이동 · Enter 선택 · Ctrl+C 종료')}")
+            rendered.append(f"  {accent('❯')} {bold(text)}   {tail}")
+        else:
+            rendered.append(f"    {text}   {tail}")
+    if footer is None:
+        footer = ("↑↓ 이동 · Enter 선택"
+                  + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
+    rendered.append("")
+    rendered.append(f"  {dim(footer)}")
     for line in rendered:
         print(line)
     return sum(_line_count(line) for line in rendered)
@@ -1876,29 +1875,32 @@ def _menu_entries(options):
 
 
 def _draw_info(info):
+    if not info:
+        return
+    labels = [label for label, _ in info if label]
+    width = min(max((display_width(label) for label in labels), default=6), 12)
     for label, value in info:
-        print(f"  {dim(pad(label, 6))}  {value}")
-    if info:
-        print()
+        if label:
+            print(f"  {dim(pad(label, width))}   {value}")
+        else:
+            print(f"  {value}")
+    print()
 
 
 def select_menu(title, options, info=(), allow_back=False, heading=None,
                 subtitle="", footer=None):
     """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다."""
     if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: app.py --help")
+        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
     cursor = 0
 
     def render():
-        if heading:
-            screen(heading, subtitle)
-        else:
-            screen()
+        screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_menu_box(title, entries, rows, cursor, footer)
+        return draw_menu(entries, rows, cursor, footer, allow_back)
 
     height = render()
     while True:
@@ -1921,29 +1923,33 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
             height = render()
         else:
             print(f"\033[{height}A", end="")
-            height = draw_menu_box(title, entries, rows, cursor, footer)
+            height = draw_menu(entries, rows, cursor, footer, allow_back)
 
 
-def draw_multi_box(title, entries, rows, cursor, selected):
-    rendered = [box_top(title)]
+def draw_multi(entries, rows, cursor, selected, footer=None):
+    """여러 선택 메뉴. rows 의 None 은 구분선입니다."""
+    refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
-    label_width = min(max((display_width(entry[1]) for entry in with_desc), default=0), 24)
+    label_width = min(
+        max((display_width(entry[1]) for entry in with_desc), default=8), 28)
+    rendered = []
     for row in rows:
         if row is None:
-            rendered.append(box_line(dim(' ' + '─' * 16)))
+            rendered.append(f"  {dim('─' * WIDTH)}")
             continue
         _, label, desc, faded = entries[row]
-        marker = accent('❯') if row == cursor else ' '
-        check = accent('◉') if row in selected else dim('○')
-        body = pad(clip(label, label_width), label_width)
+        text = pad(clip(label, label_width), label_width)
+        room = max(8, WIDTH - label_width - 7)
+        tail = dim(clip(desc, room)) if desc else ""
+        check = accent('●') if row in selected else dim('○')
         if faded:
-            body = dim(body)
+            rendered.append(f"    {dim(text)}   {tail}")
         elif row == cursor:
-            body = bold(body)
-        room = max(8, INNER - 2 - label_width - 5)
-        rendered.append(box_line(f"{marker} {check} {body}   {dim(clip(desc, room))}"))
-    rendered.append(box_bottom())
-    rendered.append(f"  {dim('↑↓ 이동 · Space 선택 · Enter 확정 · ← 뒤로')}")
+            rendered.append(f"  {accent('❯')} {check} {bold(text)}   {tail}")
+        else:
+            rendered.append(f"    {check} {text}   {tail}")
+    rendered.append("")
+    rendered.append(f"  {dim(footer or '↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로')}")
     for line in rendered:
         print(line)
     return sum(_line_count(line) for line in rendered)
@@ -1952,7 +1958,7 @@ def draw_multi_box(title, entries, rows, cursor, selected):
 def select_many(title, options, info=(), heading=None, subtitle=""):
     """여러 항목을 Space 로 표시하고 Enter 로 확정합니다. BACK 을 돌려줄 수 있습니다."""
     if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: app.py --help")
+        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
@@ -1960,12 +1966,9 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
     selected = set()
 
     def render():
-        if heading:
-            screen(heading, subtitle)
-        else:
-            screen()
+        screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_multi_box(title, entries, rows, cursor, selected)
+        return draw_multi(entries, rows, cursor, selected)
 
     height = render()
     while True:
@@ -1990,7 +1993,7 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
             height = render()
         else:
             print(f"\033[{height}A", end="")
-            height = draw_multi_box(title, entries, rows, cursor, selected)
+            height = draw_multi(entries, rows, cursor, selected)
 
 
 STAGE_LABELS = {
@@ -2275,7 +2278,7 @@ def browse_folder(start=None):
             info.append(("안내", "이 폴더에는 MP4/M4A가 없습니다. 하위 폴더를 열어 보세요."))
         answer = select_menu(
             "폴더 열기", options, info, allow_back=True,
-            footer="↑↓ 이동 · Enter 열기 · ← 뒤로 · Ctrl+C 종료")
+            footer="↑↓ 이동 · Enter 열기 · Esc 뒤로")
         if answer is BACK or answer == "__cancel__":
             return None
         if answer == "__up__":
@@ -2284,7 +2287,7 @@ def browse_folder(start=None):
         if answer == "__select__":
             return current
         if answer == "__path__":
-            screen("폴더 경로 지정", "폴더 또는 MP4/M4A 파일 · Enter 로 취소")
+            screen("폴더 경로 지정", "폴더 또는 MP4/M4A 파일 · 빈 값이면 취소")
             typed = prompt_box("경로")
             target = path_target(typed) if typed else None
             if target is None:
@@ -2369,7 +2372,7 @@ def read_secret(label):
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     buffer = []
-    sys.stdout.write(f"  {accent('│')} {pad(label, 15)} ")
+    sys.stdout.write(f"  {accent('❯')} {pad(label, 15)} ")
     sys.stdout.flush()
     try:
         tty.setraw(fd)
@@ -3109,7 +3112,7 @@ def folder_menu(folder, facts):
         if option[0] not in seen:
             seen.add(option[0])
             unique.append(option)
-    options += [None] + unique + [None, ("back", "← 작업 목록으로", "", True)]
+    options += [None] + unique + [None, ("back", "← 뒤로", "", True)]
     info = [
         ("폴더", short_path(folder)),
         ("상태", stage_label(facts)),
@@ -3127,7 +3130,7 @@ def folder_menu(folder, facts):
     return select_menu("작업", options, info, allow_back=True,
                        heading=folder.name or ".",
                        subtitle=short_path(folder),
-                       footer="↑↓ 이동 · Enter 실행 · ← 작업 목록 · Ctrl+C 종료")
+                       footer="↑↓ 이동 · Enter 실행 · Esc 뒤로")
 
 
 def folder_session(folder, key):
@@ -3336,7 +3339,7 @@ def settings_menu(key):
             ("recent", "최근 작업 목록 비우기", f"{len(recent_folders())}개",
              not recent_folders()),
             ("diag", "진단 정보", "환경과 경로를 자세히 봅니다"),
-            ("back", "← 작업 목록으로", "", True),
+            ("back", "← 뒤로", "", True),
         ], info, allow_back=True, heading="설정", subtitle="키 · 환경 · 최근 작업")
         if answer is BACK or answer == "back":
             return key
@@ -3401,12 +3404,14 @@ def start_screen(folder, facts, key):
                 print(f"  {dim(clip(error, WIDTH - 4))}")
         print()
         status_bar(key)
-        footer("Enter 전사 시작 · e 자세히 · b 폴더 내용 · Esc 뒤로")
+        footer("Enter 전사 시작 · e 비용 · b 파일 · a 고급 · Esc 뒤로")
         pressed = read_key()
         if pressed in ("enter", "right"):
             return "start"
         if pressed in ("esc", "left"):
             return "back"
+        if pressed == "a":
+            return "advanced"
         if pressed == "e":
             estimate_action(folder)
         elif pressed == "b":
@@ -3463,7 +3468,7 @@ def wait_session(folder, key):
         message_screen(folder, "백그라운드 전환", [
             message,
             "완료되면 알림과 함께 결과가 자동으로 병합됩니다.",
-        ], hint="Enter 작업 목록으로")
+        ], hint="Enter 돌아가기")
     elif outcome == "done":
         done_screen(folder, key)
     elif outcome == "error":
@@ -3543,8 +3548,11 @@ def session_screen(folder, key):
         key = ensure_key(key)
         if not current_key(key):
             return key
-        if start_screen(folder, facts, key) == "back":
+        choice = start_screen(folder, facts, key)
+        if choice == "back":
             return key
+        if choice == "advanced":
+            return folder_session(folder, key)
         if facts["needs_convert"]:
             if not capabilities()["ffmpeg"]:
                 message_screen(folder, "ffmpeg 필요", [
