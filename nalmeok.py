@@ -48,6 +48,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import uuid
@@ -86,8 +87,12 @@ WATCH_STATUS = ".gemini_batch.wait.json"
 LIVE_STATE_FILE = ".gemini_live.json"
 LIVE_RESULT_FILE = ".gemini_live.result.jsonl"
 LIVE_SEGMENT_DIR = ".gemini_live_segments"
-LIVE_GAP_SECONDS = 80
+LIVE_GAP_SECONDS = 12
 LIVE_CHUNK_SECONDS = 130 * 60
+FREE_RPM = 5
+FREE_TPM = 250_000
+# 속도 제한은 보수적으로 32 tokens/sec로 계산합니다. 비용 추정은 25를 씁니다.
+RATE_TOKENS_PER_SECOND = 32
 DEFAULT_FREE_MINUTES = 130
 MIXED_REQUEST_PREFIX = ".gemini_mixed.requests"
 MIXED_RESULT_PREFIX = ".gemini_mixed.result"
@@ -2166,6 +2171,64 @@ def live_generation_config():
     return config
 
 
+@contextlib.contextmanager
+def live_progress(label, started=None):
+    """TUI 상태 줄에 경과 시간을 계속 갱신합니다. CLI 로그에는 영향이 없습니다."""
+    if _logger is not live_status or not sys.stdout.isatty():
+        yield
+        return
+    stop = threading.Event()
+    base = started if started is not None else time.monotonic()
+
+    def run():
+        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        index = 0
+        while not stop.wait(0.4):
+            elapsed = max(0, int(time.monotonic() - base))
+            if elapsed >= 3600:
+                clock = f"{elapsed // 3600}시간 {(elapsed % 3600) // 60:02d}분"
+            elif elapsed >= 60:
+                clock = f"{elapsed // 60}분 {elapsed % 60:02d}초"
+            else:
+                clock = f"{elapsed}초"
+            try:
+                live_status(f"{label} · {clock} {frames[index % len(frames)]}")
+            except (OSError, ValueError):
+                return
+            index += 1
+
+    thread = threading.Thread(target=run, name="nalmeok-status", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1)
+
+
+def live_gap_seconds(seconds, minimum=LIVE_GAP_SECONDS):
+    """무료 등급 RPM/TPM을 넘지 않는 요청 시작 간격(초).
+
+    속도 제한은 오디오 1초를 32토큰으로 보고 프롬프트 여유 4,000토큰을 더해
+    계산합니다. 60초 창에 들어갈 수 있는 요청 수와 RPM 5를 함께 보고 간격을
+    정합니다. 사용자가 더 큰 값을 지정하면 그 값을 존중합니다.
+    """
+    tokens = int(max(0.0, float(seconds or 0)) *
+                 RATE_TOKENS_PER_SECOND) + 4_000
+    per_minute = max(1, FREE_TPM // max(1, tokens))
+    tpm_gap = 60.0 / per_minute
+    rpm_gap = 60.0 / FREE_RPM
+    return max(float(minimum or 0), rpm_gap, tpm_gap)
+
+
+def response_text_length(response):
+    """응답 텍스트 길이. SDK 버전에 따라 text 접근이 실패해도 진행 로그는 남깁니다."""
+    try:
+        return len(response.text or "")
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
 def live_generate(client, model, contents, gap):
     from google.genai.errors import APIError
     for attempt in (1, 2):
@@ -2213,7 +2276,8 @@ def _live_transcribe(folder, client, model=None, gap=LIVE_GAP_SECONDS,
     folder = Path(folder).resolve()
     state = prepare_live(folder, model or DEFAULT_MODEL, chunk_seconds)
     model = state.get("model") or model or DEFAULT_MODEL
-    state = ensure_live_uploads(folder, state, client)
+    with live_progress("live 파일 업로드 확인 중"):
+        state = ensure_live_uploads(folder, state, client)
     groups = state.get("groups") or []
     if not groups:
         fail("live 그룹이 없습니다. 새 작업을 시작하세요.")
@@ -2231,28 +2295,37 @@ def _live_transcribe(folder, client, model=None, gap=LIVE_GAP_SECONDS,
             else:
                 log(f"live 건너뜀 ({index}/{len(groups)}): 완료된 그룹")
                 continue
+        effective_gap = live_gap_seconds(group.get("seconds") or 0, gap)
         if last_start is not None:
-            remaining = gap - (time.monotonic() - last_start)
+            remaining = effective_gap - (time.monotonic() - last_start)
             if remaining > 0:
-                log(f"live 대기 {remaining:.0f}초 (요청 간격 {gap}초)")
+                log(f"live 대기 {remaining:.0f}초 "
+                    f"(자동 간격 {effective_gap:.0f}초)")
                 time.sleep(remaining)
         contents = live_request_contents(state, group)
         log(f"live 요청 ({index}/{len(groups)}): "
             f"{duration_text(group.get('seconds') or 0)} · "
             f"{len(group['files'])}개 파일")
         last_start = time.monotonic()
-        response = live_generate(client, model, contents, gap)
+        started = time.monotonic()
+        with live_progress(f"live 응답 대기 ({index}/{len(groups)})"):
+            response = live_generate(client, model, contents, effective_gap)
+        elapsed = time.monotonic() - started
+        chars = response_text_length(response)
+        log(f"live 응답 받음 ({index}/{len(groups)}): "
+            f"{elapsed:.0f}초 · {chars:,}자")
         row = {"key": key, "response": response.model_dump(
             mode="json", by_alias=True, exclude_none=True)}
         merge_jsonl(json.dumps(row), [{"key": key}])
         rows[key] = row
         save_live_row(folder, state, key, row)
-        log(f"live 완료 ({index}/{len(groups)})")
+        log(f"live 저장 완료 ({index}/{len(groups)})")
     missing = [group["key"] for group in groups if group["key"] not in rows]
     if missing:
         fail("live 결과가 누락되었습니다: " + ", ".join(missing))
     raw = "\n".join(json.dumps(rows[group["key"]], ensure_ascii=False)
                     for group in groups)
+    log("결과 병합 중…")
     merged = merge_jsonl(raw, [{"key": group["key"]} for group in groups])
     output = output_path(folder)
     if output.exists():
@@ -2382,6 +2455,7 @@ def submit_mixed_paid(folder, state, group, client):
 def wait_mixed_paid(folder, state, group, client, interval=POLL_SECONDS):
     """유료 Batch 완료를 기다리고 결과 JSONL을 폴더에 저장합니다."""
     last = None
+    started = time.monotonic()
     while True:
         batch = client.batches.get(name=group["batch_id"])
         current = batch_state(batch)
@@ -2389,19 +2463,24 @@ def wait_mixed_paid(folder, state, group, client, interval=POLL_SECONDS):
             log(f"Batch {group['label']}: {format_state(current)}")
             last = current
         if current == "JOB_STATE_SUCCEEDED":
-            raw = batch_result(batch, client)
+            log(f"Batch 결과 다운로드 중: {group['label']}")
+            with live_progress(
+                    f"Batch 결과 다운로드 ({group['label']})", started):
+                raw = batch_result(batch, client)
             result_rows(raw, set(group["files"]))
             path = mixed_result_path(folder, group)
             atomic_write_text(path, raw)
             group.update(done=True, finished=time.time(),
                          result_name=path.name)
             save(live_state_path(folder), state)
-            log(f"Batch 완료: {group['label']}")
+            log(f"Batch 결과 저장 완료: {group['label']}")
             return
         if current in TERMINAL_STATES:
             fail(f"유료 Batch({group['label']})가 완료되지 않았습니다: "
                  f"{format_state(current)}")
-        time.sleep(interval)
+        with live_progress(
+                f"Batch {group['label']} · {format_state(current)}", started):
+            time.sleep(interval)
 
 
 def mixed_rows(folder, state):
@@ -2501,13 +2580,16 @@ def _mixed_run(folder, model, gap, interval, clients):
             log(f"live 건너뜀 ({index}/{len(state['groups'])}): 완료된 그룹")
             continue
         client, entry = client_for(group["key_id"])
-        ensure_mixed_uploads(folder, state, client, group["key_id"],
-                             group["files"])
+        with live_progress(f"파일 업로드 ({entry['label']})"):
+            ensure_mixed_uploads(folder, state, client, group["key_id"],
+                                 group["files"])
         previous = last_start.get(group["key_id"])
+        effective_gap = live_gap_seconds(group.get("seconds") or 0, gap)
         if previous is not None:
-            remaining = gap - (time.monotonic() - previous)
+            remaining = effective_gap - (time.monotonic() - previous)
             if remaining > 0:
-                log(f"live 대기 {remaining:.0f}초 (같은 키 간격 {gap}초)")
+                log(f"live 대기 {remaining:.0f}초 "
+                    f"(같은 키 자동 간격 {effective_gap:.0f}초)")
                 time.sleep(remaining)
         log(f"live 요청 ({index}/{len(state['groups'])}): "
             f"{entry['label']} · {duration_text(group['seconds'])} · "
@@ -2515,7 +2597,15 @@ def _mixed_run(folder, model, gap, interval, clients):
         last_start[group["key_id"]] = time.monotonic()
         contents = mixed_request_parts(state, group["key_id"],
                                        group["files"], LIVE_PROMPT)
-        response = live_generate(client, state["model"], contents, gap)
+        started = time.monotonic()
+        with live_progress(
+                f"live 응답 대기 ({index}/{len(state['groups'])})"):
+            response = live_generate(client, state["model"], contents,
+                                     effective_gap)
+        elapsed = time.monotonic() - started
+        chars = response_text_length(response)
+        log(f"live 응답 받음 ({index}/{len(state['groups'])}): "
+            f"{elapsed:.0f}초 · {chars:,}자")
         row = {"key": group["key"], "tier": "free",
                "label": entry["label"],
                "response": response.model_dump(
@@ -2523,7 +2613,7 @@ def _mixed_run(folder, model, gap, interval, clients):
         merge_jsonl(json.dumps(row), [{"key": group["key"]}])
         save_live_row(folder, state, group["key"], row)
         rows[group["key"]] = row
-        log(f"live 완료 ({index}/{len(state['groups'])})")
+        log(f"live 저장 완료 ({index}/{len(state['groups'])})")
     if state.get("paid"):
         log("")
         for group in state["paid"]:
@@ -2531,6 +2621,7 @@ def _mixed_run(folder, model, gap, interval, clients):
                 continue
             client, _ = client_for(group["key_id"])
             wait_mixed_paid(folder, state, group, client, interval)
+    log("결과 병합 중…")
     free_rows, paid_rows = mixed_rows(folder, state)
     merged = merged_mixed_text(state, free_rows, paid_rows)
     output = output_path(folder)
@@ -2748,7 +2839,7 @@ def parse_args(argv=None):
                                  help="예상 비용 확인 없이 바로 시작 (자동 실행용)")
         if name == "live":
             command.add_argument("--gap", type=int, default=LIVE_GAP_SECONDS,
-                                 help="요청 시작 간 최소 간격(초, 기본값: 80)")
+                                 help="요청 시작 간 최소 간격(초, 기본값: 12; 실제 TPM에 따라 자동 증가)")
             command.add_argument("--chunk-minutes", type=int, default=130,
                                  help="한 요청에 묶을 최대 오디오 길이(분, 기본값: 130)")
         if name == "upload":
@@ -4801,7 +4892,7 @@ def start_screen(folder, facts, key):
             print()
             for line in preview:
                 print(f"  {line}")
-        print(f"  {dim('l 무료 live · Batch 없이 130분 그룹 · 80초 간격')}")
+        print(f"  {dim('l 무료 live · Batch 없이 130분 그룹 · 자동 간격')}")
         print()
         status_bar(key)
         if auto:
@@ -4915,7 +5006,7 @@ def live_session(folder, key):
     if free:
         key = free[0]["api_key"]
     header("무료 live 전사", folder.name)
-    print(f"  {dim('130분 그룹 · 순차 요청 · 80초 간격 · Batch 없이')}")
+    print(f"  {dim('130분 그룹 · 순차 요청 · 자동 간격 · Batch 없이')}")
     print()
 
     def action(client):

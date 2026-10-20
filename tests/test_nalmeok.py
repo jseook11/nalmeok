@@ -454,6 +454,20 @@ class LiveStateTests(unittest.TestCase):
             self.assertTrue((folder / "01.m4a").exists())
 
 
+class LiveGapTests(unittest.TestCase):
+    def test_short_group_uses_rpm_floor(self):
+        self.assertEqual(app.live_gap_seconds(20 * 60, 12), 12)
+
+    def test_medium_group_uses_tpm_window(self):
+        self.assertAlmostEqual(app.live_gap_seconds(60 * 60, 12), 30)
+
+    def test_long_group_waits_a_full_minute(self):
+        self.assertAlmostEqual(app.live_gap_seconds(130 * 60, 12), 60)
+
+    def test_user_can_choose_a_longer_floor(self):
+        self.assertEqual(app.live_gap_seconds(130 * 60, 80), 80)
+
+
 class LiveArgTests(unittest.TestCase):
     def test_live_defaults(self):
         args = app.parse_args(["live", "."])
