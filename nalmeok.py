@@ -2230,13 +2230,19 @@ def response_text_length(response):
         return 0
 
 
-def live_generate(client, model, contents, gap):
+class FreeKeysExhausted(RuntimeError):
+    """이번 실행에서 모든 무료 키가 429로 제한되었습니다."""
+
+
+def live_generate(client, model, contents, gap, *, rotate_429=False):
     from google.genai.errors import APIError
     for attempt in (1, 2):
         try:
             return client.models.generate_content(
                 model=model, contents=contents, config=live_generation_config())
         except APIError as exc:
+            if exc.code == 429 and rotate_429:
+                raise
             detail = str(exc).lower()
             daily = "perday" in detail or "per day" in detail or "rpd" in detail
             if exc.code == 429 and daily:
@@ -2571,37 +2577,63 @@ def _mixed_run(folder, model, gap, interval, clients, include_paid=True):
         fail("유료 Batch에 사용할 유료 키가 없습니다.")
     rows = live_row_map(folder)
     last_start = {}
+    exhausted = set()
+    free_ids = [identifier for identifier, entry in entries.items()
+                if entry["tier"] == "free"]
     for index, group in enumerate(state.get("groups") or [], 1):
         if group["key"] in rows:
             log(f"live 건너뜀 ({index}/{len(state['groups'])}): 완료된 그룹")
             continue
-        client, entry = client_for(group["key_id"])
-        with live_progress(f"파일 업로드 ({entry['label']})"):
-            ensure_mixed_uploads(folder, state, client, group["key_id"],
-                                 group["files"])
-        previous = last_start.get(group["key_id"])
-        effective_gap = live_gap_seconds(group.get("seconds") or 0, gap)
-        if previous is not None:
-            remaining = effective_gap - (time.monotonic() - previous)
-            if remaining > 0:
-                log(f"live 대기 {remaining:.0f}초 "
-                    f"(같은 키 자동 간격 {effective_gap:.0f}초)")
-                time.sleep(remaining)
-        log(f"live 요청 ({index}/{len(state['groups'])}): "
-            f"{entry['label']} · {duration_text(group['seconds'])} · "
-            f"{len(group['files'])}개 파일")
-        last_start[group["key_id"]] = time.monotonic()
-        contents = mixed_request_parts(state, group["key_id"],
-                                       group["files"], LIVE_PROMPT)
-        started = time.monotonic()
-        with live_progress(
-                f"live 응답 대기 ({index}/{len(state['groups'])})"):
-            response = live_generate(client, state["model"], contents,
-                                     effective_gap)
-        elapsed = time.monotonic() - started
-        chars = response_text_length(response)
-        log(f"live 응답 받음 ({index}/{len(state['groups'])}): "
-            f"{elapsed:.0f}초 · {chars:,}자")
+        candidates = list(free_ids)
+        if group["key_id"] in candidates:
+            offset = candidates.index(group["key_id"])
+            candidates = candidates[offset:] + candidates[:offset]
+        for key_id in candidates:
+            if key_id in exhausted:
+                continue
+            client, entry = client_for(key_id)
+            group.update(key_id=key_id, label=entry["label"])
+            save(state_path, state)
+            try:
+                with live_progress(f"파일 업로드 ({entry['label']})"):
+                    ensure_mixed_uploads(folder, state, client, group["key_id"],
+                                         group["files"])
+                previous = last_start.get(group["key_id"])
+                effective_gap = live_gap_seconds(group.get("seconds") or 0, gap)
+                if previous is not None:
+                    remaining = effective_gap - (time.monotonic() - previous)
+                    if remaining > 0:
+                        log(f"live 대기 {remaining:.0f}초 "
+                            f"(같은 키 자동 간격 {effective_gap:.0f}초)")
+                        time.sleep(remaining)
+                log(f"live 요청 ({index}/{len(state['groups'])}): "
+                    f"{entry['label']} · {duration_text(group['seconds'])} · "
+                    f"{len(group['files'])}개 파일")
+                last_start[group["key_id"]] = time.monotonic()
+                contents = mixed_request_parts(state, group["key_id"],
+                                               group["files"], LIVE_PROMPT)
+                started = time.monotonic()
+                with live_progress(
+                        f"live 응답 대기 ({index}/{len(state['groups'])})"):
+                    response = live_generate(client, state["model"], contents,
+                                             effective_gap, rotate_429=True)
+                elapsed = time.monotonic() - started
+                chars = response_text_length(response)
+                log(f"live 응답 받음 ({index}/{len(state['groups'])}): "
+                    f"{elapsed:.0f}초 · {chars:,}자")
+            except Exception as exc:
+                api_error = _api_error_class()
+                if api_error is None or not isinstance(exc, api_error) or exc.code != 429:
+                    raise
+                exhausted.add(key_id)
+                log(f"무료 키 {entry['label']} 제한(429) · 다음 무료 키 시도")
+                continue
+            break
+        else:
+            message = ("모든 무료 키가 429로 제한되었습니다. 완료된 그룹은 저장했습니다. "
+                       "나중에 다시 실행하면 이어서 처리합니다.")
+            notify("날먹 · 무료 키 제한", f"{folder.name}: {message}")
+            raise FreeKeysExhausted(message)
         row = {"key": group["key"], "tier": "free",
                "label": entry["label"],
                "response": response.model_dump(
@@ -4989,9 +5021,9 @@ def start_screen(folder, facts, key):
             file_list_screen(folder)
 
 
-def upload_session(folder, key):
+def upload_session(folder, key, model=None):
     """제출 화면. 업로드 로그를 한 줄 상태로 보여줍니다."""
-    model = folder_model(folder)
+    model = model or folder_model(folder)
     header("업로드", folder.name)
     print(f"  {dim('오디오와 요청 목록을 올린 뒤 Batch를 제출합니다.')}")
     print()
@@ -5006,6 +5038,45 @@ def upload_session(folder, key):
     sys.stdout.write("\r\033[K")
     sys.stdout.flush()
     return key, done
+
+
+def exhausted_free_session(folder, key):
+    """무료 작업을 보존하거나, 동의 후 폴더 전체를 유료로 새로 시작합니다."""
+    if not sys.stdin.isatty():
+        raise FreeKeysExhausted("무료 키가 모두 제한되었습니다. 나중에 다시 실행하세요.")
+    model = folder_model(folder)
+    try:
+        values = estimate_values(folder, model)
+    except (RuntimeError, OSError) as exc:
+        notice(f"유료 예상 비용을 계산하지 못했습니다: {exc}")
+        wait()
+        return folder_session(folder, key)
+    answer = select_menu("무료 키가 모두 제한되었습니다. 유료 키로 진행할까요?", [
+        ("paid", "유료 새 작업", "기존 기록을 보관하고 폴더 전체를 다시 전사합니다"),
+        ("stop", "중단", "무료 작업 기록을 유지합니다"),
+    ], [("범위", "폴더 전체 · 무료 완료분도 다시 전사"),
+        ("오디오", f"{values['files']}개 · {duration_text(values['seconds'])}"),
+        ("예상 Batch 비용", money(values["cost"]))], allow_back=True,
+        heading="무료 키 제한", subtitle=folder.name)
+    if answer != "paid":
+        return folder_session(folder, key)
+    paid_key = paid_key_for_batch(key)
+    if not paid_key:
+        added_key = add_key_flow(default_tier="paid")
+        if not added_key or key_tier_of(added_key) != "paid":
+            notice("유료 키 등록을 취소했습니다. 무료 작업 기록을 유지합니다.")
+            return folder_session(folder, key)
+        paid_key = added_key
+    try:
+        archive_job(folder)
+    except (RuntimeError, OSError) as exc:
+        notice(str(exc))
+        wait()
+        return folder_session(folder, key)
+    key, done = upload_session(folder, paid_key, model=model)
+    if done:
+        return wait_session(folder, key)
+    return folder_session(folder, key)
 
 
 def mixed_session(folder, key, include_paid=True):
@@ -5058,6 +5129,11 @@ def mixed_session(folder, key, include_paid=True):
         with capture_logs(live_status):
             mixed_transcribe(folder, model=folder_model(folder),
                              include_paid=include_paid)
+    except FreeKeysExhausted as exc:
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+        notice(str(exc))
+        return exhausted_free_session(folder, key)
     except KeyboardInterrupt:
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()

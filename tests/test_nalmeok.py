@@ -883,7 +883,7 @@ class MixedRunTests(unittest.TestCase):
 
             live_texts = iter(("free one", "free two"))
 
-            def fake_live_generate(client, model, contents, gap):
+            def fake_live_generate(client, model, contents, gap, **kwargs):
                 return FakeResponse(next(live_texts))
 
             def fake_uploads(folder, state, client, key_id, unit_keys):
