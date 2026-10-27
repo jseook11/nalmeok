@@ -680,6 +680,14 @@ def process_alive(pid):
     return True
 
 
+def safe_exists(path):
+    """권한이 없거나 읽을 수 없는 경로는 False 로 봅니다."""
+    try:
+        return Path(path).exists()
+    except OSError:
+        return False
+
+
 def watch_pid_path(folder):
     return Path(folder) / WATCH_PID
 
@@ -690,7 +698,7 @@ def watcher_running(folder):
     try:
         pid = int(path.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
-        if path.exists():
+        if safe_exists(path):
             try:
                 path.unlink()
             except OSError:
@@ -3116,13 +3124,12 @@ def wait(title="Enter 돌아가기"):
 
 
 def normalize(option):
+    """(key, label, desc, faded, skip) 로 맞춥니다. skip 은 커서가 건너뛸 항목입니다."""
     if option is None:
         return None
-    if len(option) == 2:
-        return option[0], option[1], "", False
-    if len(option) == 3:
-        return option[0], option[1], option[2], False
-    return option
+    option = list(option) + [None] * (5 - len(option))
+    return (option[0], option[1], option[2] or "", bool(option[3]),
+            bool(option[4]))
 
 
 def _line_count(text):
@@ -3142,14 +3149,16 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
         if row is None:
             rendered.append(f"  {dim('─' * WIDTH)}")
             continue
-        _, label, desc, faded = entries[row]
+        entry = entries[row]
+        label, desc, faded = entry[1], entry[2], entry[3]
         text = pad(clip(label, label_width), label_width)
         room = max(8, WIDTH - label_width - 5)
         tail = dim(clip(desc, room)) if desc else ""
-        if faded:
+        if row == cursor:
+            name = dim(text) if faded else bold(text)
+            rendered.append(f"  {accent('❯')} {name}   {tail}")
+        elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
-        elif row == cursor:
-            rendered.append(f"  {accent('❯')} {bold(text)}   {tail}")
         else:
             rendered.append(f"    {text}   {tail}")
     if footer is None:
@@ -3211,6 +3220,16 @@ def _draw_info(info):
     print()
 
 
+def _menu_move(entries, cursor, step):
+    """skip 표시된 항목을 건너뛴 다음 커서 위치. 모두 skip 이면 제자리입니다."""
+    total = len(entries)
+    for offset in range(1, total + 1):
+        index = (cursor + step * offset) % total
+        if not entries[index][4]:
+            return index
+    return cursor
+
+
 def select_menu(title, options, info=(), allow_back=False, heading=None,
                 subtitle="", footer=None):
     """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다."""
@@ -3219,7 +3238,7 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
-    cursor = 0
+    cursor = next((index for index, entry in enumerate(entries) if not entry[4]), 0)
 
     def render():
         screen(heading or title, subtitle)
@@ -3230,16 +3249,16 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
     while True:
         pressed = read_key()
         if pressed == "up":
-            cursor = (cursor - 1) % len(entries)
+            cursor = _menu_move(entries, cursor, -1)
         elif pressed == "down":
-            cursor = (cursor + 1) % len(entries)
+            cursor = _menu_move(entries, cursor, 1)
         elif pressed in ("right", "enter"):
             return entries[cursor][0]
         elif pressed in ("left", "esc"):
             if allow_back:
                 return BACK
             if pressed == "left":
-                cursor = (cursor - 1) % len(entries)
+                cursor = _menu_move(entries, cursor, -1)
         else:
             continue
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
@@ -3261,15 +3280,17 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
         if row is None:
             rendered.append(f"  {dim('─' * WIDTH)}")
             continue
-        _, label, desc, faded = entries[row]
+        entry = entries[row]
+        label, desc, faded = entry[1], entry[2], entry[3]
         text = pad(clip(label, label_width), label_width)
         room = max(8, WIDTH - label_width - 7)
         tail = dim(clip(desc, room)) if desc else ""
         check = accent('●') if row in selected else dim('○')
-        if faded:
+        if row == cursor:
+            name = dim(text) if faded else bold(text)
+            rendered.append(f"  {accent('❯')} {check} {name}   {tail}")
+        elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
-        elif row == cursor:
-            rendered.append(f"  {accent('❯')} {check} {bold(text)}   {tail}")
         else:
             rendered.append(f"    {check} {text}   {tail}")
     rendered.append("")
@@ -3358,8 +3379,12 @@ def _count_media(folder):
 def inspect_folder(folder):
     """네트워크 없이 폴더의 상태를 한 번에 읽습니다. 메뉴와 대시보드 전용입니다."""
     folder = Path(folder)
+    try:
+        exists = folder.is_dir()
+    except OSError:
+        exists = False
     facts = {
-        "folder": folder, "exists": folder.is_dir(),
+        "folder": folder, "exists": exists,
         "m4a": 0, "mp4": 0, "pdf": 0, "media": 0,
         "needs_convert": False, "job": False, "submitted": False,
         "result": False, "output": False, "recovery": False,
@@ -3377,13 +3402,13 @@ def inspect_folder(folder):
         facts["needs_convert"] = needs_conversion(folder)
     except OSError:
         facts["needs_convert"] = False
-    facts["output"] = output_path(folder).exists()
-    facts["result"] = (folder / RESULT_FILE).exists()
+    facts["output"] = safe_exists(output_path(folder))
+    facts["result"] = safe_exists(folder / RESULT_FILE)
     facts["watcher"] = watcher_running(folder)
     facts["watch"] = read_watch_status(folder)
 
     live_path = folder / LIVE_STATE_FILE
-    if live_path.exists():
+    if safe_exists(live_path):
         live = read_json_object(live_path)
         facts["live"] = True
         if live is None:
@@ -3410,7 +3435,7 @@ def inspect_folder(folder):
                 and (bool(groups) or bool(paid)))
 
     job = None
-    if state_path(folder).exists():
+    if safe_exists(state_path(folder)):
         facts["job"] = True
         job = read_json_object(state_path(folder))
         if job is None:
@@ -3625,20 +3650,58 @@ def path_target(text):
     return path if path.is_dir() else None
 
 
+SCAN_SECONDS = 0.1
+
+
+def has_descendant_media(folder, seconds=SCAN_SECONDS):
+    """하위 어디에 전사할 미디어나 작업 흔적이 있는지 seconds 안에서 확인합니다.
+
+    찾는 즉시 멈추고, 심볼릭 링크 디렉터리는 따라가지 않아 순환이 생기지
+    않습니다. 시간이 모자라 판단하지 못하면 True 를 돌려주어 폴더를 숨기지
+    않는 쪽으로 기웁니다.
+    """
+    deadline = time.monotonic() + seconds
+    pending = [Path(folder)]
+    while pending:
+        if time.monotonic() > deadline:
+            return True
+        current = pending.pop()
+        try:
+            if state_path(current).exists() or live_state_path(current).exists():
+                return True
+            with os.scandir(current) as scan:
+                for item in scan:
+                    if item.name.startswith("."):
+                        continue
+                    if time.monotonic() > deadline:
+                        return True
+                    try:
+                        if item.is_dir(follow_symlinks=False):
+                            pending.append(Path(item.path))
+                        elif (item.is_file()
+                              and item.name.lower().endswith((".mp4", ".m4a"))):
+                            return True
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return False
+
+
 def browse_folder(start=None):
     """폴더를 직접 돌아다니며 작업 폴더를 고릅니다. Esc 로 취소합니다."""
     current = Path(start or Path.cwd()).expanduser().resolve()
     while True:
         facts = inspect_folder(current)
+        read_error = ""
         try:
             subdirs = sorted(
                 (p for p in current.iterdir()
                  if p.is_dir() and not p.name.startswith(".")),
                 key=lambda p: natural_key(p.name))
         except OSError as exc:
-            notice(f"폴더를 읽지 못했습니다: {exc}")
-            wait()
-            return None
+            subdirs = []
+            read_error = str(exc)
         options = []
         if facts["media"] or facts["job"]:
             options.append(("__select__", "이 폴더 선택",
@@ -3646,9 +3709,15 @@ def browse_folder(start=None):
         for path in subdirs:
             child = inspect_folder(path)
             has_job = child["media"] or child["job"]
-            options.append((str(path), path.name + "/",
-                            folder_summary(path, child) if has_job else "폴더",
-                            not has_job))
+            usable = has_job or has_descendant_media(path)
+            if has_job:
+                desc = folder_summary(path, child)
+            elif usable:
+                desc = "하위 폴더"
+            else:
+                desc = "폴더"
+            options.append((str(path), path.name + "/", desc,
+                            not usable, not usable))
         if current.parent != current:
             options.append(("__up__", ".. 상위 폴더", short_path(current.parent)))
         options += [
@@ -3656,7 +3725,9 @@ def browse_folder(start=None):
             ("__cancel__", "취소", "", True),
         ]
         info = [("위치", str(current))]
-        if not facts["media"] and not facts["job"]:
+        if read_error:
+            info.append(("안내", "폴더를 읽지 못했습니다. " + read_error))
+        elif not facts["media"] and not facts["job"]:
             info.append(("안내", "이 폴더에는 MP4/M4A가 없습니다. 하위 폴더를 열어 보세요."))
         answer = select_menu(
             "폴더 열기", options, info, allow_back=True,
@@ -4251,7 +4322,7 @@ def progress_screen(folder):
     else:
         log(f"{pad('상태', 8)}  {stage_label(facts)}")
         log("백그라운드에서 기다리는 프로세스가 없습니다.")
-    if (folder / WATCH_LOG).exists():
+    if safe_exists(folder / WATCH_LOG):
         log_tail(folder / WATCH_LOG)
     wait()
 
@@ -4440,7 +4511,7 @@ def draw_home(entries, cursor, key, folder_count):
         if entry is None:
             print(f"  {dim('─' * WIDTH)}")
             continue
-        _, label, desc, faded = entry
+        label, desc, faded = entry[1], entry[2], entry[3]
         text = pad(clip(label, label_width), label_width)
         room = max(8, WIDTH - label_width - 5)
         tail = dim(clip(desc, room)) if desc else ""
@@ -4624,7 +4695,7 @@ def folder_menu(folder, facts):
     if stage == "watching":
         extra.append(("stopwatch", "백그라운드 감시 중단", "대기 프로세스를 종료합니다"))
     if stage not in ("watching",) and (
-            facts["watch"] or (folder / WATCH_LOG).exists()):
+            facts["watch"] or safe_exists(folder / WATCH_LOG)):
         extra.append(("progress", "대기 기록 보기", "마지막 백그라운드 상태와 로그"))
     if stage == "changed" and (facts["result"] or facts["recovery"]):
         extra.append(("merge", "결과 병합", "받은 결과로 Markdown 생성"))

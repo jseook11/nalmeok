@@ -112,6 +112,13 @@ class DisplayTests(unittest.TestCase):
         self.assertIn("●", text)
         self.assertIn("○", text)
 
+    def test_menu_cursor_visible_on_faded_row(self):
+        entries = [app.normalize(("a", "항목", "", True))]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            app.draw_menu(entries, [0], 0, "Enter 선택")
+        self.assertIn("❯", captured.getvalue())
+
 
 class PathTests(unittest.TestCase):
     def test_clean_path_unquotes_and_unescapes(self):
@@ -132,6 +139,97 @@ class PathTests(unittest.TestCase):
     def test_output_path(self):
         folder = Path("/tmp/lecture")
         self.assertEqual(app.output_path(folder), folder / "lecture.md")
+
+
+class FolderBrowseTests(unittest.TestCase):
+    def test_menu_move_skips_faded_entries(self):
+        entries = [app.normalize(option) for option in (
+            ("a", "A"), ("b", "B", "", True, True), ("c", "C"))]
+        self.assertEqual(app._menu_move(entries, 0, 1), 2)
+        self.assertEqual(app._menu_move(entries, 2, -1), 0)
+
+    def test_menu_move_keeps_position_when_all_are_skipped(self):
+        entries = [app.normalize(("a", "A", "", True, True))]
+        self.assertEqual(app._menu_move(entries, 0, 1), 0)
+
+    def test_has_descendant_media_finds_nested_and_ignores_hidden(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "a" / "b").mkdir(parents=True)
+            (root / ".hidden").mkdir()
+            (root / ".hidden" / "01.m4a").write_bytes(b"x")
+            self.assertFalse(app.has_descendant_media(root))
+            (root / "a" / "02.mp4").write_bytes(b"x")
+            self.assertTrue(app.has_descendant_media(root))
+
+    def test_has_descendant_media_counts_job_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            nested = root / "a" / "b"
+            nested.mkdir(parents=True)
+            self.assertFalse(app.has_descendant_media(root))
+            app.save(app.state_path(nested), {
+                "model": app.DEFAULT_MODEL,
+                "files": [],
+                "pdf": None,
+                "batch_id": None,
+            })
+            self.assertTrue(app.has_descendant_media(root))
+
+    def test_has_descendant_media_gives_up_within_time_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "a").mkdir()
+            clock = mock.Mock(side_effect=[0.0, 0.0, 0.2])
+            with mock.patch.object(app.time, "monotonic", clock):
+                self.assertTrue(app.has_descendant_media(root, seconds=0.1))
+
+    def test_has_descendant_media_does_not_follow_symlink_loops(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "loop"
+            root.mkdir()
+            (root / "self").symlink_to(root)
+            self.assertFalse(app.has_descendant_media(root))
+
+    @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                     "권한 없는 폴더 테스트는 일반 사용자에서만 동작합니다")
+    def test_inspect_folder_survives_permission_denied(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locked = Path(temp) / "locked"
+            locked.mkdir()
+            locked.chmod(0o000)
+            try:
+                facts = app.inspect_folder(locked)
+            finally:
+                locked.chmod(0o700)
+        self.assertFalse(facts["output"])
+        self.assertFalse(facts["job"])
+        self.assertEqual(facts["stage"], "empty")
+
+    @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                     "권한 없는 폴더 테스트는 일반 사용자에서만 동작합니다")
+    def test_browse_keeps_navigation_when_folder_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locked = Path(temp) / "locked"
+            locked.mkdir()
+            locked.chmod(0o000)
+            captured = {}
+
+            def fake_menu(title, options, info=(), **kwargs):
+                captured["options"] = options
+                captured["info"] = info
+                return app.BACK
+
+            try:
+                with mock.patch.object(app, "select_menu", fake_menu):
+                    self.assertIsNone(app.browse_folder(locked))
+            finally:
+                locked.chmod(0o700)
+        labels = [option[1] for option in captured["options"]]
+        self.assertIn(".. 상위 폴더", labels)
+        self.assertIn("경로 직접 입력", labels)
+        self.assertTrue(any("읽지 못했습니다" in value
+                            for _, value in captured["info"]))
 
 
 class ConfigTests(unittest.TestCase):
