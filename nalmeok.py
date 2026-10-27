@@ -871,9 +871,14 @@ LABEL_WIDTH = 11
 
 
 def display_width(text):
-    """터미널에서 차지하는 칸 수. 한글·한자 같은 전각 문자는 2칸입니다."""
+    """터미널에서 차지하는 칸 수. 한글·한자 같은 전각 문자는 2칸입니다.
+
+    macOS 파일명처럼 자모가 분리된(NFD) 한글은 그대로 세면 폭이 부풀어
+    열이 밀리므로 NFC 로 합쳐서 셉니다.
+    """
+    text = unicodedata.normalize("NFC", ANSI_RE.sub("", text))
     return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-               for ch in ANSI_RE.sub("", text))
+               for ch in text)
 
 
 def pad(text, width):
@@ -2969,6 +2974,7 @@ warn = _paint("33")
 
 WIDTH = 64
 BACK = object()
+UP = object()
 ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left",
           "OA": "up", "OB": "down", "OC": "right", "OD": "left"}
 
@@ -3092,6 +3098,7 @@ def notice(message):
 
 def clip(text, width):
     """표시 폭 기준으로 자르고 말줄임표를 붙입니다."""
+    text = unicodedata.normalize("NFC", text)
     if display_width(text) <= width:
         return text
     out, used = "", 0
@@ -3165,7 +3172,7 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
         footer = ("↑↓ 이동 · Enter 선택"
                   + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
     rendered.append("")
-    rendered.append(f"  {dim(footer)}")
+    rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
     for line in rendered:
         print(line)
     return sum(_line_count(line) for line in rendered)
@@ -3231,8 +3238,11 @@ def _menu_move(entries, cursor, step):
 
 
 def select_menu(title, options, info=(), allow_back=False, heading=None,
-                subtitle="", footer=None):
-    """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다."""
+                subtitle="", footer=None, left_up=False):
+    """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다.
+
+    left_up 이면 왼쪽 화살표가 BACK 대신 UP 을 돌려줍니다.
+    """
     if not RAW_KEYS:
         fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
     entries, rows = _menu_entries(options)
@@ -3256,6 +3266,8 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
             return entries[cursor][0]
         elif pressed in ("left", "esc"):
             if allow_back:
+                if pressed == "left" and left_up:
+                    return UP
                 return BACK
             if pressed == "left":
                 cursor = _menu_move(entries, cursor, -1)
@@ -3294,7 +3306,8 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
         else:
             rendered.append(f"    {check} {text}   {tail}")
     rendered.append("")
-    rendered.append(f"  {dim(footer or '↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로')}")
+    footer = footer or "↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로"
+    rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
     for line in rendered:
         print(line)
     return sum(_line_count(line) for line in rendered)
@@ -3653,39 +3666,54 @@ def path_target(text):
 SCAN_SECONDS = 0.1
 
 
-def has_descendant_media(folder, seconds=SCAN_SECONDS):
-    """하위 어디에 전사할 미디어나 작업 흔적이 있는지 seconds 안에서 확인합니다.
+def scan_descendant_media(folder, seconds=SCAN_SECONDS):
+    """하위 미디어 개수와 작업 흔적을 seconds 안에서 셉니다.
 
-    찾는 즉시 멈추고, 심볼릭 링크 디렉터리는 따라가지 않아 순환이 생기지
-    않습니다. 시간이 모자라 판단하지 못하면 True 를 돌려주어 폴더를 숨기지
-    않는 쪽으로 기웁니다.
+    (오디오, MP4, 작업 흔적, 끝까지 봤는지) 를 돌려줍니다. 심볼릭 링크
+    디렉터리는 따라가지 않아 순환이 생기지 않고, 시간이 모자라면 그때까지
+    센 값과 False 를 돌려줍니다.
     """
     deadline = time.monotonic() + seconds
     pending = [Path(folder)]
+    m4a = mp4 = 0
+    job = False
     while pending:
         if time.monotonic() > deadline:
-            return True
+            return m4a, mp4, job, False
         current = pending.pop()
         try:
             if state_path(current).exists() or live_state_path(current).exists():
-                return True
+                job = True
             with os.scandir(current) as scan:
                 for item in scan:
                     if item.name.startswith("."):
                         continue
                     if time.monotonic() > deadline:
-                        return True
+                        return m4a, mp4, job, False
                     try:
                         if item.is_dir(follow_symlinks=False):
                             pending.append(Path(item.path))
-                        elif (item.is_file()
-                              and item.name.lower().endswith((".mp4", ".m4a"))):
-                            return True
+                        elif item.is_file():
+                            suffix = item.name.lower()
+                            if suffix.endswith(".m4a"):
+                                m4a += 1
+                            elif suffix.endswith(".mp4"):
+                                mp4 += 1
                     except OSError:
                         continue
         except OSError:
             continue
-    return False
+    return m4a, mp4, job, True
+
+
+def nested_summary(m4a, mp4, complete):
+    """하위 폴더의 미디어 개수 요약. 다 못 셌으면 '이상'을 붙입니다."""
+    parts = []
+    if m4a:
+        parts.append(f"하위 오디오 {m4a}개" + ("" if complete else " 이상"))
+    if mp4:
+        parts.append(f"하위 MP4 {mp4}개" + ("" if complete else " 이상"))
+    return " · ".join(parts)
 
 
 def browse_folder(start=None):
@@ -3708,14 +3736,14 @@ def browse_folder(start=None):
                             folder_summary(current, facts)))
         for path in subdirs:
             child = inspect_folder(path)
-            has_job = child["media"] or child["job"]
-            usable = has_job or has_descendant_media(path)
-            if has_job:
-                desc = folder_summary(path, child)
-            elif usable:
-                desc = "하위 폴더"
-            else:
-                desc = "폴더"
+            if child["media"] or child["job"]:
+                options.append((str(path), path.name + "/",
+                                folder_summary(path, child), False, False))
+                continue
+            m4a, mp4, job, complete = scan_descendant_media(path)
+            usable = bool(m4a or mp4 or job or not complete)
+            desc = nested_summary(m4a, mp4, complete) if m4a or mp4 else (
+                "하위 폴더" if usable else "폴더")
             options.append((str(path), path.name + "/", desc,
                             not usable, not usable))
         if current.parent != current:
@@ -3730,12 +3758,13 @@ def browse_folder(start=None):
         elif not facts["media"] and not facts["job"]:
             info.append(("안내", "이 폴더에는 MP4/M4A가 없습니다. 하위 폴더를 열어 보세요."))
         answer = select_menu(
-            "폴더 열기", options, info, allow_back=True,
-            footer="↑↓ 이동 · Enter 열기 · Esc 뒤로")
+            "폴더 열기", options, info, allow_back=True, left_up=True,
+            footer="↑↓ 이동 · ← 상위 · Enter 열기 · Esc 나가기")
         if answer is BACK or answer == "__cancel__":
             return None
-        if answer == "__up__":
-            current = current.parent
+        if answer is UP or answer == "__up__":
+            if current.parent != current:
+                current = current.parent
             continue
         if answer == "__select__":
             return current

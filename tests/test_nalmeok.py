@@ -6,6 +6,7 @@ import re
 import stat
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -119,6 +120,11 @@ class DisplayTests(unittest.TestCase):
             app.draw_menu(entries, [0], 0, "Enter 선택")
         self.assertIn("❯", captured.getvalue())
 
+    def test_display_width_normalizes_decomposed_hangul(self):
+        nfd = unicodedata.normalize("NFD", "강의녹음/")
+        self.assertEqual(app.display_width(nfd), 9)
+        self.assertEqual(app.clip(nfd, 20), "강의녹음/")
+
 
 class PathTests(unittest.TestCase):
     def test_clean_path_unquotes_and_unescapes(self):
@@ -152,44 +158,64 @@ class FolderBrowseTests(unittest.TestCase):
         entries = [app.normalize(("a", "A", "", True, True))]
         self.assertEqual(app._menu_move(entries, 0, 1), 0)
 
-    def test_has_descendant_media_finds_nested_and_ignores_hidden(self):
+    def test_scan_descendant_media_counts_nested_and_ignores_hidden(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "a" / "b").mkdir(parents=True)
             (root / ".hidden").mkdir()
             (root / ".hidden" / "01.m4a").write_bytes(b"x")
-            self.assertFalse(app.has_descendant_media(root))
+            self.assertEqual(app.scan_descendant_media(root), (0, 0, False, True))
             (root / "a" / "02.mp4").write_bytes(b"x")
-            self.assertTrue(app.has_descendant_media(root))
+            (root / "a" / "03.m4a").write_bytes(b"x")
+            self.assertEqual(app.scan_descendant_media(root), (1, 1, False, True))
 
-    def test_has_descendant_media_counts_job_state(self):
+    def test_scan_descendant_media_counts_job_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             nested = root / "a" / "b"
             nested.mkdir(parents=True)
-            self.assertFalse(app.has_descendant_media(root))
+            self.assertEqual(app.scan_descendant_media(root), (0, 0, False, True))
             app.save(app.state_path(nested), {
                 "model": app.DEFAULT_MODEL,
                 "files": [],
                 "pdf": None,
                 "batch_id": None,
             })
-            self.assertTrue(app.has_descendant_media(root))
+            self.assertEqual(app.scan_descendant_media(root), (0, 0, True, True))
 
-    def test_has_descendant_media_gives_up_within_time_limit(self):
+    def test_scan_descendant_media_gives_up_within_time_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "a").mkdir()
             clock = mock.Mock(side_effect=[0.0, 0.0, 0.2])
             with mock.patch.object(app.time, "monotonic", clock):
-                self.assertTrue(app.has_descendant_media(root, seconds=0.1))
+                self.assertEqual(app.scan_descendant_media(root, seconds=0.1),
+                                 (0, 0, False, False))
 
-    def test_has_descendant_media_does_not_follow_symlink_loops(self):
+    def test_scan_descendant_media_does_not_follow_symlink_loops(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "loop"
             root.mkdir()
             (root / "self").symlink_to(root)
-            self.assertFalse(app.has_descendant_media(root))
+            self.assertEqual(app.scan_descendant_media(root), (0, 0, False, True))
+
+    def test_browse_shows_nested_media_counts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "topic" / "week1").mkdir(parents=True)
+            (root / "topic" / "week1" / "01.m4a").write_bytes(b"x")
+            (root / "topic" / "week1" / "02.mp4").write_bytes(b"x")
+            captured = {}
+
+            def fake_menu(title, options, info=(), **kwargs):
+                captured["options"] = options
+                return app.BACK
+
+            with mock.patch.object(app, "select_menu", fake_menu):
+                app.browse_folder(root)
+        desc = next(option[2] for option in captured["options"]
+                    if option[1] == "topic/")
+        self.assertEqual(desc, "하위 오디오 1개 · 하위 MP4 1개")
 
     @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
                      "권한 없는 폴더 테스트는 일반 사용자에서만 동작합니다")
@@ -205,6 +231,31 @@ class FolderBrowseTests(unittest.TestCase):
         self.assertFalse(facts["output"])
         self.assertFalse(facts["job"])
         self.assertEqual(facts["stage"], "empty")
+
+    @unittest.skipUnless(app.RAW_KEYS, "방향키 메뉴는 macOS·Linux 에서만 동작합니다")
+    def test_menu_left_returns_up_when_left_up(self):
+        with mock.patch.object(app, "read_key", return_value="left"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertIs(
+                app.select_menu("폴더", [("a", "A")], allow_back=True,
+                                left_up=True), app.UP)
+            self.assertIs(
+                app.select_menu("폴더", [("a", "A")], allow_back=True), app.BACK)
+
+    def test_browse_left_arrow_moves_to_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            child = Path(temp) / "child"
+            child.mkdir()
+            seen = []
+            answers = iter([app.UP, app.BACK])
+
+            def fake_menu(title, options, info=(), **kwargs):
+                seen.append(next(value for label, value in info if label == "위치"))
+                return next(answers)
+
+            with mock.patch.object(app, "select_menu", fake_menu):
+                self.assertIsNone(app.browse_folder(child))
+        self.assertEqual(seen, [str(child.resolve()), str(Path(temp).resolve())])
 
     @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
                      "권한 없는 폴더 테스트는 일반 사용자에서만 동작합니다")
