@@ -12,6 +12,7 @@ echo === console doctor (VT/ANSI is the value to read) ===
 echo.
 if "%WT_SESSION%"=="" (
   echo [info] WT_SESSION is empty: this is not Windows Terminal.
+  echo        Open the Terminal app from Start, or run: wt.exe
 ) else (
   echo [info] Windows Terminal session detected.
 )

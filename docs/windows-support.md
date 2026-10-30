@@ -27,7 +27,8 @@
 | 후속 · Windows 타이틀/폴더 스캔 제한 | 완료 | - | 타이틀/바로가기 ASCII `nalmeok`. Windows 111 tests pass. 홈 대시보드 0.013s, 기본 스캔 0.111s |
 | 수동 검증 · Windows 10 22H2 conhost | 보류 | - | 2026-10-30 사용자 결정으로 실기 검증 보류. best-effort로 문서화 (D13) |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 보류 | - | 위와 동일 |
-| 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | `C:\Users\JSRd\nalmeok-verify` 키트로 사용자가 직접 진행 예정 |
+| 수동 검증 · Windows 11 conhost | 진행 중 | - | VT/ANSI 가능, attached=True, stdin/stdout isatty=True 확인(2026-10-30). TUI 체크리스트·스크린샷 대기 |
+| 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | `C:\Users\JSRd\nalmeok-verify` 키트로 사용자가 직접 진행 예정. WT_SESSION이 비어 conhost로 실행된 기록 있음 |
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
@@ -49,6 +50,8 @@
   - 남은 검증: Windows 11 Windows Terminal(사용자 직접 진행 예정), 무료 live/유료 Batch 실제 전사
   - 후속: Windows 타이틀/바로가기를 ASCII `nalmeok`으로 변경, 폴더 스캔 제한(D14).
     Windows 111 tests pass, 홈 대시보드 0.013s, 기본 스캔 0.111s, `scan_descendant_media` 0.022s.
+  - Windows 11 conhost(2026-10-30 20:23): `VT/ANSI 가능`, `attached=True`, `stdin/stdout isatty=True` 확인.
+  - Windows 11 Windows Terminal: `WT_SESSION`이 비어 있어 실제 WT가 아닌 conhost에서 실행됨. 재실행 필요.
   - **Windows 10 22H2 실기 검증은 2026-10-30 사용자 결정으로 보류.** README와 이 문서에서 best-effort로 표기한다 (D13).
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
@@ -585,3 +588,4 @@ if errorlevel 1 pause
 | 2026-10-30 | PR3 런타임 ZIP·cmd 설치 스크립트·CI·README 추가. Windows 11에서 빌드/설치/번들 실행 E2E 검증 (ZIP 164.7MiB) | Claude Code |
 | 2026-10-30 | Windows 10 22H2 실기 검증 보류(D13). Windows 11 Windows Terminal은 사용자 직접 진행으로 상태 정리 | Claude Code |
 | 2026-10-30 | 후속: Windows 타이틀/바로가기 ASCII `nalmeok`, 폴더 스캔 제한(D14). Windows 111 tests pass, 대시보드 0.013s | Claude Code |
+| 2026-10-30 | Windows 11 conhost 환경 검증(VT/ANSI·isatty). Windows Terminal은 WT_SESSION 부재로 재실행 필요 | Claude Code |
