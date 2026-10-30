@@ -1,6 +1,6 @@
 # macOS 앱 패키징
 
-> **상태:** 운영 중 · 최근 릴리스 v0.6.1 (0.6.2는 미배포)
+> **상태:** 운영 중 · 최근 릴리스 v0.6.2
 > **목표:** macOS 비개발자가 DMG 하나로 설치하고, Python·brew·git 없이 TUI를 쓰며, 업데이트 때 전체를 다시 받지 않도록 합니다.
 > 이 문서가 macOS 배포의 단일 기준입니다. 사용자용 설치 절차는 `README.md`가 소유합니다.
 
@@ -18,7 +18,7 @@
 | M2 · DMG·서명·공증·staple | 완료 | Developer ID 서명, notarytool **Accepted**(`2c48e95d`, v0.6.0 빌드), staple·spctl 통과. DMG 2.45MB |
 | M3 · 업데이트 | 완료 | `nalmeok update`·manifest·앱 코드/SDK 갱신, E2E 확인 |
 | M3 · ffmpeg 온디맨드 | 미착수 | macOS manifest에 `ffmpeg` 항목 없음. 현재 `brew install ffmpeg` 안내 |
-| M4 · CI·테스트·문서 | 완료 | unsigned 앱 CI 빌드, README 설치 안내, v0.6.0/0.6.1 릴리스 |
+| M4 · CI·테스트·문서 | 완료 | unsigned 앱 CI 빌드, README 설치 안내, v0.6.0/0.6.1/0.6.2 릴리스 |
 | 후속 · Finder 아이콘 드롭 | 보류 (v1.1) | - |
 | 후속 · Intel x86_64 | 보류 | - |
 | 후속 · 앱 자동 업데이트(Sparkle 등) | 보류 | - |
@@ -29,7 +29,7 @@
 
 - 앱 버전: **0.6.2** (`nalmeok/constants.py`, `pyproject.toml`)
 - 테스트: **158개 통과, 8개 skip** (macOS)
-- 릴리스: https://github.com/jseook11/nalmeok/releases/tag/v0.6.1
+- 릴리스: https://github.com/jseook11/nalmeok/releases/tag/v0.6.2
 - 대상: macOS 12 Monterey 이상, **Apple Silicon(arm64)**. Intel은 미지원
 - 번들 ID `com.jseook11.nalmeok`, 최소 버전은 `Info.plist`의 `LSMinimumSystemVersion`
 - 빌드 도구: `swiftc`, `sips`/`iconutil`, `hdiutil`, `codesign`, `notarytool`, `file`
@@ -355,3 +355,4 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | 2026-10-30 | v0.6.0 → v0.6.1 릴리스, 파일명 `macos-arm64`로 통일 | Claude Code |
 | 2026-10-30 | 문서 정리: 코드와 어긋난 설명 수정(런처가 bootstrap을 연다, macOS manifest에는 ffmpeg/python URL이 없다, update는 앱 코드만 교체·백업 없음, ffmpeg 온디맨드 미구현), 폐기된 단일 파일 제약 제거, **서명·공증 필수 요건 폐기**(선택 사항으로) | Claude Code |
 | 2026-10-31 | 패키지 분리 반영: 번들 Resources/`nalmeok/`, seed는 패키지 복사, 실행은 `-m nalmeok`, 업데이트는 `nalmeok-app-macos-arm64.zip` 교체 | Claude Code |
+| 2026-10-31 | **v0.6.2 릴리스**: unsigned DMG 2.46MB + `nalmeok-app-macos-arm64.zip` + `macos-manifest.json` | Claude Code |

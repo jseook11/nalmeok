@@ -20,7 +20,7 @@
 | 설치 오류·ZIP 구조 정리 (v0.6.2) | 완료 | ko-KR Windows 11에서 설치·바로가기·드롭 안내·`--version` 확인, 오류 없음 |
 | Windows 11 Windows Terminal TUI 체크리스트 | 진행 중 | 환경(WT_SESSION·VT·isatty) 확인 완료. 화면 체크리스트·스크린샷 대기 |
 | Windows 10 22H2 실기 검증 | 보류 | 2026-10-30 사용자 결정(D13). best-effort로 표기 |
-| v0.6.2 릴리스 | 보류 | 2026-10-30 사용자 결정으로 아직 배포하지 않음 |
+| v0.6.2 릴리스(패키지 분리) | 완료 | [v0.6.2](https://github.com/jseook11/nalmeok/releases/tag/v0.6.2) thin ZIP·`nalmeok-app-win64.zip`·manifest |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -403,3 +403,4 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 | 2026-10-30 | **v0.6.2**: `'더의' is not recognized` 수정. `.cmd` 순수 ASCII(D19), ZIP 루트 `installer.cmd`만(D18). Windows 11 실기 검증 | Claude Code |
 | 2026-10-30 | 문서 정리: 오래된 기준선·중복 제거, 기준선 0.6.2/157 tests로 갱신, 코드서명·의존성 금지·단일 파일 제약 폐기 | Claude Code |
 | 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 `nalmeok-app-win64.zip` 디렉터리 교체 | Claude Code |
+| 2026-10-31 | **v0.6.2 릴리스**: thin ZIP 199KB + `nalmeok-app-win64.zip` + `windows-manifest.json`. Windows 11 실기·CI 통과 | Claude Code |
