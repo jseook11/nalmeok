@@ -35,3 +35,6 @@ wheels/
 
 # Command Code 세션 설정
 .commandcode/
+
+# Claude Code 개인 작업 지침 (배포물에 포함하지 않음)
+CLAUDE.md

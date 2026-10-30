@@ -127,7 +127,7 @@ ZIP은 약 200KB입니다. 실행에 필요한 Python과 google-genai는 **첫 �
 
 > **지원 범위:** macOS 12 Monterey 이상, **Apple Silicon(arm64)**. Intel Mac은 아직 지원하지 않습니다.
 
-Python·brew·git을 설치할 필요가 없습니다. 서명·공증된 빌드는 Gatekeeper 경고 없이 실행됩니다(서명이 없는 빌드는 아래 문제 해결 참고). 단, **MP4 변환과 130분 초과 live 분할에는 아직 ffmpeg가 필요합니다**(3번 사용 절 참고).
+Python·brew·git을 설치할 필요가 없습니다. 앱은 Developer ID로 서명·공증되어 Gatekeeper 경고 없이 실행됩니다. 단, **MP4 변환과 130분 초과 live 분할에는 아직 ffmpeg가 필요합니다**(3번 사용 절 참고).
 
 ### 1. 설치
 
@@ -157,7 +157,7 @@ google-genai 설치 중...      약 20MB
 
 ### 4. 문제 해결
 
-- **"확인되지 않은 개발자" 경고가 뜹니다.** 서명·공증이 없는 빌드입니다. 앱을 **Control-클릭 → 열기**하고, 한 번 더 확인 창이 나오면 **열기**를 누릅니다. 그래도 열리지 않으면 **시스템 설정 → 개인정보 보호 및 보안**에서 nalmeok의 **확인 없이 열기**를 누릅니다. GitHub Actions의 `unsigned` 아티팩트는 테스트용입니다.
+- **"확인되지 않은 개발자" 경고가 뜹니다.** Releases의 DMG인지 확인하세요. GitHub Actions의 `unsigned` 아티팩트는 테스트용이며 배포용이 아닙니다.
 - **아무 반응이 없습니다.** 앱은 Dock 아이콘 없이 Terminal 창을 엽니다. Terminal이 뒤에 열려 있지 않은지 확인하세요.
 - **Intel Mac입니다.** 현재 arm64 전용이라 실행되지 않습니다.
 - **제거하려면** `nalmeok.app`, `~/Library/Application Support/nalmeok`, 필요하면 `~/.config/nalmeok`과 `~/Documents/nalmeok`을 삭제합니다.

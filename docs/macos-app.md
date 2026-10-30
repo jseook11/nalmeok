@@ -43,7 +43,7 @@
 3. 런타임에 **`sudo`를 요구하지 않는다.**
 4. **앱 번들과 `/Applications`에 쓰지 않는다.** 앱 코드·런타임은 `~/Library/Application Support/nalmeok/`, 설정·키는 `~/.config/nalmeok/`, 작업 상태는 각 강의 폴더에 둔다. (예외: 드롭한 단일 파일 작업 폴더는 `~/.local/share/nalmeok/jobs`.)
 5. 다운로드한 산출물은 **SHA-256 검증 전에는 실행하지 않는다.**
-6. 릴리스에 서명·공증을 **요구하지 않는다.** 자격이 있으면 서명·공증하고, 없으면 unsigned DMG로 배포하되 README에 첫 실행 방법(Gatekeeper 우회)을 적는다. 2026-10-30 사용자 결정.
+6. 릴리스는 **서명 + 공증 + staple**된 DMG로만 배포한다. CI의 unsigned 아티팩트는 테스트용이며 배포하지 않는다.
 7. 사용자 인터페이스는 터미널(TUI)이다. 별도 GUI를 만들지 않는다. 런처의 오류 `NSAlert`는 예외.
 
 > 2026-10-30 폐기: "앱 코드는 계속 단일 `nalmeok.py`". 2026-10-31 `nalmeok/` 패키지로 분리했다(`CLAUDE.md` 제약 조정).
@@ -67,7 +67,7 @@
 - Python, brew, git, CLT를 요구하지 않는다.
 - 첫 실행에서 필요한 런타임만 내려받고, 이후 코드 업데이트는 앱 코드 파일 하나만 받는다.
 - 터미널에 폴더/MP4/M4A를 끌어다 놓으면 바로 전사한다(`docs/drop-target.md`).
-- 자격이 있으면 서명·공증으로 Gatekeeper 경고 없이 실행된다.
+- 서명·공증으로 Gatekeeper 경고 없이 실행된다.
 - Apple Silicon에서 동작을 검증한다.
 
 ### 1.2 비목표
@@ -92,7 +92,7 @@
 | MD9 | ffmpeg/ffprobe는 **온디맨드 정적 빌드** (계획) | M4A만 쓰는 사용자에게 큰 다운로드를 강요하지 않음 | **미구현.** v1.1 후보 |
 | MD10 | v1은 **arm64만** | 사용자 대부분, 빌드·검증 단순화 | `nalmeok-<v>-macos-arm64.dmg` |
 | MD11 | 최소 **macOS 12 Monterey** | Swift 런타임 내장, PBS 지원 | `LSMinimumSystemVersion 12.0` |
-| MD12 | **Developer ID + notarytool + staple은 선택** | Gatekeeper 경고를 없애 주지만, 개인 배포에서 필수는 아니다 | 자격이 있으면 서명·공증, 없으면 unsigned DMG + README 안내 |
+| MD12 | **Developer ID + notarytool + staple** | Gatekeeper 경고 제거. macOS 사용자에게는 필수 | DMG 공증 |
 | MD13 | 앱 껍데기 업데이트는 **수동 DMG** | 껍데기는 거의 안 바뀜 | Sparkle은 후속 |
 | MD14 | 파일 입력은 **터미널 드롭** | v0.5.0에서 검증 | 브래킷 붙여넣기 |
 | MD16 | 번들 ID `com.jseook11.nalmeok` | 서명·공증 식별자 | `Info.plist` |
@@ -237,9 +237,9 @@ macOS manifest(`dist/macos-manifest.json` → 릴리스에서 `macos-manifest.js
 - Swift 런처에 `application(_:open:)`을 추가하고, 드롭된 URL을 `drop` 인자로 전달한다.
 - v1은 터미널 드롭으로 충분하므로 보류한다.
 
-### 4.11 서명·공증 (선택)
+### 4.11 서명·공증
 
-**릴리스 요건이 아니다.** 자격이 있을 때만 수행한다. `NALMEOK_SIGN_IDENTITY`/`NALMEOK_NOTARY_PROFILE`이 없으면 빌드는 unsigned DMG를 만든다.
+**릴리스 요건이다.** `NALMEOK_SIGN_IDENTITY`/`NALMEOK_NOTARY_PROFILE` 없이 빌드하면 unsigned DMG가 나오며, 그 파일은 배포하지 않는다.
 
 빌드 순서(`scripts/build_macos.py`):
 
@@ -309,7 +309,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 
 1. `__version__`과 `pyproject.toml` 버전을 올린다(둘이 같아야 한다. 테스트가 검사).
 2. 테스트를 통과시킨다.
-3. `NALMEOK_SIGN_IDENTITY`, `NALMEOK_NOTARY_PROFILE`을 지정하면 서명·공증까지 수행한다(선택). 없으면 unsigned DMG가 나온다.
+3. `NALMEOK_SIGN_IDENTITY`, `NALMEOK_NOTARY_PROFILE`을 지정해 `python3 scripts/build_macos.py`를 실행한다(빌드가 서명·공증·staple까지 수행).
 4. `spctl`, `stapler validate`, 마운트한 DMG 실행을 확인한다.
 5. GitHub Release에 **DMG, `nalmeok-app-macos-arm64.zip`, `macos-manifest.json`, `SHA256SUMS.txt`** 를 올린다. 태그는 `v<version>`.
 6. 새 Mac에서 설치·업데이트를 확인한다.
@@ -341,7 +341,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | manifest Ed25519 서명 | **v1.1 후보** (현재 HTTPS + SHA-256) |
 | 최소 macOS | **12 Monterey** |
 | 앱 이름/번들 ID | `nalmeok`, `com.jseook11.nalmeok` |
-| 릴리스 서명·공증 | **선택.** 자격이 있으면 수행, 없으면 unsigned + README 안내 |
+| 릴리스 서명·공증 | **필수.** 로컬에서 서명·공증한 DMG만 배포 |
 | CI 서명 | **없음.** CI는 unsigned 아티팩트만 만든다 |
 
 ## 10. 변경 이력
@@ -353,6 +353,6 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | 2026-10-30 | M2 완료. Developer ID 서명·공증 Accepted(`2c48e95d`)·staple·spctl 통과 | Claude Code |
 | 2026-10-30 | M3. `nalmeok update`로 앱 코드·SDK 갱신, manifest 생성 | Claude Code |
 | 2026-10-30 | v0.6.0 → v0.6.1 릴리스, 파일명 `macos-arm64`로 통일 | Claude Code |
-| 2026-10-30 | 문서 정리: 코드와 어긋난 설명 수정(런처가 bootstrap을 연다, macOS manifest에는 ffmpeg/python URL이 없다, update는 앱 코드만 교체·백업 없음, ffmpeg 온디맨드 미구현), 폐기된 단일 파일 제약 제거, **서명·공증 필수 요건 폐기**(선택 사항으로) | Claude Code |
+| 2026-10-30 | 문서 정리: 코드와 어긋난 설명 수정(런처가 bootstrap을 연다, macOS manifest에는 ffmpeg/python URL이 없다, update는 앱 코드만 교체·백업 없음, ffmpeg 온디맨드 미구현), 폐기된 단일 파일 제약 제거 | Claude Code |
 | 2026-10-31 | 패키지 분리 반영: 번들 Resources/`nalmeok/`, seed는 패키지 복사, 실행은 `-m nalmeok`, 업데이트는 `nalmeok-app-macos-arm64.zip` 교체 | Claude Code |
-| 2026-10-31 | **v0.6.2 릴리스**: unsigned DMG 2.46MB + `nalmeok-app-macos-arm64.zip` + `macos-manifest.json` | Claude Code |
+| 2026-10-31 | **v0.6.2 릴리스**: Developer ID 서명·공증·staple DMG + `nalmeok-app-macos-arm64.zip` + `macos-manifest.json` | Claude Code |
