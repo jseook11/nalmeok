@@ -24,9 +24,9 @@
 | PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
 | PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
 | PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 완료 | - | Windows 11에서 빌드·압축 해제·런처·번들 테스트 108 pass·ffmpeg 변환·설치·바로가기·doctor 확인. ZIP 164.7MiB |
-| 수동 검증 · Windows 10 22H2 conhost | 미착수 | - | - |
-| 수동 검증 · Windows 10 22H2 Windows Terminal | 미착수 | - | - |
-| 수동 검증 · Windows 11 Windows Terminal | 미착수 | - | - |
+| 수동 검증 · Windows 10 22H2 conhost | 보류 | - | 2026-10-30 사용자 결정으로 실기 검증 보류. best-effort로 문서화 (D13) |
+| 수동 검증 · Windows 10 22H2 Windows Terminal | 보류 | - | 위와 동일 |
+| 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | `C:\Users\JSRd\nalmeok-verify` 키트로 사용자가 직접 진행 예정 |
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
@@ -39,13 +39,14 @@
 - 배포 런타임: Python 3.12.x (python-build-standalone, x86_64)
 - **2026-10-30 Windows 1차 검증**
   - 환경: Windows 11 build 26200.9457, OpenSSH/ConPTY, Python 3.12.16 standalone
-  - 테스트: **104개 통과, 3개 skip** (Windows)
+  - 테스트: **108개 통과, 3개 skip** (Windows)
   - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
   - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
   - PR2: 한글 클립보드 왕복, 프로세스 간 `job_lock` 차단, `doctor`, `NALMEOK_DEBUG` 로그 확인
   - PR3: Windows에서 ZIP 빌드(164.7MiB, SHA-256 `248db552…`), 압축 해제 실행, 번들 테스트 108 pass,
     번들 ffmpeg `convert`/`estimate`, `installer.cmd` 복사·바탕화면/시작 메뉴 바로가기, 설치 후 `doctor` 확인
-  - 남은 검증: 실제 Windows Terminal, Windows 10, 무료 live/유료 Batch 실제 전사
+  - 남은 검증: Windows 11 Windows Terminal(사용자 직접 진행 예정), 무료 live/유료 Batch 실제 전사
+  - **Windows 10 22H2 실기 검증은 2026-10-30 사용자 결정으로 보류.** README와 이 문서에서 best-effort로 표기한다 (D13).
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
 
@@ -107,6 +108,7 @@
 | D10 | `nalmeok.cmd`는 인자가 없을 때만 `cd /d "%USERPROFILE%"` | CLI에서 상대 경로 인자를 깨지 않기 위함 | 더블클릭은 홈에서 시작, `nalmeok.cmd estimate .\x`는 cwd 유지 |
 | D11 | ffmpeg 탐색은 `find_tool()`로 통일 | 번들 파일은 PATH에 없음. `shutil.which` 3곳이 흩어져 있음 | `NALMEOK_FFMPEG` 환경변수 → 앱 폴더 → PATH 순 |
 | D12 | `doctor` 서브커맨드 추가 | Windows 실기 없이 원격 진단하기 위한 최소 장치 | 키/SDK 없이 동작 |
+| D13 | Windows 10 22H2 실기 검증 보류 | Hyper-V 활성화·재부팅·Win10 설치 비용 대비, 사용 API는 22H2에서 안정적. 2026-10-30 사용자 결정 | README/문서에 best-effort로 표기. 필요 시 `nalmeok-verify` 키트로 재개 |
 
 ---
 
@@ -451,6 +453,9 @@ if errorlevel 1 pause
 
 ### 6.3 수동 검증 매트릭스
 
+> 2026-10-30: **Windows 10 22H2 검증은 사용자 결정으로 보류** (D13, best-effort). Windows 11 Windows Terminal은 사용자가 `nalmeok-verify` 키트로 직접 진행 예정.
+> Windows 10 열은 재개 시 사용한다.
+
 각 환경에서 이슈 #1에 결과를 기록한다.
 
 | 항목 | Win10 22H2 conhost | Win10 22H2 WT | Win11 WT |
@@ -548,10 +553,10 @@ if errorlevel 1 pause
 | Q1 | 바로가기 표시 이름 | `날먹` | 확정 |
 | Q2 | 제거 프로그램(`uninstaller.cmd`) 포함 | 미포함, 수동 삭제 안내 | 보류 |
 | Q3 | ffmpeg 번들 vs 온디맨드 | 번들 유지 (D5). 실측 ZIP 164.7MiB | 확정, 용량 민감 시 재검토 |
-| Q4 | Windows 10 최소 빌드 | 22H2 (D6) | 확정 |
+| Q4 | Windows 10 최소 빌드 | 22H2 (D6) | 확정. 실기 검증은 보류 (D13) |
 | Q5 | Windows 알림 | 후순위, 터미널 벨 유지 | 보류 |
 | Q6 | line-mode TUI | 범위 밖 (D9) | 보류 |
-| Q7 | 실기 검증 담당 | 사용자 보유 Windows PC | 확인 필요 |
+| Q7 | 실기 검증 담당 | Windows 11은 사용자 직접, Windows 10은 보류 | 확정 |
 | Q8 | 한 줄 `install.ps1`을 주 경로로 할지 | ZIP + `installer.cmd` 유지, `install.ps1`은 보조 후보 | 논의 |
 
 ---
@@ -564,3 +569,4 @@ if errorlevel 1 pause
 | 2026-10-30 | PR1 입력/터미널 계층 구현. Windows 11 SSH/ConPTY에서 TUI 렌더링·키 입력 검증 | Claude Code |
 | 2026-10-30 | PR2 인코딩·도구·잠금·클립보드·doctor 구현. Windows 11에서 108 tests pass | Claude Code |
 | 2026-10-30 | PR3 런타임 ZIP·cmd 설치 스크립트·CI·README 추가. Windows 11에서 빌드/설치/번들 실행 E2E 검증 (ZIP 164.7MiB) | Claude Code |
+| 2026-10-30 | Windows 10 22H2 실기 검증 보류(D13). Windows 11 Windows Terminal은 사용자 직접 진행으로 상태 정리 | Claude Code |

@@ -56,7 +56,7 @@ cd nalmeok
 
 ## Windows 설치 (비개발자용)
 
-> **지원 범위:** Windows 10 22H2(빌드 19045) / Windows 11, x64. 그 이전 Windows 10 빌드는 best-effort이며, Windows ARM64와 32비트는 지원하지 않습니다. Windows 11에서 1차 검증을 마쳤고, Windows 10 22H2와 Windows Terminal 실기 검증은 남아 있습니다.
+> **지원 범위:** Windows 11 x64(콘솔/ConPTY 실기 검증 완료). Windows 10 22H2(빌드 19045)는 best-effort이며, 2026-10-30 기준 실기 검증은 보류했습니다. 그 이전 Windows 10 빌드도 best-effort이고, Windows ARM64와 32비트는 지원하지 않습니다. Windows Terminal 검증은 진행 중입니다.
 
 Python·uv·Git을 설치할 필요가 없습니다. ZIP에 실행에 필요한 Python 런타임과 ffmpeg/ffprobe가 들어 있습니다. 설치는 관리자 권한 없이 사용자 폴더에만 합니다.
 

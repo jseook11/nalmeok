@@ -91,3 +91,17 @@ Get-Content .\dist\SHA256SUMS.txt
 - ZIP과 `SHA256SUMS.txt` 아티팩트 업로드
 
 CI는 대화형 콘솔을 검증하지 못하므로, 최종 릴리스 전 Windows 실기 수동 검증이 필요합니다.
+
+## 수동 검증 키트
+
+릴리스 ZIP을 푼 폴더에 `verify-windows.cmd`를 복사한 뒤 각 터미널에서 실행합니다.
+
+```bat
+:: conhost (명령 프롬프트)
+verify-windows.cmd conhost
+
+:: Windows Terminal
+verify-windows.cmd wt
+```
+
+`verify-report-conhost.txt` / `verify-report-wt.txt`에 `WT_SESSION`, `chcp`, `ver`, `doctor` 출력이 기록됩니다. TUI 항목은 [`docs/windows-support.md`](../docs/windows-support.md) 6.3 매트릭스를 따릅니다.
