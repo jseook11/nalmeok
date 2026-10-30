@@ -1,0 +1,39 @@
+name: Debug shortcut
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe shortcut creation
+        shell: pwsh
+        run: |
+          $code = @'
+          $ErrorActionPreference = 'Stop'
+          "ps: " + $PSVersionTable.PSVersion.ToString()
+          "culture: " + (Get-Culture).Name
+          "cp: " + [Console]::OutputEncoding.WebName
+          $d = [Environment]::GetFolderPath('Desktop')
+          "desktop: [$d] exists=" + (Test-Path -LiteralPath $d)
+          $s = [Environment]::GetFolderPath('StartMenu')
+          "startmenu: [$s] exists=" + (Test-Path -LiteralPath $s)
+          $name = 'nalmeok에 끌어놓기'
+          "name codepoints: " + (($name.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+          $ws = New-Object -ComObject WScript.Shell
+          $p = Join-Path $d ($name + '.lnk')
+          "path codepoints: " + (($p.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+          try {
+            $lnk = $ws.CreateShortcut($p)
+            $lnk.TargetPath = "$env:SystemRoot\System32\notepad.exe"
+            $lnk.WorkingDirectory = $env:USERPROFILE
+            $lnk.Save()
+            "save ok, file exists: " + (Test-Path -LiteralPath $p)
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
+          } catch {
+            "save failed: " + $_.Exception.Message
+          }
+          '@
+          $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+          powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
