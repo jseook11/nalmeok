@@ -11,7 +11,7 @@
 | `docs/drop-target.md` | 드래그앤드롭 입력 정규화·작업 폴더·결과 복사 결정 |
 | `docs/windows-support.md` | Windows 지원 범위, 배포물 구조, 런처 계약, CI |
 | `docs/macos-app.md` | 앱 번들, 부트스트랩, DMG, 업데이트, 서명(선택) |
-| `CLAUDE.md` | 작업 지침, 폐기된 제약, macOS 자격 |
+| 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
 ## 프로젝트 구조
 

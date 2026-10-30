@@ -46,7 +46,7 @@
 6. 릴리스는 **서명 + 공증 + staple**된 DMG로만 배포한다. CI의 unsigned 아티팩트는 테스트용이며 배포하지 않는다.
 7. 사용자 인터페이스는 터미널(TUI)이다. 별도 GUI를 만들지 않는다. 런처의 오류 `NSAlert`는 예외.
 
-> 2026-10-30 폐기: "앱 코드는 계속 단일 `nalmeok.py`". 2026-10-31 `nalmeok/` 패키지로 분리했다(`CLAUDE.md` 제약 조정).
+> 2026-10-30 폐기: "앱 코드는 계속 단일 `nalmeok.py`". 2026-10-31 `nalmeok/` 패키지로 분리했다(로컬 작업 지침의 제약 조정).
 
 ### 0.4 하지 말 것
 
@@ -251,7 +251,7 @@ macOS manifest(`dist/macos-manifest.json` → 릴리스에서 `macos-manifest.js
 6. `xcrun stapler staple`
 7. `spctl -a -vv`(마운트한 DMG), `stapler validate`
 
-자격은 이 Mac의 키체인(`nalmeok-notary`)에 있다. 설정 방법은 `CLAUDE.md` 참고. **CI에는 서명 단계가 없다.** CI는 unsigned 앱을 `nalmeok-macos-unsigned-<sha>` 아티팩트로 올린다.
+자격은 이 Mac의 키체인(`nalmeok-notary`)에 있다. 설정 방법은 로컬 작업 지침(CLAUDE.md) 참고. **CI에는 서명 단계가 없다.** CI는 unsigned 앱을 `nalmeok-macos-unsigned-<sha>` 아티팩트로 올린다.
 
 ### 4.12 보안 모델
 
