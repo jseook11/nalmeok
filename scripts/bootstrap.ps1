@@ -23,8 +23,19 @@ function Read-EnvFile([string]$Path) {
 }
 
 function Assert-Hash([string]$Path, [string]$Expected) {
-    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
-    if ($actual -ne $Expected.ToLower()) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            $bytes = $sha.ComputeHash($stream)
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
+    $actual = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+    if ($actual -ne $Expected.ToLowerInvariant()) {
         throw "checksum mismatch: $actual"
     }
 }
@@ -34,7 +45,12 @@ function Invoke-Download([string]$Url, [string]$Destination) {
         & curl.exe -fL --retry 3 --progress-bar -o $Destination $Url
         if ($LASTEXITCODE -ne 0) { throw "download failed (curl $LASTEXITCODE)" }
     } else {
-        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+        $client = New-Object System.Net.WebClient
+        try {
+            $client.DownloadFile($Url, $Destination)
+        } finally {
+            $client.Dispose()
+        }
     }
 }
 
@@ -54,7 +70,9 @@ if ($Ffmpeg) {
         Invoke-Download $envFile['FFMPEG_URL'] $zip
         Write-Host "Verifying..."
         Assert-Hash $zip $envFile['FFMPEG_SHA256']
-        Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        New-Item -ItemType Directory -Force -Path $extract | Out-Null
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
         $ffmpegSource = Get-ChildItem -LiteralPath $extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
         $ffprobeSource = Get-ChildItem -LiteralPath $extract -Recurse -Filter ffprobe.exe | Select-Object -First 1
         if (-not $ffmpegSource -or -not $ffprobeSource) { throw "ffmpeg.exe/ffprobe.exe not found" }
