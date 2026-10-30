@@ -1,29 +1,41 @@
 @echo off
 chcp 65001 >nul
-title 날먹 Windows 검증
+title nalmeok verify
 setlocal
 set "HERE=%~dp0"
 set "LABEL=%~1"
 if "%LABEL%"=="" set "LABEL=conhost"
 set "REPORT=%HERE%verify-report-%LABEL%.txt"
+
+echo === console doctor (VT/ANSI is the value to read) ===
+"%HERE%runtime\python.exe" "%HERE%nalmeok.py" doctor
+echo.
+if "%WT_SESSION%"=="" (
+  echo [info] WT_SESSION is empty: this is not Windows Terminal.
+) else (
+  echo [info] Windows Terminal session detected.
+)
+echo.
 (
   echo nalmeok Windows verification
   echo label=%LABEL%
   echo date=%DATE% %TIME%
   echo WT_SESSION=%WT_SESSION%
+  echo WT_PROFILE_ID=%WT_PROFILE_ID%
   echo TERM_PROGRAM=%TERM_PROGRAM%
   echo USERNAME=%USERNAME%
   echo COMPUTERNAME=%COMPUTERNAME%
+  echo note=report stdout is redirected; use the console doctor output for VT/ANSI
   ver
   chcp
   "%HERE%runtime\python.exe" "%HERE%nalmeok.py" doctor
 ) > "%REPORT%" 2>&1
 type "%REPORT%"
 echo.
-echo 리포트: %REPORT%
+echo report: %REPORT%
 echo.
-echo 이제 TUI를 확인하세요:
+echo Now check the TUI:
 echo   "%HERE%nalmeok.cmd"
-echo 체크: 키 화면, 위/아래 이동, Enter, Esc, 한글 폴더명, 창 크기 변경, q 종료
-echo 스크린샷은 Win+Shift+S 로 저장해 주세요.
+echo Check: key screen, up/down, Enter, Esc, Korean path, resize, q to quit
+echo Screenshots: Win+Shift+S
 pause

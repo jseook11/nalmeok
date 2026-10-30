@@ -108,6 +108,23 @@ MIXED_REQUEST_PREFIX = ".gemini_mixed.requests"
 MIXED_RESULT_PREFIX = ".gemini_mixed.result"
 ARCHIVE_DIR = ".nalmeok-archive"
 
+# 폴더 탐색 비용 제한. Windows는 홈 아래 AppData/OneDrive가 커서 더 짧게 잡습니다.
+IS_WINDOWS = os.name == "nt"
+SCAN_SECONDS = 0.03 if IS_WINDOWS else 0.1
+SCAN_MAX_DEPTH = 3 if IS_WINDOWS else 8
+SCAN_MAX_DIRS = 150 if IS_WINDOWS else 1000
+JOB_SCAN_MAX_DEPTH = 2 if IS_WINDOWS else 5
+JOB_SCAN_MAX_DIRS = 2000 if IS_WINDOWS else 20000
+BROWSE_DETAIL_LIMIT = 100 if IS_WINDOWS else 300
+BROWSE_DESCENDANT_LIMIT = 20 if IS_WINDOWS else 80
+SKIP_SCAN_NAMES = {
+    "appdata", "application data", "local settings", "onedrive",
+    "$recycle.bin", "system volume information", "windows",
+    "program files", "program files (x86)", "programdata",
+    "node_modules", ".git", ".venv", "venv", "__pycache__",
+    "site-packages", "package cache",
+}
+
 COMMANDS = ("convert", "estimate", "upload", "status", "wait", "download", "stats",
             "live", "auto", "doctor")
 
@@ -1214,11 +1231,33 @@ def folder_usage(folder):
     return model, usage_totals(rows)
 
 
-def job_folders(root):
-    """작업 폴더만 찾습니다. .venv, .git 같은 숨김 폴더는 들어가지 않습니다."""
+def job_folders(root, max_depth=None, max_dirs=None):
+    """작업 폴더만 찾습니다. 숨김·무거운 폴더는 건너뜁니다.
+
+    max_depth/max_dirs 를 주면 그 안에서만 찾습니다. 대시보드는 Windows에서
+    홈 전체를 훑지 않도록 짧은 제한을 넘깁니다.
+    """
+    root = Path(root)
+    if max_dirs is None:
+        max_dirs = JOB_SCAN_MAX_DIRS * 10
     found = []
+    visited = 0
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        visited += 1
+        if visited > max_dirs:
+            break
+        try:
+            depth = len(Path(current).relative_to(root).parts)
+        except ValueError:
+            depth = 0
+        keep = []
+        for name in dirnames:
+            if name.startswith(".") or name.casefold() in SKIP_SCAN_NAMES:
+                continue
+            if max_depth is not None and depth >= max_depth:
+                continue
+            keep.append(name)
+        dirnames[:] = keep
         if STATE_FILE in filenames or LIVE_STATE_FILE in filenames:
             found.append(Path(current))
     return sorted(found)
@@ -3639,8 +3678,11 @@ def _count_media(folder):
     return m4a, mp4, pdf
 
 
-def inspect_folder(folder):
-    """네트워크 없이 폴더의 상태를 한 번에 읽습니다. 메뉴와 대시보드 전용입니다."""
+def inspect_folder(folder, light=False):
+    """네트워크 없이 폴더의 상태를 한 번에 읽습니다. 메뉴와 대시보드 전용입니다.
+
+    light=True 는 폴더 탐색 목록용으로, 미디어 개수와 작업 흔적만 빠르게 봅니다.
+    """
     folder = Path(folder)
     try:
         exists = folder.is_dir()
@@ -3661,6 +3703,19 @@ def inspect_folder(folder):
         return facts
     m4a, mp4, pdf = _count_media(folder)
     facts.update(m4a=m4a, mp4=mp4, pdf=pdf, media=m4a + mp4)
+    if light:
+        facts["job"] = (safe_exists(state_path(folder))
+                        or safe_exists(live_state_path(folder)))
+        facts["output"] = safe_exists(output_path(folder))
+        if facts["output"]:
+            facts["stage"] = "done"
+        elif facts["job"]:
+            facts["stage"] = "prepared"
+        elif facts["media"]:
+            facts["stage"] = "ready"
+        else:
+            facts["stage"] = "empty"
+        return facts
     try:
         facts["needs_convert"] = needs_conversion(folder)
     except OSError:
@@ -3837,6 +3892,18 @@ def caps_line(caps=None):
             f"SDK {mark(caps['sdk'])} · 키 {caps['key_source'] or warn('없음')}")
 
 
+def console_attached():
+    """프로세스에 콘솔이 붙어 있는지. stdout이 파일로 리다이렉트돼도 Windows는 참일 수 있습니다."""
+    if os.name != "nt":
+        return sys.stdout.isatty() or sys.stdin.isatty()
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())
+    except (AttributeError, OSError):
+        return False
+
+
 def terminal_name():
     if os.getenv("WT_SESSION"):
         return "Windows Terminal"
@@ -3857,6 +3924,8 @@ def doctor_lines():
         f"{pad('OS', 12)}  {platform.platform()}",
         f"{pad('터미널', 12)}  {terminal_name()}",
         f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('콘솔', 12)}  attached={console_attached()} "
+        f"stdin_isatty={sys.stdin.isatty()}",
         f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
         f"encoding={getattr(sys.stdout, 'encoding', '?')}",
         f"{pad('Python', 12)}  {sys.version.split()[0]}",
@@ -3883,6 +3952,8 @@ def diagnostics_lines():
         f"{pad('OS', 12)}  {platform.platform()}",
         f"{pad('터미널', 12)}  {terminal_name()}",
         f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('콘솔', 12)}  attached={console_attached()} "
+        f"stdin_isatty={sys.stdin.isatty()}",
         f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
         f"encoding={getattr(sys.stdout, 'encoding', '?')}",
         f"{pad('Python', 12)}  {sys.version.split()[0]}",
@@ -3924,7 +3995,8 @@ def dashboard_folders():
     for path in recent_folders():
         add(path)
     extras = []
-    for path in job_folders(Path.cwd()):
+    for path in job_folders(Path.cwd(), max_depth=JOB_SCAN_MAX_DEPTH,
+                            max_dirs=JOB_SCAN_MAX_DIRS):
         if path.resolve() not in folders:
             extras.append(path)
     def mtime(path):
@@ -3960,24 +4032,27 @@ def path_target(text):
     return path if path.is_dir() else None
 
 
-SCAN_SECONDS = 0.1
-
-
-def scan_descendant_media(folder, seconds=SCAN_SECONDS):
-    """하위 미디어 개수와 작업 흔적을 seconds 안에서 셉니다.
+def scan_descendant_media(folder, seconds=None, max_depth=None, max_dirs=None):
+    """하위 미디어 개수와 작업 흔적을 제한 안에서 셉니다.
 
     (오디오, MP4, 작업 흔적, 끝까지 봤는지) 를 돌려줍니다. 심볼릭 링크
-    디렉터리는 따라가지 않아 순환이 생기지 않고, 시간이 모자라면 그때까지
-    센 값과 False 를 돌려줍니다.
+    디렉터리는 따라가지 않습니다. 시간·깊이·방문 폴더 수를 넘기면 그때까지
+    센 값과 False 를 돌려줍니다. Windows 기본값이 더 짧습니다.
     """
+    seconds = SCAN_SECONDS if seconds is None else seconds
+    max_depth = SCAN_MAX_DEPTH if max_depth is None else max_depth
+    max_dirs = SCAN_MAX_DIRS if max_dirs is None else max_dirs
     deadline = time.monotonic() + seconds
-    pending = [Path(folder)]
+    pending = [(Path(folder), 0)]
     m4a = mp4 = 0
     job = False
+    visited = 0
+    truncated = False
     while pending:
-        if time.monotonic() > deadline:
+        if time.monotonic() > deadline or visited >= max_dirs:
             return m4a, mp4, job, False
-        current = pending.pop()
+        current, depth = pending.pop()
+        visited += 1
         try:
             if state_path(current).exists() or live_state_path(current).exists():
                 job = True
@@ -3989,7 +4064,12 @@ def scan_descendant_media(folder, seconds=SCAN_SECONDS):
                         return m4a, mp4, job, False
                     try:
                         if item.is_dir(follow_symlinks=False):
-                            pending.append(Path(item.path))
+                            if depth >= max_depth:
+                                truncated = True
+                            elif item.name.casefold() in SKIP_SCAN_NAMES:
+                                truncated = True
+                            else:
+                                pending.append((Path(item.path), depth + 1))
                         elif item.is_file():
                             suffix = item.name.lower()
                             if suffix.endswith(".m4a"):
@@ -4000,7 +4080,7 @@ def scan_descendant_media(folder, seconds=SCAN_SECONDS):
                         continue
         except OSError:
             continue
-    return m4a, mp4, job, True
+    return m4a, mp4, job, not truncated
 
 
 def nested_summary(m4a, mp4, complete):
@@ -4031,13 +4111,21 @@ def browse_folder(start=None):
         if facts["media"] or facts["job"]:
             options.append(("__select__", "이 폴더 선택",
                             folder_summary(current, facts)))
-        for path in subdirs:
-            child = inspect_folder(path)
+        for index, path in enumerate(subdirs):
+            # Windows 홈의 AppData/OneDrive처럼 큰 폴더는 열지 않고 표시만 합니다.
+            if (index >= BROWSE_DETAIL_LIMIT
+                    or path.name.casefold() in SKIP_SCAN_NAMES):
+                options.append((str(path), path.name + "/", "폴더", False, False))
+                continue
+            child = inspect_folder(path, light=True)
             if child["media"] or child["job"]:
                 options.append((str(path), path.name + "/",
                                 folder_summary(path, child), False, False))
                 continue
-            m4a, mp4, job, complete = scan_descendant_media(path)
+            if index < BROWSE_DESCENDANT_LIMIT:
+                m4a, mp4, job, complete = scan_descendant_media(path)
+            else:
+                m4a, mp4, job, complete = 0, 0, False, False
             usable = bool(m4a or mp4 or job or not complete)
             desc = nested_summary(m4a, mp4, complete) if m4a or mp4 else (
                 "하위 폴더" if usable else "폴더")

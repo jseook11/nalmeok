@@ -79,11 +79,11 @@ Python·uv·Git을 설치할 필요가 없습니다. ZIP에 실행에 필요한 
 2. SmartScreen 경고가 나오면 **추가 정보** → **실행**을 누릅니다. 코드서명을 하지 않아 경고가 정상적으로 표시됩니다.
 3. "설치가 끝났습니다"가 나오면 창을 닫습니다.
 
-설치 위치는 `%LOCALAPPDATA%\Programs\nalmeok`이고, 바탕화면과 시작 메뉴에 **날먹** 바로가기가 생깁니다. 레지스트리와 PATH는 건드리지 않습니다.
+설치 위치는 `%LOCALAPPDATA%\Programs\nalmeok`이고, 바탕화면과 시작 메뉴에 **nalmeok** 바로가기가 생깁니다. 레지스트리와 PATH는 건드리지 않습니다.
 
 ### 4. 첫 실행
 
-1. 바탕화면의 **날먹** 바로가기를 더블클릭합니다.
+1. 바탕화면의 **nalmeok** 바로가기를 더블클릭합니다.
 2. 첫 화면에서 **무료 키** 또는 **유료 키**를 고르고 API 키를 등록합니다. ([Gemini API 키 발급](#gemini-api-키-발급))
 3. 전사할 강의 폴더를 고릅니다.
 4. Enter로 전사를 시작합니다.
@@ -98,7 +98,7 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 - **오류 창이 금방 닫힙니다.** `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`로 창을 유지합니다. 그래도 닫히면 설치 폴더에서 `nalmeok.cmd`를 직접 실행하세요.
 - **Ctrl+C로 종료하면 "일괄 작업을 끝내시겠습니까?(Y/N)"가 뜹니다.** 배치 런처 특성입니다. TUI의 `q` 또는 종료 메뉴를 사용하면 나오지 않습니다. 프롬프트가 뜨면 `Y`를 누르면 됩니다.
 - **진단 정보가 필요합니다.** `nalmeok doctor`를 실행하면 Windows 버전, 터미널, VT 지원, 인코딩, ffmpeg/ffprobe, SDK, 설정 경로를 한 번에 확인할 수 있습니다. 이슈에는 이 출력과 `winver`, 실행 방법, 스크린샷을 붙여 주세요.
-- **제거하려면** `%LOCALAPPDATA%\Programs\nalmeok` 폴더와 바탕화면·시작 메뉴의 `날먹` 바로가기를 삭제합니다. `%APPDATA%\nalmeok`의 설정과 키는 별도이므로 필요하면 함께 삭제하세요.
+- **제거하려면** `%LOCALAPPDATA%\Programs\nalmeok` 폴더와 바탕화면·시작 메뉴의 `nalmeok` 바로가기를 삭제합니다. `%APPDATA%\nalmeok`의 설정과 키는 별도이므로 필요하면 함께 삭제하세요.
 - **다운로드 무결성 확인(선택).** PowerShell에서 `Get-FileHash .\nalmeok-<버전>-win64.zip -Algorithm SHA256`을 실행해 `SHA256SUMS.txt`의 값과 비교합니다.
 
 ---

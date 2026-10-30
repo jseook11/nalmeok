@@ -24,6 +24,7 @@
 | PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
 | PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
 | PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 완료 | - | Windows 11에서 빌드·압축 해제·런처·번들 테스트 108 pass·ffmpeg 변환·설치·바로가기·doctor 확인. ZIP 164.7MiB |
+| 후속 · Windows 타이틀/폴더 스캔 제한 | 완료 | - | 타이틀/바로가기 ASCII `nalmeok`. Windows 111 tests pass. 홈 대시보드 0.013s, 기본 스캔 0.111s |
 | 수동 검증 · Windows 10 22H2 conhost | 보류 | - | 2026-10-30 사용자 결정으로 실기 검증 보류. best-effort로 문서화 (D13) |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 보류 | - | 위와 동일 |
 | 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | `C:\Users\JSRd\nalmeok-verify` 키트로 사용자가 직접 진행 예정 |
@@ -39,13 +40,15 @@
 - 배포 런타임: Python 3.12.x (python-build-standalone, x86_64)
 - **2026-10-30 Windows 1차 검증**
   - 환경: Windows 11 build 26200.9457, OpenSSH/ConPTY, Python 3.12.16 standalone
-  - 테스트: **108개 통과, 3개 skip** (Windows)
+  - 테스트: **111개 통과, 3개 skip** (Windows)
   - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
   - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
   - PR2: 한글 클립보드 왕복, 프로세스 간 `job_lock` 차단, `doctor`, `NALMEOK_DEBUG` 로그 확인
   - PR3: Windows에서 ZIP 빌드(164.7MiB, SHA-256 `248db552…`), 압축 해제 실행, 번들 테스트 108 pass,
     번들 ffmpeg `convert`/`estimate`, `installer.cmd` 복사·바탕화면/시작 메뉴 바로가기, 설치 후 `doctor` 확인
   - 남은 검증: Windows 11 Windows Terminal(사용자 직접 진행 예정), 무료 live/유료 Batch 실제 전사
+  - 후속: Windows 타이틀/바로가기를 ASCII `nalmeok`으로 변경, 폴더 스캔 제한(D14).
+    Windows 111 tests pass, 홈 대시보드 0.013s, 기본 스캔 0.111s, `scan_descendant_media` 0.022s.
   - **Windows 10 22H2 실기 검증은 2026-10-30 사용자 결정으로 보류.** README와 이 문서에서 best-effort로 표기한다 (D13).
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
@@ -98,7 +101,7 @@
 |---|---|---|---|
 | D1 | TUI를 유지하고 입력/터미널 계층만 수정 | 화면 재작성은 범위가 크고 오픈소스 유지보수 부담이 큼 | PR1이 300~500줄 규모로 제한됨 |
 | D2 | PyInstaller 대신 python-build-standalone 런타임 + 소스 + cmd | hidden imports/onefile 재압축/frozen 분기/AV 오탐 회피. 디버깅 쉬움 | `sys.frozen` 분기 불필요, `sys.executable`·`__file__` 기존 코드 그대로 동작 |
-| D3 | 배포 파일명 `nalmeok.cmd`, `installer.cmd` | ASCII 파일명은 경로/AV/압축 도구 호환성이 좋음 | 바로가기 이름만 `날먹`으로 표시 |
+| D3 | 배포 파일명 `nalmeok.cmd`, `installer.cmd` | ASCII 파일명은 경로/AV/압축 도구 호환성이 좋음 | 타이틀/바로가기는 `nalmeok`(ASCII) |
 | D4 | 코드서명 안 함 | Azure Artifact Signing은 한국 개인 불가, OV는 연 $150~300, EV는 2024년부터 SmartScreen 즉시 통과 특례 없음 | ZIP "차단 해제" 안내 + SHA256 공개 |
 | D5 | ffmpeg/ffprobe를 ZIP에 번들 | 학생 파일 대부분이 MP4. PATH/winget 안내는 비개발자 이탈 지점 | LGPL 정적 빌드 + 고지. 실측 ZIP 164.7MiB, v1은 번들 유지 |
 | D6 | 지원 하한 Windows 10 22H2 / 11, x64 | 남은 Win10 사용자의 사실상 표준. conhost VT 동작을 보장하기 쉬움 | 1809~21H2는 best-effort로 문서화 |
@@ -109,6 +112,7 @@
 | D11 | ffmpeg 탐색은 `find_tool()`로 통일 | 번들 파일은 PATH에 없음. `shutil.which` 3곳이 흩어져 있음 | `NALMEOK_FFMPEG` 환경변수 → 앱 폴더 → PATH 순 |
 | D12 | `doctor` 서브커맨드 추가 | Windows 실기 없이 원격 진단하기 위한 최소 장치 | 키/SDK 없이 동작 |
 | D13 | Windows 10 22H2 실기 검증 보류 | Hyper-V 활성화·재부팅·Win10 설치 비용 대비, 사용 API는 22H2에서 안정적. 2026-10-30 사용자 결정 | README/문서에 best-effort로 표기. 필요 시 `nalmeok-verify` 키트로 재개 |
+| D14 | Windows 폴더 스캔에 깊이·개수 제한 | `%USERPROFILE%` 아래 AppData/OneDrive 전체 재귀로 메인 화면이 수 분 걸림 | `job_folders` depth 2/dirs 2000(대시보드), `scan_descendant_media` 0.03s/depth 3/dirs 150, 탐색 상세 100/하위 20. 무거운 폴더 이름은 건너뜀 |
 
 ---
 
@@ -180,7 +184,7 @@ nalmeok-0.4.0-win64.zip
 ```
 
 설치 위치(권장): `%LOCALAPPDATA%\Programs\nalmeok`
-바로가기: 바탕화면 + 시작 메뉴 `날먹`
+바로가기: 바탕화면 + 시작 메뉴 `nalmeok`
 
 ### 4.2 실행 흐름
 
@@ -301,13 +305,23 @@ ASCII 폴백 대상(최소): 스피너 `⠋...` → `|/-\`, 커서 표시 `❯` 
 ### 4.11 오류 UX와 `doctor`
 
 - `nalmeok doctor`:
-  - OS/빌드, 터미널(`WT_SESSION`, `TERM_PROGRAM`, conhost), VT 활성화 여부, stdout encoding, isatty
+  - OS/빌드, 터미널(`WT_SESSION`, `TERM_PROGRAM`, conhost), VT 활성화 여부, 콘솔 attached/stdin isatty, stdout encoding, isatty
   - Python/실행 파일/앱 폴더, ffmpeg/ffprobe 경로와 버전, SDK 설치 여부
   - 설정 경로, cwd, 마지막 오류 요약
   - 키/SDK 없이 동작해야 한다 (`ensure_sdk` 호출 전 경로)
 - `NALMEOK_DEBUG=1`이면 `%APPDATA%\nalmeok\nalmeok.log`에 `log()` 출력을 tee.
 - 처리되지 않은 예외 시 화면에 "진단 정보: `nalmeok doctor`"와 로그 경로를 표시.
 - `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`로 창을 유지.
+
+### 4.12 Windows 폴더 스캔 제한
+
+Windows는 `%USERPROFILE%` 아래 AppData/OneDrive가 커서 전체 재귀가 분 단위로 걸릴 수 있습니다. 다음 제한을 둡니다 (D14).
+
+- `job_folders`: 대시보드는 depth 2, 방문 2000개. CLI `stats` 기본은 방문 20000개.
+- `scan_descendant_media`: Windows 0.03초, depth 3, 방문 150개. POSIX는 0.1초, depth 8, 1000개.
+- 폴더 탐색: 상세 계산 100개, 하위 재귀 20개까지만. 나머지는 스캔 없이 "폴더"로 표시.
+- `AppData`, `OneDrive`, `node_modules`, `.git`, `.venv`, `Program Files` 등은 하위 스캔에서 건너뜀.
+- 깊은 곳의 작업은 "최근 작업" 목록이나 해당 폴더에서 직접 실행해 찾습니다.
 
 ---
 
@@ -400,7 +414,7 @@ ASCII 폴백 대상(최소): 스피너 `⠋...` → `|/-\`, 커서 표시 `❯` 
 
 ```bat
 @echo off
-title 날먹
+title nalmeok
 setlocal
 set "HERE=%~dp0"
 set "PYTHONUTF8=1"
@@ -413,13 +427,13 @@ if errorlevel 1 pause
 **`installer.cmd` 계약**
 
 - `%~dp0` → `%LOCALAPPDATA%\Programs\nalmeok`로 `robocopy /E` (삭제 없이 덮어쓰기)
-- 바탕화면 + 시작 메뉴에 `날먹.lnk`
+- 바탕화면 + 시작 메뉴에 `nalmeok.lnk`
   - Target: `%DEST%\nalmeok.cmd`
   - WorkingDirectory: `%USERPROFILE%`
   - Icon: `%DEST%\nalmeok.ico`
 - 관리자 권한, 레지스트리, PATH 변경 없음
 - 제거 안내: 폴더와 바로가기 삭제
-- 오류 시 `pause`, 성공 시 "바탕화면의 날먹 바로가기로 실행하세요"
+- 오류 시 `pause`, 성공 시 "바탕화면의 nalmeok 바로가기로 실행하세요"
 
 **수용 기준**
 
@@ -550,7 +564,7 @@ if errorlevel 1 pause
 
 | # | 질문 | 기본값 | 상태 |
 |---|---|---|---|
-| Q1 | 바로가기 표시 이름 | `날먹` | 확정 |
+| Q1 | 바로가기 표시 이름 | `nalmeok` (ASCII) | 확정 |
 | Q2 | 제거 프로그램(`uninstaller.cmd`) 포함 | 미포함, 수동 삭제 안내 | 보류 |
 | Q3 | ffmpeg 번들 vs 온디맨드 | 번들 유지 (D5). 실측 ZIP 164.7MiB | 확정, 용량 민감 시 재검토 |
 | Q4 | Windows 10 최소 빌드 | 22H2 (D6) | 확정. 실기 검증은 보류 (D13) |
@@ -570,3 +584,4 @@ if errorlevel 1 pause
 | 2026-10-30 | PR2 인코딩·도구·잠금·클립보드·doctor 구현. Windows 11에서 108 tests pass | Claude Code |
 | 2026-10-30 | PR3 런타임 ZIP·cmd 설치 스크립트·CI·README 추가. Windows 11에서 빌드/설치/번들 실행 E2E 검증 (ZIP 164.7MiB) | Claude Code |
 | 2026-10-30 | Windows 10 22H2 실기 검증 보류(D13). Windows 11 Windows Terminal은 사용자 직접 진행으로 상태 정리 | Claude Code |
+| 2026-10-30 | 후속: Windows 타이틀/바로가기 ASCII `nalmeok`, 폴더 스캔 제한(D14). Windows 111 tests pass, 대시보드 0.013s | Claude Code |

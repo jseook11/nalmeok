@@ -206,6 +206,42 @@ class FolderBrowseTests(unittest.TestCase):
             (root / "self").symlink_to(root)
             self.assertEqual(app.scan_descendant_media(root), (0, 0, False, True))
 
+    def test_scan_descendant_media_respects_depth_and_dir_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            deep = root
+            for index in range(5):
+                deep = deep / f"d{index}"
+                deep.mkdir()
+            (deep / "01.m4a").write_bytes(b"x")
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_depth=2),
+                (0, 0, False, False))
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_dirs=1),
+                (0, 0, False, False))
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_depth=9,
+                                          max_dirs=100),
+                (1, 0, False, True))
+
+    def test_job_folders_respects_depth_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            deep = root / "a" / "b" / "c"
+            deep.mkdir(parents=True)
+            (deep / app.STATE_FILE).write_text("{}", encoding="utf-8")
+            self.assertEqual(app.job_folders(root, max_depth=1), [])
+            self.assertEqual(app.job_folders(root, max_depth=3), [deep])
+
+    def test_inspect_folder_light_reads_media_and_job(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"x")
+            facts = app.inspect_folder(folder, light=True)
+            self.assertEqual(facts["media"], 1)
+            self.assertEqual(facts["stage"], "ready")
+
     def test_browse_shows_nested_media_counts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

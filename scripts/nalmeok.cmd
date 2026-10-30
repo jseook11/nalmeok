@@ -1,5 +1,5 @@
 @echo off
-title 날먹
+title nalmeok
 setlocal
 set "HERE=%~dp0"
 set "PYTHONUTF8=1"
