@@ -20,7 +20,7 @@
 | M1 · 앱 번들·런처·부트스트랩 | 완료 | - | 앱 2.1MB. 런처 dry-run, 임시 데이터에서 PBS 3.12.16 다운로드·SHA 검증·venv/SDK 설치 확인. 147 tests pass |
 | M2 · DMG·서명·공증·staple | 완료 | - | Developer ID 서명, notarytool **Accepted**(`2c48e95d`), staple·spctl 통과. DMG 2.45MB |
 | M3 · 컴포넌트 업데이트·ffmpeg 온디맨드 | 진행 중 | - | `nalmeok update`·manifest·앱 코드/SDK 갱신 구현·E2E 확인. ffmpeg 온디맨드는 LGPL 빌드 확보 후 |
-| M4 · CI·테스트·문서 | 진행 중 | - | `.github/workflows/macos.yml` 추가, macOS 빌드 CI 통과. 최종 CI 대기 |
+| M4 · CI·테스트·문서 | 진행 중 | - | `.github/workflows/macos.yml` 추가, macOS 빌드 CI 통과. CI 아티팩트는 **unsigned**(배포용 아님)로 표시 |
 | 후속 · Finder 아이콘 드롭 | 보류 (v1.1) | - | - |
 | 후속 · Intel x86_64 | 보류 | - | - |
 | 후속 · 앱 자동 업데이트(Sparkle 등) | 보류 | - | - |

@@ -47,11 +47,16 @@ jobs:
           test -f "$tmp/app/nalmeok.py"
           NALMEOK_HOME="$tmp" \
             build/macos/app/nalmeok.app/Contents/Resources/bootstrap.command --version
+      - name: Mark unsigned artifact
+        run: |
+          echo "UNSIGNED CI BUILD. Do not distribute." > dist/UNSIGNED.txt
+          echo "Use a Developer ID signed and notarized DMG for users." >> dist/UNSIGNED.txt
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: nalmeok-macos-${{ github.sha }}
+          name: nalmeok-macos-unsigned-${{ github.sha }}
           path: |
+            dist/UNSIGNED.txt
             dist/*.dmg
             dist/nalmeok.py
             dist/macos-manifest.json
