@@ -25,6 +25,7 @@
 | PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
 | PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 완료 | - | Windows 11에서 빌드·압축 해제·런처·번들 테스트 108 pass·ffmpeg 변환·설치·바로가기·doctor 확인. ZIP 164.7MiB |
 | 후속 · Windows 타이틀/폴더 스캔 제한 | 완료 | - | 타이틀/바로가기 ASCII `nalmeok`. Windows 111 tests pass. 홈 대시보드 0.013s, 기본 스캔 0.111s |
+| 후속 · 메뉴/홈 깜빡임 제거 | 완료 | - | Windows 113 tests pass. select_menu/home에서 clear_screen 1회, 변경 줄만 갱신 확인 |
 | 수동 검증 · Windows 10 22H2 conhost | 보류 | - | 2026-10-30 사용자 결정으로 실기 검증 보류. best-effort로 문서화 (D13) |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 보류 | - | 위와 동일 |
 | 수동 검증 · Windows 11 conhost | 진행 중 | - | VT/ANSI 가능, attached=True, stdin/stdout isatty=True 확인(2026-10-30). TUI 체크리스트·스크린샷 대기 |
@@ -52,6 +53,8 @@
     Windows 111 tests pass, 홈 대시보드 0.013s, 기본 스캔 0.111s, `scan_descendant_media` 0.022s.
   - Windows 11 conhost(2026-10-30 20:23): `VT/ANSI 가능`, `attached=True`, `stdin/stdout isatty=True` 확인.
   - Windows 11 Windows Terminal(2026-10-30 20:27): `WT_SESSION`/`WT_PROFILE_ID` 확인, `VT/ANSI 가능`, `stdin/stdout isatty=True`. TUI 체크리스트·스크린샷은 대기.
+  - 후속(diff 렌더링): select_menu/home 화면에서 `clear_screen` 1회, 이후 변경된 줄만 갱신됨을 Windows 프로브로 확인.
+    Windows 113 tests pass.
   - **Windows 10 22H2 실기 검증은 2026-10-30 사용자 결정으로 보류.** README와 이 문서에서 best-effort로 표기한다 (D13).
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
@@ -116,6 +119,7 @@
 | D12 | `doctor` 서브커맨드 추가 | Windows 실기 없이 원격 진단하기 위한 최소 장치 | 키/SDK 없이 동작 |
 | D13 | Windows 10 22H2 실기 검증 보류 | Hyper-V 활성화·재부팅·Win10 설치 비용 대비, 사용 API는 22H2에서 안정적. 2026-10-30 사용자 결정 | README/문서에 best-effort로 표기. 필요 시 `nalmeok-verify` 키트로 재개 |
 | D14 | Windows 폴더 스캔에 깊이·개수 제한 | `%USERPROFILE%` 아래 AppData/OneDrive 전체 재귀로 메인 화면이 수 분 걸림 | `job_folders` depth 2/dirs 2000(대시보드), `scan_descendant_media` 0.03s/depth 3/dirs 150, 탐색 상세 100/하위 20. 무거운 폴더 이름은 건너뜀 |
+| D15 | 메뉴·홈 화면을 diff 렌더링 | 방향키마다 전체 메뉴를 다시 출력해 Windows Terminal에서 깜빡임 | 첫 프레임만 전체 출력. 이후 변경된 줄만 `\033[K`로 갱신하고 나머지는 커서만 이동. 줄바꿈·리사이즈·작은 화면은 전체 재렌더로 폴백 |
 
 ---
 
@@ -590,3 +594,4 @@ if errorlevel 1 pause
 | 2026-10-30 | 후속: Windows 타이틀/바로가기 ASCII `nalmeok`, 폴더 스캔 제한(D14). Windows 111 tests pass, 대시보드 0.013s | Claude Code |
 | 2026-10-30 | Windows 11 conhost 환경 검증(VT/ANSI·isatty). Windows Terminal은 WT_SESSION 부재로 재실행 필요 | Claude Code |
 | 2026-10-30 | Windows 11 Windows Terminal 환경 검증(WT_SESSION/WT_PROFILE_ID·VT/ANSI). TUI 체크리스트 대기 | Claude Code |
+| 2026-10-30 | 후속: 메뉴/홈 화면 diff 렌더링으로 방향키 깜빡임 제거(D15). Windows 113 tests pass | Claude Code |

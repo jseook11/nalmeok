@@ -242,6 +242,22 @@ class FolderBrowseTests(unittest.TestCase):
             self.assertEqual(facts["media"], 1)
             self.assertEqual(facts["stage"], "ready")
 
+    def test_update_lines_rewrites_only_changed_rows(self):
+        previous = ["  a", "  b", "  c"]
+        current = ["  a", "> b", "  c"]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            updated = app.update_lines(previous, current, 3)
+        self.assertTrue(updated)
+        output = captured.getvalue()
+        self.assertIn("\033[3A", output)
+        self.assertIn("> b", output)
+        self.assertNotIn("  a", output)
+        self.assertNotIn("  c", output)
+
+    def test_update_lines_falls_back_on_wrapping(self):
+        self.assertFalse(app.update_lines(["a"], ["b"], 2))
+
     def test_browse_shows_nested_media_counts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

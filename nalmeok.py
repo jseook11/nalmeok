@@ -3285,8 +3285,8 @@ def footer(hint):
     print(f"  {dim(hint)}")
 
 
-def status_bar(key=None, extra=""):
-    """하단 한 줄. 화면마다 키·ffmpeg·SDK 상태를 같은 자리에 보여줍니다."""
+def status_bar_line(key=None, extra=""):
+    """하단 상태 한 줄을 문자열로 만듭니다."""
     caps = capabilities()
     entries = key_entries()
     has_key = bool(key or entries or current_key())
@@ -3298,7 +3298,12 @@ def status_bar(key=None, extra=""):
              f"SDK {accent('✓') if caps['sdk'] else warn('✗')}"]
     if extra:
         parts.append(extra)
-    print(f"  {dim(' · '.join(parts))}")
+    return f"  {dim(' · '.join(parts))}"
+
+
+def status_bar(key=None, extra=""):
+    """하단 한 줄. 화면마다 키·ffmpeg·SDK 상태를 같은 자리에 보여줍니다."""
+    print(status_bar_line(key, extra))
 
 
 def pulse_bar(width, step, size=3):
@@ -3389,8 +3394,37 @@ def _line_count(text):
     return max(1, (display_width(text) + columns - 1) // columns)
 
 
-def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
-    """메뉴를 목록으로 그립니다. rows 의 None 은 구분선입니다."""
+def draw_lines(lines):
+    """한 프레임을 한 번에 출력합니다. 실제로 차지한 줄 수를 돌려줍니다."""
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+    return sum(_line_count(line) for line in lines)
+
+
+def update_lines(previous, current, height):
+    """이미 그려진 프레임에서 달라진 줄만 다시 씁니다.
+
+    커서가 프레임 마지막 줄 다음에 있고, 모든 줄이 한 줄에 들어갈 때만 동작합니다.
+    아니면 False 를 돌려주고 호출자가 전체를 다시 그립니다.
+    """
+    if (height != len(current) or len(previous) != len(current)
+            or height != len(previous)):
+        return False
+    if any(_line_count(line) != 1 for line in current):
+        return False
+    chunks = [f"\033[{height}A"]
+    for old, new in zip(previous, current):
+        if old == new:
+            chunks.append("\033[B")
+        else:
+            chunks.append("\r\033[K" + new + "\n")
+    sys.stdout.write("".join(chunks))
+    sys.stdout.flush()
+    return True
+
+
+def menu_lines(entries, rows, cursor, footer=None, allow_back=False):
+    """메뉴 한 프레임을 줄 목록으로 만듭니다. rows 의 None 은 구분선입니다."""
     refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
     label_width = min(
@@ -3417,9 +3451,12 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
                   + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
     rendered.append("")
     rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
-    for line in rendered:
-        print(line)
-    return sum(_line_count(line) for line in rendered)
+    return rendered
+
+
+def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
+    """메뉴를 목록으로 그립니다. rows 의 None 은 구분선입니다."""
+    return draw_lines(menu_lines(entries, rows, cursor, footer, allow_back))
 
 
 def map_windows_key(char, next_char=None):
@@ -3543,9 +3580,10 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_menu(entries, rows, cursor, footer, allow_back)
+        return menu_lines(entries, rows, cursor, footer, allow_back)
 
-    height = render()
+    lines = render()
+    height = draw_lines(lines)
     while True:
         pressed = read_key()
         if pressed == "up":
@@ -3563,16 +3601,21 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
                 cursor = _menu_move(entries, cursor, -1)
         else:
             continue
+        new_lines = menu_lines(entries, rows, cursor, footer, allow_back)
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
-            height = render()
+            lines = render()
+            height = draw_lines(lines)
+        elif not update_lines(lines, new_lines, height):
+            sys.stdout.write(f"\033[{height}A")
+            height = draw_lines(new_lines)
+            lines = new_lines
         else:
-            print(f"\033[{height}A", end="")
-            height = draw_menu(entries, rows, cursor, footer, allow_back)
+            lines = new_lines
 
 
-def draw_multi(entries, rows, cursor, selected, footer=None):
-    """여러 선택 메뉴. rows 의 None 은 구분선입니다."""
+def multi_lines(entries, rows, cursor, selected, footer=None):
+    """여러 선택 메뉴 한 프레임을 줄 목록으로 만듭니다."""
     refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
     label_width = min(
@@ -3598,9 +3641,12 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
     rendered.append("")
     footer = footer or "↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로"
     rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
-    for line in rendered:
-        print(line)
-    return sum(_line_count(line) for line in rendered)
+    return rendered
+
+
+def draw_multi(entries, rows, cursor, selected, footer=None):
+    """여러 선택 메뉴. rows 의 None 은 구분선입니다."""
+    return draw_lines(multi_lines(entries, rows, cursor, selected, footer))
 
 
 def select_many(title, options, info=(), heading=None, subtitle=""):
@@ -3615,9 +3661,10 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_multi(entries, rows, cursor, selected)
+        return multi_lines(entries, rows, cursor, selected)
 
-    height = render()
+    lines = render()
+    height = draw_lines(lines)
     while True:
         pressed = read_key()
         if pressed == "up":
@@ -3635,12 +3682,17 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
             return BACK
         else:
             continue
+        new_lines = multi_lines(entries, rows, cursor, selected)
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
-            height = render()
+            lines = render()
+            height = draw_lines(lines)
+        elif not update_lines(lines, new_lines, height):
+            sys.stdout.write(f"\033[{height}A")
+            height = draw_lines(new_lines)
+            lines = new_lines
         else:
-            print(f"\033[{height}A", end="")
-            height = draw_multi(entries, rows, cursor, selected)
+            lines = new_lines
 
 
 STAGE_LABELS = {
@@ -4994,40 +5046,46 @@ def refresh_remote(folders, key):
     return key
 
 
-def draw_home(entries, cursor, key, folder_count):
-    """화면 2. 상자 대신 목록과 얇은 구분선으로 그립니다."""
+def home_lines(entries, cursor, key, folder_count):
+    """화면 2 한 프레임을 줄 목록으로 만듭니다."""
     refresh_layout()
-    clear_screen()
-    print()
-    print(f"  {bold('날먹')}   {dim('강의 음성을 Batch·live로 전사')}   {dim('v' + __version__)}")
-    print(f"  {dim('─' * WIDTH)}")
-    print()
+    lines = [""]
+    lines.append(f"  {bold('날먹')}   {dim('강의 음성을 Batch·live로 전사')}   {dim('v' + __version__)}")
+    lines.append(f"  {dim('─' * WIDTH)}")
+    lines.append("")
     labels = [entry for entry in entries if entry]
     label_width = min(
         max((display_width(entry[1]) for entry in labels), default=8), 26)
     if folder_count:
-        print(f"  {dim('작업')}")
-        print()
+        lines.append(f"  {dim('작업')}")
+        lines.append("")
     else:
-        print(f"  {dim('최근 작업이 없습니다. [새 전사]로 시작하세요.')}")
-        print()
+        lines.append(f"  {dim('최근 작업이 없습니다. [새 전사]로 시작하세요.')}")
+        lines.append("")
     for index, entry in enumerate(entries):
         if entry is None:
-            print(f"  {dim('─' * WIDTH)}")
+            lines.append(f"  {dim('─' * WIDTH)}")
             continue
         label, desc, faded = entry[1], entry[2], entry[3]
         text = pad(clip(label, label_width), label_width)
         room = max(8, WIDTH - label_width - 5)
         tail = dim(clip(desc, room)) if desc else ""
         if faded:
-            print(f"    {dim(text)}   {tail}")
+            lines.append(f"    {dim(text)}   {tail}")
         elif index == cursor:
-            print(f"  {accent(pointer())} {bold(text)}   {tail}")
+            lines.append(f"  {accent(pointer())} {bold(text)}   {tail}")
         else:
-            print(f"    {text}   {tail}")
-    print()
-    status_bar(key)
-    print(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+            lines.append(f"    {text}   {tail}")
+    lines.append("")
+    lines.append(status_bar_line(key))
+    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+    return lines
+
+
+def draw_home(entries, cursor, key, folder_count):
+    """화면 2. 상자 대신 목록과 얇은 구분선으로 그립니다."""
+    clear_screen()
+    return draw_lines(home_lines(entries, cursor, key, folder_count))
 
 
 def help_screen():
@@ -5088,7 +5146,9 @@ def home_screen(key):
         if not movable(entries, cursor):
             cursor = next((index for index in range(len(entries))
                            if movable(entries, index)), 0)
-        draw_home(entries, cursor, key, len(rows))
+        lines = home_lines(entries, cursor, key, len(rows))
+        clear_screen()
+        height = draw_lines(lines)
         while True:
             pressed = read_key()
             if pressed == "up":
@@ -5122,7 +5182,11 @@ def home_screen(key):
                 break
             else:
                 continue
-            draw_home(entries, cursor, key, len(rows))
+            new_lines = home_lines(entries, cursor, key, len(rows))
+            if not update_lines(lines, new_lines, height):
+                clear_screen()
+                height = draw_lines(new_lines)
+            lines = new_lines
 
 
 def folder_menu(folder, facts):
