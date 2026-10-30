@@ -4,8 +4,11 @@
 $ErrorActionPreference = 'Stop'
 $ws = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath('Desktop')
-$startMenu = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'
-New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
+if (-not $desktop) { $desktop = Join-Path $env:USERPROFILE 'Desktop' }
+$startMenu = [Environment]::GetFolderPath('StartMenu')
+if (-not $startMenu) { $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu' }
+$startMenu = Join-Path $startMenu 'Programs'
+New-Item -ItemType Directory -Force -Path $desktop, $startMenu | Out-Null
 
 $items = @(
     @{ Name = $env:NALMEOK_NAME; Target = $env:NALMEOK_TARGET; Desc = $env:NALMEOK_DESC },

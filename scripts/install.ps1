@@ -57,6 +57,7 @@ try {
 } catch {
     Write-Host ''
     Write-Host '오류: 바로가기를 만들지 못했습니다.'
+    Write-Host ('  ' + $_.Exception.Message)
     Write-Host "설치 파일은 복사되었습니다. $dest\nalmeok.cmd 를 직접 실행해 보세요."
     Write-Host ''
     exit 1
