@@ -40,6 +40,7 @@ import getpass
 import json
 import math
 import os
+import platform
 import re
 import select
 import shlex
@@ -62,12 +63,21 @@ except ImportError:  # Windows
 try:
     import termios
     import tty
+except ImportError:  # Windows
+    termios = None
+    tty = None
 
-    RAW_KEYS = True
+try:
+    import msvcrt  # Windows 전용
 except ImportError:
-    RAW_KEYS = False
+    msvcrt = None
 
-__version__ = "0.3.0"
+POSIX_TERMINAL = termios is not None and tty is not None
+WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
+# 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
+RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
+
+__version__ = "0.4.0"
 
 SDK = "google-genai"
 DEFAULT_MODEL = "gemini-3.8-flash"
@@ -98,8 +108,25 @@ MIXED_REQUEST_PREFIX = ".gemini_mixed.requests"
 MIXED_RESULT_PREFIX = ".gemini_mixed.result"
 ARCHIVE_DIR = ".nalmeok-archive"
 
+# 폴더 탐색 비용 제한. Windows는 홈 아래 AppData/OneDrive가 커서 더 짧게 잡습니다.
+IS_WINDOWS = os.name == "nt"
+SCAN_SECONDS = 0.03 if IS_WINDOWS else 0.1
+SCAN_MAX_DEPTH = 3 if IS_WINDOWS else 8
+SCAN_MAX_DIRS = 150 if IS_WINDOWS else 1000
+JOB_SCAN_MAX_DEPTH = 2 if IS_WINDOWS else 5
+JOB_SCAN_MAX_DIRS = 2000 if IS_WINDOWS else 20000
+BROWSE_DETAIL_LIMIT = 100 if IS_WINDOWS else 300
+BROWSE_DESCENDANT_LIMIT = 20 if IS_WINDOWS else 80
+SKIP_SCAN_NAMES = {
+    "appdata", "application data", "local settings", "onedrive",
+    "$recycle.bin", "system volume information", "windows",
+    "program files", "program files (x86)", "programdata",
+    "node_modules", ".git", ".venv", "venv", "__pycache__",
+    "site-packages", "package cache",
+}
+
 COMMANDS = ("convert", "estimate", "upload", "status", "wait", "download", "stats",
-            "live", "auto")
+            "live", "auto", "doctor")
 
 # USD / 1M tokens: (텍스트 입력, 오디오 입력, 출력). 2026-10 공식 가격표 기준.
 MODELS = {
@@ -178,6 +205,15 @@ def _print_logger(message=""):
         return
     print("\n".join(f"  {line}" if line else "" for line in text.splitlines()),
           flush=True)
+    if os.getenv("NALMEOK_DEBUG"):
+        try:
+            path = debug_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"[{stamp}] {text}\n")
+        except OSError:
+            pass
 
 
 _logger = _print_logger
@@ -200,13 +236,110 @@ def capture_logs(render):
         _logger = previous
 
 
+_VT_READY = None
+
+
+def configure_stdio():
+    """리다이렉트·SSH 환경에서도 한글이 깨지지 않도록 표준 스트림을 UTF-8로 맞춥니다."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def bootstrap_platform():
+    """실행 시작 시 플랫폼 기능을 한 번 준비합니다."""
+    configure_stdio()
+    vt_supported()
+
+
+def _enable_windows_vt():
+    """Windows 콘솔에서 ANSI 시퀀스를 쓸 수 있게 VT 처리를 켭니다."""
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        enable_vt = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        kernel32.GetConsoleMode.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel32.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        enabled = False
+        for stream_id in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+            handle = kernel32.GetStdHandle(stream_id)
+            mode = ctypes.c_uint32()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                continue
+            if kernel32.SetConsoleMode(handle, mode.value | enable_vt):
+                if stream_id == -11:
+                    enabled = True
+            elif stream_id == -11:
+                enabled = False
+        return enabled
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def vt_supported():
+    """ANSI 화면 제어를 쓸 수 있는 터미널인지. Windows는 VT 처리를 한 번 켜봅니다."""
+    if os.name != "nt":
+        return sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    global _VT_READY
+    if _VT_READY is None:
+        _VT_READY = _enable_windows_vt()
+    return _VT_READY
+
+
+def can_raw_input():
+    """Enter 없이 키를 읽을 수 있는 터미널인지."""
+    if not sys.stdin.isatty():
+        return False
+    if os.name == "nt":
+        return WINDOWS_TERMINAL
+    return POSIX_TERMINAL
+
+
+def require_tui():
+    """TUI를 그릴 수 없는 환경이면 실행 전에 이해하기 쉬운 오류로 멈춥니다."""
+    if not can_raw_input():
+        fail("터미널 메뉴를 사용할 수 없습니다. Windows Terminal이나 실제 터미널에서 "
+             "실행하거나 `nalmeok --help`의 서브커맨드를 사용하세요.")
+    if not vt_supported():
+        fail("이 터미널은 화면 제어(ANSI)를 지원하지 않습니다. "
+             "Windows Terminal에서 실행해 주세요.")
+
+
+def unicode_ok():
+    """터미널 글꼴이 스피너·화살표 같은 기호를 안정적으로 그릴 수 있는지."""
+    if os.getenv("NALMEOK_ASCII"):
+        return False
+    if os.getenv("NALMEOK_UNICODE"):
+        return True
+    if os.name != "nt":
+        return True
+    # Windows Terminal은 기호 렌더링이 안정적입니다. conhost는 ASCII로 폴백합니다.
+    return bool(os.getenv("WT_SESSION"))
+
+
+def pointer():
+    return "❯" if unicode_ok() else ">"
+
+
+def spinner_frames():
+    return "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" if unicode_ok() else "|/-\\"
+
+
 def live_status(message):
     """진행 중인 마지막 로그 한 줄을 현재 줄에 덮어씁니다."""
     text = str(message).strip()
     if not text:
         return
     last = text.splitlines()[-1]
-    sys.stdout.write("\r\033[K  " + dim(clip(last, WIDTH - 4)))
+    if vt_supported():
+        sys.stdout.write("\r\033[K  " + dim(clip(last, WIDTH - 4)))
+    else:
+        sys.stdout.write("  " + dim(clip(last, WIDTH - 4)) + "\n")
     sys.stdout.flush()
 
 
@@ -301,8 +434,21 @@ def atomic_write_text(path, text, mode=None):
             file.write(text)
             file.flush()
             os.fsync(file.fileno())
-        os.chmod(temp_name, _default_file_mode() if mode is None else mode)
-        os.replace(temp_name, path)
+        try:
+            os.chmod(temp_name, _default_file_mode() if mode is None else mode)
+        except OSError:
+            pass
+        # Windows는 AV/인덱서가 대상 파일을 잠시 잡고 있으면 교체가 실패할 수 있습니다.
+        last_error = None
+        for attempt in range(5):
+            try:
+                os.replace(temp_name, path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(0.05 * (attempt + 1))
+        assert last_error is not None
+        raise last_error
     except BaseException:
         try:
             os.unlink(temp_name)
@@ -332,11 +478,40 @@ def load_config():
     return data if isinstance(data, dict) else {}
 
 
+def debug_log_path():
+    return config_path().with_name("nalmeok.log")
+
+
 def save_config(data):
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     # API 키가 들어가므로 소유자만 읽도록 0600 으로 씁니다.
     atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600)
+
+
+def _lock_file(handle, blocking=True):
+    """파일 잠금을 잡습니다. 잠금 수단이 없는 플랫폼이면 False."""
+    if fcntl is not None:
+        mode = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        fcntl.flock(handle.fileno(), mode)
+        return True
+    if os.name == "nt" and msvcrt is not None:
+        handle.seek(0)
+        mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+        msvcrt.locking(handle.fileno(), mode, 1)
+        return True
+    return False
+
+
+def _unlock_file(handle):
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        elif os.name == "nt" and msvcrt is not None:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 
 @contextlib.contextmanager
@@ -345,13 +520,13 @@ def config_lock():
     path = config_path().with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        locked = False
         try:
+            locked = _lock_file(handle, blocking=True)
             yield
         finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            if locked:
+                _unlock_file(handle)
 
 
 def env_key():
@@ -648,7 +823,8 @@ def current_key(key=None):
 
 def short_path(path):
     try:
-        return "~/" + str(Path(path).relative_to(Path.home()))
+        relative = Path(path).relative_to(Path.home())
+        return str(Path("~") / relative)
     except ValueError:
         return str(path)
 
@@ -745,6 +921,8 @@ def start_watcher(folder, key=None, allow_unknown=False):
     env = dict(os.environ)
     if key:
         env["GEMINI_API_KEY"] = key
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     log_path = folder / WATCH_LOG
     command = [sys.executable, str(Path(__file__).resolve()),
                "_wait", str(folder), "--retry", "none"]
@@ -808,20 +986,15 @@ def job_lock(folder, purpose):
     with open(path, "a+", encoding="utf-8") as handle:
         locked = False
         try:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    locked = True
-                except OSError:
-                    fail(f"다른 작업이 이 폴더를 쓰고 있습니다 ({purpose}). "
-                         "백그라운드 대기가 끝난 뒤 다시 시도하세요.")
+            try:
+                locked = _lock_file(handle, blocking=False)
+            except OSError:
+                fail(f"다른 작업이 이 폴더를 쓰고 있습니다 ({purpose}). "
+                     "백그라운드 대기가 끝난 뒤 다시 시도하세요.")
             yield
         finally:
             if locked:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
+                _unlock_file(handle)
 
 
 def natural_key(filename):
@@ -906,14 +1079,38 @@ def price_lines(prompt_audio, prompt_text, low_output, high_output, model):
             f"{pad('일반 비용', LABEL_WIDTH)}  {money(standard)}"]
 
 
+def find_tool(name):
+    """ffmpeg/ffprobe 실행 파일. NALMEOK_FFMPEG → 앱 폴더(번들) → PATH 순."""
+    exe = name + ".exe" if os.name == "nt" else name
+    override = os.getenv("NALMEOK_FFMPEG")
+    if override:
+        path = Path(override).expanduser()
+        if path.is_dir():
+            candidate = path / exe
+            if candidate.exists():
+                return str(candidate)
+        elif path.exists():
+            if path.name.lower() == exe.lower():
+                return str(path)
+            sibling = path.with_name(exe)
+            if sibling.exists():
+                return str(sibling)
+    app = Path(__file__).resolve().parent
+    candidate = app / exe
+    if candidate.exists():
+        return str(candidate)
+    return shutil.which(name)
+
+
 def probe_duration(path):
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = find_tool("ffprobe")
     if not ffprobe:
         return None
     result = subprocess.run(
         [ffprobe, "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", str(path)],
-        check=False, capture_output=True, text=True)
+        check=False, capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
     try:
         return float(result.stdout.strip())
     except ValueError:
@@ -1034,11 +1231,33 @@ def folder_usage(folder):
     return model, usage_totals(rows)
 
 
-def job_folders(root):
-    """작업 폴더만 찾습니다. .venv, .git 같은 숨김 폴더는 들어가지 않습니다."""
+def job_folders(root, max_depth=None, max_dirs=None):
+    """작업 폴더만 찾습니다. 숨김·무거운 폴더는 건너뜁니다.
+
+    max_depth/max_dirs 를 주면 그 안에서만 찾습니다. 대시보드는 Windows에서
+    홈 전체를 훑지 않도록 짧은 제한을 넘깁니다.
+    """
+    root = Path(root)
+    if max_dirs is None:
+        max_dirs = JOB_SCAN_MAX_DIRS * 10
     found = []
+    visited = 0
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        visited += 1
+        if visited > max_dirs:
+            break
+        try:
+            depth = len(Path(current).relative_to(root).parts)
+        except ValueError:
+            depth = 0
+        keep = []
+        for name in dirnames:
+            if name.startswith(".") or name.casefold() in SKIP_SCAN_NAMES:
+                continue
+            if max_depth is not None and depth >= max_depth:
+                continue
+            keep.append(name)
+        dirnames[:] = keep
         if STATE_FILE in filenames or LIVE_STATE_FILE in filenames:
             found.append(Path(current))
     return sorted(found)
@@ -1136,7 +1355,7 @@ def clock_text(seconds):
 
 
 def _progress_enabled():
-    return sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    return vt_supported()
 
 
 def convert_progress_line(index, total, name, seconds, duration):
@@ -1157,9 +1376,10 @@ def convert(folder):
     if not videos:
         log("변환할 MP4 파일이 없습니다.")
         return
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
-        fail("ffmpeg가 필요합니다. macOS 설치: brew install ffmpeg")
+        fail("ffmpeg가 필요합니다. Windows는 설치 폴더의 ffmpeg.exe를 확인하거나 "
+             "NALMEOK_FFMPEG를 지정하세요. macOS: brew install ffmpeg")
     converted = skipped = 0
     failures = []
     live = _progress_enabled()
@@ -1180,7 +1400,8 @@ def convert(folder):
                 "-i", str(source), "-map", "0:a:0", "-vn",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
                 str(pending),
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+               encoding="utf-8", errors="replace")
             started = time.monotonic()
             assert process.stdout is not None
             for line in process.stdout:
@@ -1882,7 +2103,7 @@ def allocate_mixed_entries(entries, free_keys, paid_keys,
 
 def split_audio_ranges(path, duration, cuts, segment_dir):
     """파일을 cuts(로컬 초)에서 여러 조각으로 나눕니다. copy 실패 시 재인코딩합니다."""
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
         fail("긴 파일 분할에는 ffmpeg가 필요합니다.")
     segment_dir.mkdir(parents=True, exist_ok=True)
@@ -1900,12 +2121,13 @@ def split_audio_ranges(path, duration, cuts, segment_dir):
                 "-map", "0:a:0", "-avoid_negative_ts", "make_zero"]
         copy_command = base + ["-c", "copy", str(output)]
         result = subprocess.run(copy_command, check=False, capture_output=True,
-                                text=True)
+                                text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
             encode_command = base + ["-c:a", "aac", "-b:a", "128k",
                                      "-movflags", "+faststart", str(output)]
             result = subprocess.run(encode_command, check=False,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace")
         if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
             fail(f"오디오 분할 실패: {path.name} ({start:.0f}s 부근)\n"
                  f"{(result.stderr or '').strip()}")
@@ -2188,14 +2410,14 @@ def live_generation_config():
 @contextlib.contextmanager
 def live_progress(label, started=None):
     """TUI 상태 줄에 경과 시간을 계속 갱신합니다. CLI 로그에는 영향이 없습니다."""
-    if _logger is not live_status or not sys.stdout.isatty():
+    if _logger is not live_status or not vt_supported():
         yield
         return
     stop = threading.Event()
     base = started if started is not None else time.monotonic()
 
     def run():
-        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        frames = spinner_frames()
         index = 0
         while not stop.wait(0.4):
             elapsed = max(0, int(time.monotonic() - base))
@@ -2720,8 +2942,12 @@ def notify(title, message):
 @contextlib.contextmanager
 def cbreak_keys():
     """대기 화면에서 Enter 없이 키 하나를 읽을 수 있게 합니다."""
-    if not (RAW_KEYS and sys.stdin.isatty()):
+    if not can_raw_input():
         yield False
+        return
+    if os.name == "nt":
+        # msvcrt.getwch() 는 에코 없이 한 키씩 읽으므로 모드 변경이 필요 없습니다.
+        yield True
         return
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
@@ -2730,6 +2956,23 @@ def cbreak_keys():
         yield True
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _key_ready(window):
+    """window 초 동안 키 입력을 기다립니다. 입력이 준비되면 True."""
+    if not can_raw_input():
+        time.sleep(window)
+        return False
+    if os.name == "nt":
+        deadline = time.monotonic() + window
+        while True:
+            if msvcrt.kbhit():
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.03, remaining))
+    return bool(select.select([sys.stdin], [], [], window)[0])
 
 
 def _wait_for_key(interval, allow_detach, tick=None, step=0.12):
@@ -2743,7 +2986,7 @@ def _wait_for_key(interval, allow_detach, tick=None, step=0.12):
             tick()
         window = min(step, remaining)
         if allow_detach:
-            if select.select([sys.stdin], [], [], window)[0]:
+            if _key_ready(window):
                 return read_key()
         else:
             time.sleep(window)
@@ -2760,10 +3003,11 @@ def wait_for_completion(folder, job, client, interval=POLL_SECONDS,
     target = wait_target(folder, job)
     if not target:
         fail("아직 Batch가 제출되지 않았습니다. upload를 다시 실행하세요.")
-    live = sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    live = vt_supported()
     started = time.monotonic()
     started_wall = time.time()
     last = None
+    frames = spinner_frames()
     if track:
         write_watch_status(folder, reset=True, state="STARTING", label="대기 시작",
                            started=started_wall)
@@ -2774,7 +3018,7 @@ def wait_for_completion(folder, job, client, interval=POLL_SECONDS,
             if not live:
                 return
             view["frame"] += 1
-            frame = SPINNER[view["frame"] % len(SPINNER)]
+            frame = frames[view["frame"] % len(frames)]
             hint = "b 백그라운드" if (keys and allow_detach) else "Ctrl+C 중단"
             sys.stdout.write(
                 f"\r\033[K  {accent(frame)} {format_state(view['state'])}"
@@ -2868,6 +3112,7 @@ def parse_args(argv=None):
         ("live", "무료 등급용 live 전사 (130분 그룹 · Batch 없이)"),
         ("auto", "무료 키 먼저 → 남는 오디오는 유료 Batch"),
         ("stats", "지금까지 쓴 금액 합계와 평균"),
+        ("doctor", "환경 진단 정보 출력 (문제 보고용)"),
     ):
         command = commands.add_parser(name, help=help_text)
         if name == "stats":
@@ -2956,8 +3201,7 @@ def run_command(command, folder, client, model=DEFAULT_MODEL, retry="none",
 
 
 def _color_enabled():
-    return (sys.stdout.isatty() and os.getenv("TERM") != "dumb"
-            and not os.getenv("NO_COLOR"))
+    return vt_supported() and not os.getenv("NO_COLOR")
 
 
 def _paint(*codes):
@@ -2977,15 +3221,15 @@ BACK = object()
 UP = object()
 ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left",
           "OA": "up", "OB": "down", "OC": "right", "OD": "left"}
+WIN_ARROWS = {"H": "up", "P": "down", "K": "left", "M": "right"}
 
 
 def clear_screen():
     """보이는 화면만 지우고 커서를 맨 위로 올립니다. 스크롤백은 남깁니다."""
-    if sys.stdout.isatty() and os.getenv("TERM") != "dumb":
+    if vt_supported():
         print("\033[2J\033[H", end="", flush=True)
 
 
-SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 MIN_WIDTH = 46
 MAX_WIDTH = 84
 
@@ -3003,8 +3247,7 @@ def refresh_layout():
 @contextlib.contextmanager
 def fullscreen():
     """전체 화면 버퍼를 쓰고 나올 때 스크롤백을 원래대로 돌려놓습니다."""
-    live = sys.stdout.isatty() and os.getenv("TERM") != "dumb"
-    if not live:
+    if not vt_supported():
         yield
         return
     sys.stdout.write("\033[?1049h\033[?25l")
@@ -3042,8 +3285,8 @@ def footer(hint):
     print(f"  {dim(hint)}")
 
 
-def status_bar(key=None, extra=""):
-    """하단 한 줄. 화면마다 키·ffmpeg·SDK 상태를 같은 자리에 보여줍니다."""
+def status_bar_line(key=None, extra=""):
+    """하단 상태 한 줄을 문자열로 만듭니다."""
     caps = capabilities()
     entries = key_entries()
     has_key = bool(key or entries or current_key())
@@ -3055,16 +3298,22 @@ def status_bar(key=None, extra=""):
              f"SDK {accent('✓') if caps['sdk'] else warn('✗')}"]
     if extra:
         parts.append(extra)
-    print(f"  {dim(' · '.join(parts))}")
+    return f"  {dim(' · '.join(parts))}"
+
+
+def status_bar(key=None, extra=""):
+    """하단 한 줄. 화면마다 키·ffmpeg·SDK 상태를 같은 자리에 보여줍니다."""
+    print(status_bar_line(key, extra))
 
 
 def pulse_bar(width, step, size=3):
     """진행률을 모르는 대기용 막대. 밝은 칸이 왼쪽에서 오른쪽으로 흐릅니다."""
     width = max(size, width)
-    cells = ["░"] * width
+    filled, empty = ("█", "░") if unicode_ok() else ("#", "-")
+    cells = [empty] * width
     for offset in range(size):
-        cells[(step + offset) % width] = "█"
-    return "".join(accent(cell) if cell == "█" else dim(cell) for cell in cells)
+        cells[(step + offset) % width] = filled
+    return "".join(accent(cell) if cell == filled else dim(cell) for cell in cells)
 
 
 def banner():
@@ -3116,8 +3365,8 @@ def prompt_box(label, hidden=False):
     print()
     try:
         if hidden:
-            return getpass.getpass(f"  {accent('❯')} {label}  ").strip()
-        return input(f"  {accent('❯')} {label}  ").strip()
+            return getpass.getpass(f"  {accent(pointer())} {label}  ").strip()
+        return input(f"  {accent(pointer())} {label}  ").strip()
     finally:
         print()
 
@@ -3145,8 +3394,37 @@ def _line_count(text):
     return max(1, (display_width(text) + columns - 1) // columns)
 
 
-def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
-    """메뉴를 목록으로 그립니다. rows 의 None 은 구분선입니다."""
+def draw_lines(lines):
+    """한 프레임을 한 번에 출력합니다. 실제로 차지한 줄 수를 돌려줍니다."""
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+    return sum(_line_count(line) for line in lines)
+
+
+def update_lines(previous, current, height):
+    """이미 그려진 프레임에서 달라진 줄만 다시 씁니다.
+
+    커서가 프레임 마지막 줄 다음에 있고, 모든 줄이 한 줄에 들어갈 때만 동작합니다.
+    아니면 False 를 돌려주고 호출자가 전체를 다시 그립니다.
+    """
+    if (height != len(current) or len(previous) != len(current)
+            or height != len(previous)):
+        return False
+    if any(_line_count(line) != 1 for line in current):
+        return False
+    chunks = [f"\033[{height}A"]
+    for old, new in zip(previous, current):
+        if old == new:
+            chunks.append("\033[B")
+        else:
+            chunks.append("\r\033[K" + new + "\n")
+    sys.stdout.write("".join(chunks))
+    sys.stdout.flush()
+    return True
+
+
+def menu_lines(entries, rows, cursor, footer=None, allow_back=False):
+    """메뉴 한 프레임을 줄 목록으로 만듭니다. rows 의 None 은 구분선입니다."""
     refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
     label_width = min(
@@ -3163,7 +3441,7 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
         tail = dim(clip(desc, room)) if desc else ""
         if row == cursor:
             name = dim(text) if faded else bold(text)
-            rendered.append(f"  {accent('❯')} {name}   {tail}")
+            rendered.append(f"  {accent(pointer())} {name}   {tail}")
         elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
         else:
@@ -3173,13 +3451,49 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
                   + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
     rendered.append("")
     rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
-    for line in rendered:
-        print(line)
-    return sum(_line_count(line) for line in rendered)
+    return rendered
+
+
+def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
+    """메뉴를 목록으로 그립니다. rows 의 None 은 구분선입니다."""
+    return draw_lines(menu_lines(entries, rows, cursor, footer, allow_back))
+
+
+def map_windows_key(char, next_char=None):
+    """Windows 콘솔 키 코드를 공통 키 이름으로 바꿉니다."""
+    if char in ("\x00", "\xe0"):
+        return WIN_ARROWS.get(next_char, "other")
+    if char in ("\r", "\n"):
+        return "enter"
+    if char == "\x03":
+        raise KeyboardInterrupt
+    if char == "\x04":
+        raise EOFError
+    return char
+
+
+def _read_key_windows():
+    char = msvcrt.getwch()
+    if char in ("\x00", "\xe0"):
+        return map_windows_key(char, msvcrt.getwch())
+    if char == "\x1b":
+        rest = ""
+        deadline = time.monotonic() + 0.05
+        while len(rest) < 2 and time.monotonic() < deadline:
+            if msvcrt.kbhit():
+                rest += msvcrt.getwch()
+            else:
+                time.sleep(0.005)
+        if not rest:
+            return "esc"
+        return ARROWS.get(rest, "other")
+    return map_windows_key(char)
 
 
 def read_key():
     """raw 모드로 키 하나를 읽습니다. 방향키는 up/down/left/right 로 돌려줍니다."""
+    if os.name == "nt":
+        return _read_key_windows()
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     try:
@@ -3201,6 +3515,20 @@ def read_key():
         return ARROWS.get(rest, "other")
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def wait_key():
+    """Enter 한 번을 기다립니다. raw 입력이 없으면 input()으로 대체합니다."""
+    if can_raw_input():
+        try:
+            read_key()
+        except (KeyboardInterrupt, EOFError):
+            pass
+        return
+    try:
+        input()
+    except (KeyboardInterrupt, EOFError):
+        pass
 
 
 def _menu_entries(options):
@@ -3237,25 +3565,54 @@ def _menu_move(entries, cursor, step):
     return cursor
 
 
+def _menu_limit(info=()):
+    """헤더·정보·푸터를 제외하고 메뉴에 보여줄 수 있는 줄 수."""
+    rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
+    return max(4, rows - 9 - len(info))
+
+
+def _menu_window(rows, cursor, limit):
+    """커서가 보이도록 rows 의 일부 구간을 돌려줍니다. (구간, 시작, 전체)"""
+    total = len(rows)
+    if total <= limit:
+        return rows, 0, total
+    positions = [index for index, row in enumerate(rows) if row == cursor]
+    position = positions[0] if positions else 0
+    start = max(0, min(position - limit // 2, total - limit))
+    return rows[start:start + limit], start, total
+
+
 def select_menu(title, options, info=(), allow_back=False, heading=None,
                 subtitle="", footer=None, left_up=False):
     """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다.
 
     left_up 이면 왼쪽 화살표가 BACK 대신 UP 을 돌려줍니다.
     """
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
     cursor = next((index for index, entry in enumerate(entries) if not entry[4]), 0)
 
+    def build_menu():
+        limit = _menu_limit(info)
+        visible, start, total = _menu_window(rows, cursor, limit)
+        line_footer = footer
+        if total > len(visible):
+            base = line_footer or (
+                "↑↓ 이동 · Enter 선택"
+                + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
+            line_footer = (f"{base}  "
+                           f"({start + 1}-{start + len(visible)}/{total})")
+        return menu_lines(entries, visible, cursor, line_footer, allow_back)
+
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_menu(entries, rows, cursor, footer, allow_back)
+        return build_menu()
 
-    height = render()
+    lines = render()
+    height = draw_lines(lines)
     while True:
         pressed = read_key()
         if pressed == "up":
@@ -3273,16 +3630,21 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
                 cursor = _menu_move(entries, cursor, -1)
         else:
             continue
+        new_lines = build_menu()
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
-            height = render()
+            lines = render()
+            height = draw_lines(lines)
+        elif not update_lines(lines, new_lines, height):
+            sys.stdout.write(f"\033[{height}A")
+            height = draw_lines(new_lines)
+            lines = new_lines
         else:
-            print(f"\033[{height}A", end="")
-            height = draw_menu(entries, rows, cursor, footer, allow_back)
+            lines = new_lines
 
 
-def draw_multi(entries, rows, cursor, selected, footer=None):
-    """여러 선택 메뉴. rows 의 None 은 구분선입니다."""
+def multi_lines(entries, rows, cursor, selected, footer=None):
+    """여러 선택 메뉴 한 프레임을 줄 목록으로 만듭니다."""
     refresh_layout()
     with_desc = [entry for entry in entries if entry[2]]
     label_width = min(
@@ -3300,7 +3662,7 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
         check = accent('●') if row in selected else dim('○')
         if row == cursor:
             name = dim(text) if faded else bold(text)
-            rendered.append(f"  {accent('❯')} {check} {name}   {tail}")
+            rendered.append(f"  {accent(pointer())} {check} {name}   {tail}")
         elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
         else:
@@ -3308,27 +3670,40 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
     rendered.append("")
     footer = footer or "↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로"
     rendered.append(f"  {dim(clip(footer, WIDTH - 2))}")
-    for line in rendered:
-        print(line)
-    return sum(_line_count(line) for line in rendered)
+    return rendered
+
+
+def draw_multi(entries, rows, cursor, selected, footer=None):
+    """여러 선택 메뉴. rows 의 None 은 구분선입니다."""
+    return draw_lines(multi_lines(entries, rows, cursor, selected, footer))
 
 
 def select_many(title, options, info=(), heading=None, subtitle=""):
     """여러 항목을 Space 로 표시하고 Enter 로 확정합니다. BACK 을 돌려줄 수 있습니다."""
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
     cursor = 0
     selected = set()
 
+    def build_menu():
+        limit = _menu_limit(info)
+        visible, start, total = _menu_window(rows, cursor, limit)
+        line_footer = None
+        if total > len(visible):
+            line_footer = (
+                "↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로  "
+                f"({start + 1}-{start + len(visible)}/{total})")
+        return multi_lines(entries, visible, cursor, selected, line_footer)
+
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return draw_multi(entries, rows, cursor, selected)
+        return build_menu()
 
-    height = render()
+    lines = render()
+    height = draw_lines(lines)
     while True:
         pressed = read_key()
         if pressed == "up":
@@ -3346,12 +3721,17 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
             return BACK
         else:
             continue
+        new_lines = build_menu()
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
-            height = render()
+            lines = render()
+            height = draw_lines(lines)
+        elif not update_lines(lines, new_lines, height):
+            sys.stdout.write(f"\033[{height}A")
+            height = draw_lines(new_lines)
+            lines = new_lines
         else:
-            print(f"\033[{height}A", end="")
-            height = draw_multi(entries, rows, cursor, selected)
+            lines = new_lines
 
 
 STAGE_LABELS = {
@@ -3389,8 +3769,11 @@ def _count_media(folder):
     return m4a, mp4, pdf
 
 
-def inspect_folder(folder):
-    """네트워크 없이 폴더의 상태를 한 번에 읽습니다. 메뉴와 대시보드 전용입니다."""
+def inspect_folder(folder, light=False):
+    """네트워크 없이 폴더의 상태를 한 번에 읽습니다. 메뉴와 대시보드 전용입니다.
+
+    light=True 는 폴더 탐색 목록용으로, 미디어 개수와 작업 흔적만 빠르게 봅니다.
+    """
     folder = Path(folder)
     try:
         exists = folder.is_dir()
@@ -3411,6 +3794,19 @@ def inspect_folder(folder):
         return facts
     m4a, mp4, pdf = _count_media(folder)
     facts.update(m4a=m4a, mp4=mp4, pdf=pdf, media=m4a + mp4)
+    if light:
+        facts["job"] = (safe_exists(state_path(folder))
+                        or safe_exists(live_state_path(folder)))
+        facts["output"] = safe_exists(output_path(folder))
+        if facts["output"]:
+            facts["stage"] = "done"
+        elif facts["job"]:
+            facts["stage"] = "prepared"
+        elif facts["media"]:
+            facts["stage"] = "ready"
+        else:
+            facts["stage"] = "empty"
+        return facts
     try:
         facts["needs_convert"] = needs_conversion(folder)
     except OSError:
@@ -3563,8 +3959,8 @@ def capabilities(refresh=False):
     """환경 상태. 무거운 확인은 한 번만 하고 키 정보는 매번 새로 읽습니다."""
     if refresh or not _CAP_CACHE:
         _CAP_CACHE.update(
-            ffmpeg=shutil.which("ffmpeg"),
-            ffprobe=shutil.which("ffprobe"),
+            ffmpeg=find_tool("ffmpeg"),
+            ffprobe=find_tool("ffprobe"),
             sdk=sdk_importable(),
         )
     entries = key_entries()
@@ -3587,9 +3983,70 @@ def caps_line(caps=None):
             f"SDK {mark(caps['sdk'])} · 키 {caps['key_source'] or warn('없음')}")
 
 
+def console_attached():
+    """프로세스에 콘솔이 붙어 있는지. stdout이 파일로 리다이렉트돼도 Windows는 참일 수 있습니다."""
+    if os.name != "nt":
+        return sys.stdout.isatty() or sys.stdin.isatty()
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())
+    except (AttributeError, OSError):
+        return False
+
+
+def terminal_name():
+    if os.getenv("WT_SESSION"):
+        return "Windows Terminal"
+    if os.name == "nt":
+        return "Windows console (conhost)"
+    return os.getenv("TERM_PROGRAM") or os.getenv("TERM") or "unknown"
+
+
+def doctor_lines():
+    """문제 보고에 붙일 수 있는 환경 진단 정보. 키/SDK 없이 동작합니다."""
+    caps = capabilities(refresh=True)
+    try:
+        cwd = short_path(Path.cwd())
+    except OSError:
+        cwd = "?"
+    return [
+        f"nalmeok {__version__}",
+        f"{pad('OS', 12)}  {platform.platform()}",
+        f"{pad('터미널', 12)}  {terminal_name()}",
+        f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('콘솔', 12)}  attached={console_attached()} "
+        f"stdin_isatty={sys.stdin.isatty()}",
+        f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
+        f"encoding={getattr(sys.stdout, 'encoding', '?')}",
+        f"{pad('Python', 12)}  {sys.version.split()[0]}",
+        f"{pad('실행 파일', 12)}  {short_path(Path(sys.executable))}",
+        f"{pad('앱 폴더', 12)}  {short_path(Path(__file__).resolve().parent)}",
+        f"{pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
+        f"{pad('ffprobe', 12)}  {caps['ffprobe'] or '없음'}",
+        f"{pad('SDK', 12)}  {'설치됨' if caps['sdk'] else '없음'}",
+        f"{pad('API 키', 12)}  {caps['key_summary']}",
+        f"{pad('설정 파일', 12)}  {short_path(config_path())}",
+        f"{pad('로그', 12)}  {short_path(debug_log_path())}",
+        f"{pad('작업 폴더', 12)}  {cwd}",
+    ]
+
+
+def show_doctor():
+    configure_stdio()
+    print("\n".join(doctor_lines()))
+
+
 def diagnostics_lines():
     caps = capabilities()
     return [
+        f"{pad('OS', 12)}  {platform.platform()}",
+        f"{pad('터미널', 12)}  {terminal_name()}",
+        f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('콘솔', 12)}  attached={console_attached()} "
+        f"stdin_isatty={sys.stdin.isatty()}",
+        f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
+        f"encoding={getattr(sys.stdout, 'encoding', '?')}",
         f"{pad('Python', 12)}  {sys.version.split()[0]}",
         f"{pad('실행 파일', 12)}  {short_path(Path(sys.executable))}",
         f"{pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
@@ -3629,7 +4086,8 @@ def dashboard_folders():
     for path in recent_folders():
         add(path)
     extras = []
-    for path in job_folders(Path.cwd()):
+    for path in job_folders(Path.cwd(), max_depth=JOB_SCAN_MAX_DEPTH,
+                            max_dirs=JOB_SCAN_MAX_DIRS):
         if path.resolve() not in folders:
             extras.append(path)
     def mtime(path):
@@ -3649,7 +4107,9 @@ def clean_path(text):
     text = text.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
         text = text[1:-1]
-    return Path(text.replace("\\ ", " ")).expanduser()
+    if os.name != "nt":
+        text = text.replace("\\ ", " ")
+    return Path(text).expanduser()
 
 
 def path_target(text):
@@ -3663,24 +4123,27 @@ def path_target(text):
     return path if path.is_dir() else None
 
 
-SCAN_SECONDS = 0.1
-
-
-def scan_descendant_media(folder, seconds=SCAN_SECONDS):
-    """하위 미디어 개수와 작업 흔적을 seconds 안에서 셉니다.
+def scan_descendant_media(folder, seconds=None, max_depth=None, max_dirs=None):
+    """하위 미디어 개수와 작업 흔적을 제한 안에서 셉니다.
 
     (오디오, MP4, 작업 흔적, 끝까지 봤는지) 를 돌려줍니다. 심볼릭 링크
-    디렉터리는 따라가지 않아 순환이 생기지 않고, 시간이 모자라면 그때까지
-    센 값과 False 를 돌려줍니다.
+    디렉터리는 따라가지 않습니다. 시간·깊이·방문 폴더 수를 넘기면 그때까지
+    센 값과 False 를 돌려줍니다. Windows 기본값이 더 짧습니다.
     """
+    seconds = SCAN_SECONDS if seconds is None else seconds
+    max_depth = SCAN_MAX_DEPTH if max_depth is None else max_depth
+    max_dirs = SCAN_MAX_DIRS if max_dirs is None else max_dirs
     deadline = time.monotonic() + seconds
-    pending = [Path(folder)]
+    pending = [(Path(folder), 0)]
     m4a = mp4 = 0
     job = False
+    visited = 0
+    truncated = False
     while pending:
-        if time.monotonic() > deadline:
+        if time.monotonic() > deadline or visited >= max_dirs:
             return m4a, mp4, job, False
-        current = pending.pop()
+        current, depth = pending.pop()
+        visited += 1
         try:
             if state_path(current).exists() or live_state_path(current).exists():
                 job = True
@@ -3692,7 +4155,12 @@ def scan_descendant_media(folder, seconds=SCAN_SECONDS):
                         return m4a, mp4, job, False
                     try:
                         if item.is_dir(follow_symlinks=False):
-                            pending.append(Path(item.path))
+                            if depth >= max_depth:
+                                truncated = True
+                            elif item.name.casefold() in SKIP_SCAN_NAMES:
+                                truncated = True
+                            else:
+                                pending.append((Path(item.path), depth + 1))
                         elif item.is_file():
                             suffix = item.name.lower()
                             if suffix.endswith(".m4a"):
@@ -3703,7 +4171,7 @@ def scan_descendant_media(folder, seconds=SCAN_SECONDS):
                         continue
         except OSError:
             continue
-    return m4a, mp4, job, True
+    return m4a, mp4, job, not truncated
 
 
 def nested_summary(m4a, mp4, complete):
@@ -3734,13 +4202,21 @@ def browse_folder(start=None):
         if facts["media"] or facts["job"]:
             options.append(("__select__", "이 폴더 선택",
                             folder_summary(current, facts)))
-        for path in subdirs:
-            child = inspect_folder(path)
+        for index, path in enumerate(subdirs):
+            # Windows 홈의 AppData/OneDrive처럼 큰 폴더는 열지 않고 표시만 합니다.
+            if (index >= BROWSE_DETAIL_LIMIT
+                    or path.name.casefold() in SKIP_SCAN_NAMES):
+                options.append((str(path), path.name + "/", "폴더", False, False))
+                continue
+            child = inspect_folder(path, light=True)
             if child["media"] or child["job"]:
                 options.append((str(path), path.name + "/",
                                 folder_summary(path, child), False, False))
                 continue
-            m4a, mp4, job, complete = scan_descendant_media(path)
+            if index < BROWSE_DESCENDANT_LIMIT:
+                m4a, mp4, job, complete = scan_descendant_media(path)
+            else:
+                m4a, mp4, job, complete = 0, 0, False, False
             usable = bool(m4a or mp4 or job or not complete)
             desc = nested_summary(m4a, mp4, complete) if m4a or mp4 else (
                 "하위 폴더" if usable else "폴더")
@@ -3844,9 +4320,52 @@ def log_tail(path, limit=6):
         log(clip(line, WIDTH + 16))
 
 
+def _read_secret_windows(label):
+    """Windows 콘솔에서 가려진 입력을 한 글자씩 읽습니다."""
+    buffer = []
+    mask = "•" if unicode_ok() else "*"
+    sys.stdout.write(f"  {accent(pointer())} {pad(label, 15)} ")
+    sys.stdout.flush()
+    try:
+        while True:
+            char = msvcrt.getwch()
+            if char in ("\r", "\n"):
+                break
+            if char in ("\x00", "\xe0"):
+                if msvcrt.kbhit():
+                    msvcrt.getwch()
+                continue
+            if char == "\x1b":
+                if not msvcrt.kbhit():
+                    return None
+                while msvcrt.kbhit():
+                    msvcrt.getwch()
+                continue
+            if char == "\x03":
+                raise KeyboardInterrupt
+            if char == "\x04":
+                break
+            if char in ("\x7f", "\b"):
+                if buffer:
+                    buffer.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if char and char.isprintable() and char != "\t":
+                buffer.append(char)
+                sys.stdout.write(mask)
+                sys.stdout.flush()
+    finally:
+        print()
+    text = "".join(buffer).strip()
+    return text or None
+
+
 def read_secret(label):
     """가려진 입력 한 줄. Enter 확정, Esc 취소(None), 백스페이스 지원."""
-    if not (RAW_KEYS and sys.stdin.isatty()):
+    if os.name == "nt" and can_raw_input():
+        return _read_secret_windows(label)
+    if not (POSIX_TERMINAL and sys.stdin.isatty()):
         try:
             return getpass.getpass(f"  {label}: ").strip() or None
         except (EOFError, KeyboardInterrupt):
@@ -3854,7 +4373,7 @@ def read_secret(label):
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     buffer = []
-    sys.stdout.write(f"  {accent('❯')} {pad(label, 15)} ")
+    sys.stdout.write(f"  {accent(pointer())} {pad(label, 15)} ")
     sys.stdout.flush()
     try:
         tty.setraw(fd)
@@ -4159,11 +4678,54 @@ def merge_flow(folder, key):
     return key
 
 
+def _copy_windows_clipboard(text):
+    """ctypes로 유니코드 클립보드에 넣습니다. clip.exe의 코드페이지 문제를 피합니다."""
+    try:
+        import ctypes
+
+        cf_unicode = 13
+        gmem_moveable = 0x0002
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+        if not user32.OpenClipboard(None):
+            return False
+        try:
+            user32.EmptyClipboard()
+            data = text.encode("utf-16-le") + b"\x00\x00"
+            handle = kernel32.GlobalAlloc(gmem_moveable, len(data))
+            if not handle:
+                return False
+            pointer = kernel32.GlobalLock(handle)
+            if not pointer:
+                kernel32.GlobalFree(handle)
+                return False
+            try:
+                ctypes.memmove(pointer, data, len(data))
+            finally:
+                kernel32.GlobalUnlock(handle)
+            if not user32.SetClipboardData(cf_unicode, handle):
+                kernel32.GlobalFree(handle)
+                return False
+            return True
+        finally:
+            user32.CloseClipboard()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def copy_to_clipboard(text):
+    if os.name == "nt":
+        return _copy_windows_clipboard(text)
     if sys.platform == "darwin":
         commands = [["pbcopy"]]
-    elif os.name == "nt":
-        commands = [["clip"]]
     else:
         commands = []
         if shutil.which("wl-copy"):
@@ -4175,6 +4737,7 @@ def copy_to_clipboard(text):
     for command in commands:
         try:
             subprocess.run(command, input=text, text=True, check=True,
+                           encoding="utf-8", errors="replace",
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         except (OSError, subprocess.CalledProcessError):
@@ -4188,7 +4751,10 @@ def open_result(folder):
         fail(f"결과 파일이 없습니다: {path}")
     editor = os.getenv("VISUAL") or os.getenv("EDITOR")
     if editor:
-        subprocess.call(shlex.split(editor) + [str(path)])
+        parts = shlex.split(editor, posix=os.name != "nt")
+        if os.name == "nt":
+            parts = [part.strip('"') for part in parts]
+        subprocess.call(parts + [str(path)])
     elif sys.platform == "darwin":
         subprocess.run(["open", str(path)], check=False)
     elif os.name == "nt":
@@ -4519,40 +5085,46 @@ def refresh_remote(folders, key):
     return key
 
 
-def draw_home(entries, cursor, key, folder_count):
-    """화면 2. 상자 대신 목록과 얇은 구분선으로 그립니다."""
+def home_lines(entries, cursor, key, folder_count):
+    """화면 2 한 프레임을 줄 목록으로 만듭니다."""
     refresh_layout()
-    clear_screen()
-    print()
-    print(f"  {bold('날먹')}   {dim('강의 음성을 Batch·live로 전사')}   {dim('v' + __version__)}")
-    print(f"  {dim('─' * WIDTH)}")
-    print()
+    lines = [""]
+    lines.append(f"  {bold('날먹')}   {dim('강의 음성을 Batch·live로 전사')}   {dim('v' + __version__)}")
+    lines.append(f"  {dim('─' * WIDTH)}")
+    lines.append("")
     labels = [entry for entry in entries if entry]
     label_width = min(
         max((display_width(entry[1]) for entry in labels), default=8), 26)
     if folder_count:
-        print(f"  {dim('작업')}")
-        print()
+        lines.append(f"  {dim('작업')}")
+        lines.append("")
     else:
-        print(f"  {dim('최근 작업이 없습니다. [새 전사]로 시작하세요.')}")
-        print()
+        lines.append(f"  {dim('최근 작업이 없습니다. [새 전사]로 시작하세요.')}")
+        lines.append("")
     for index, entry in enumerate(entries):
         if entry is None:
-            print(f"  {dim('─' * WIDTH)}")
+            lines.append(f"  {dim('─' * WIDTH)}")
             continue
         label, desc, faded = entry[1], entry[2], entry[3]
         text = pad(clip(label, label_width), label_width)
         room = max(8, WIDTH - label_width - 5)
         tail = dim(clip(desc, room)) if desc else ""
         if faded:
-            print(f"    {dim(text)}   {tail}")
+            lines.append(f"    {dim(text)}   {tail}")
         elif index == cursor:
-            print(f"  {accent('❯')} {bold(text)}   {tail}")
+            lines.append(f"  {accent(pointer())} {bold(text)}   {tail}")
         else:
-            print(f"    {text}   {tail}")
-    print()
-    status_bar(key)
-    print(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+            lines.append(f"    {text}   {tail}")
+    lines.append("")
+    lines.append(status_bar_line(key))
+    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+    return lines
+
+
+def draw_home(entries, cursor, key, folder_count):
+    """화면 2. 상자 대신 목록과 얇은 구분선으로 그립니다."""
+    clear_screen()
+    return draw_lines(home_lines(entries, cursor, key, folder_count))
 
 
 def help_screen():
@@ -4578,9 +5150,7 @@ def help_screen():
 
 def home_screen(key):
     """화면 2. 최근 작업과 새 전사. 선택 키 또는 BACK 을 돌려줍니다."""
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. "
-             "서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     cursor = 0
 
     def movable(entries, index):
@@ -4615,7 +5185,9 @@ def home_screen(key):
         if not movable(entries, cursor):
             cursor = next((index for index in range(len(entries))
                            if movable(entries, index)), 0)
-        draw_home(entries, cursor, key, len(rows))
+        lines = home_lines(entries, cursor, key, len(rows))
+        clear_screen()
+        height = draw_lines(lines)
         while True:
             pressed = read_key()
             if pressed == "up":
@@ -4649,7 +5221,11 @@ def home_screen(key):
                 break
             else:
                 continue
-            draw_home(entries, cursor, key, len(rows))
+            new_lines = home_lines(entries, cursor, key, len(rows))
+            if not update_lines(lines, new_lines, height):
+                clear_screen()
+                height = draw_lines(new_lines)
+            lines = new_lines
 
 
 def folder_menu(folder, facts):
@@ -5013,10 +5589,7 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
     for line in lines:
         print(f"  {line}")
     footer(hint)
-    try:
-        read_key()
-    except (KeyboardInterrupt, EOFError):
-        pass
+    wait_key()
 
 
 def start_screen(folder, facts, key):
@@ -5479,6 +6052,7 @@ def session_screen(folder, key):
 def interactive():
     if not sys.stdin.isatty():
         fail("터미널 메뉴는 터미널에서 실행하세요. 명령어 사용법: nalmeok --help")
+    require_tui()
     with fullscreen():
         key = current_key()
         if not key:
@@ -5563,6 +6137,9 @@ def main():
     args = parse_args()
     if args.command is None:
         interactive()
+        return
+    if args.command == "doctor":
+        show_doctor()
         return
     folder = Path(args.folder).expanduser().resolve()
     if not folder.is_dir():
@@ -5660,6 +6237,7 @@ def _api_error_class():
 
 def cli():
     """콘솔 스크립트와 __main__ 진입점. 사용자 오류를 traceback 없이 보여줍니다."""
+    bootstrap_platform()
     try:
         main()
     except (KeyboardInterrupt, EOFError):

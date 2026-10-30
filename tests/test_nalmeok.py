@@ -79,8 +79,9 @@ class DisplayTests(unittest.TestCase):
     def test_pulse_bar_fits_width(self):
         bar = app.pulse_bar(14, 3)
         self.assertEqual(app.display_width(bar), 14)
-        self.assertIn("█", bar)
-        self.assertIn("░", bar)
+        filled, empty = ("█", "░") if app.unicode_ok() else ("#", "-")
+        self.assertIn(filled, bar)
+        self.assertIn(empty, bar)
 
     def test_refresh_layout_clamps_to_terminal(self):
         with mock.patch.object(app, "term_size",
@@ -101,7 +102,7 @@ class DisplayTests(unittest.TestCase):
         text = captured.getvalue()
         self.assertNotIn("╭", text)
         self.assertNotIn("│", text)
-        self.assertIn("❯", text)
+        self.assertIn(app.pointer(), text)
         self.assertIn("Enter 선택", text)
 
     def test_multi_menu_marks_selection(self):
@@ -118,7 +119,7 @@ class DisplayTests(unittest.TestCase):
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
             app.draw_menu(entries, [0], 0, "Enter 선택")
-        self.assertIn("❯", captured.getvalue())
+        self.assertIn(app.pointer(), captured.getvalue())
 
     def test_display_width_normalizes_decomposed_hangul(self):
         nfd = unicodedata.normalize("NFD", "강의녹음/")
@@ -128,6 +129,12 @@ class DisplayTests(unittest.TestCase):
 
 class PathTests(unittest.TestCase):
     def test_clean_path_unquotes_and_unescapes(self):
+        if os.name == "nt":
+            self.assertEqual(str(app.clean_path('"C:\\Users\\me\\my lecture"')),
+                             "C:\\Users\\me\\my lecture")
+            self.assertEqual(str(app.clean_path("'C:\\Users\\me\\my lecture'")),
+                             "C:\\Users\\me\\my lecture")
+            return
         self.assertEqual(str(app.clean_path('"/tmp/my lecture"')),
                          "/tmp/my lecture")
         self.assertEqual(str(app.clean_path("'/tmp/my\\ lecture'")),
@@ -199,6 +206,84 @@ class FolderBrowseTests(unittest.TestCase):
             (root / "self").symlink_to(root)
             self.assertEqual(app.scan_descendant_media(root), (0, 0, False, True))
 
+    def test_scan_descendant_media_respects_depth_and_dir_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            deep = root
+            for index in range(5):
+                deep = deep / f"d{index}"
+                deep.mkdir()
+            (deep / "01.m4a").write_bytes(b"x")
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_depth=2),
+                (0, 0, False, False))
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_dirs=1),
+                (0, 0, False, False))
+            self.assertEqual(
+                app.scan_descendant_media(root, seconds=1, max_depth=9,
+                                          max_dirs=100),
+                (1, 0, False, True))
+
+    def test_job_folders_respects_depth_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            deep = root / "a" / "b" / "c"
+            deep.mkdir(parents=True)
+            (deep / app.STATE_FILE).write_text("{}", encoding="utf-8")
+            self.assertEqual(app.job_folders(root, max_depth=1), [])
+            self.assertEqual(app.job_folders(root, max_depth=3), [deep])
+
+    def test_inspect_folder_light_reads_media_and_job(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "01.m4a").write_bytes(b"x")
+            facts = app.inspect_folder(folder, light=True)
+            self.assertEqual(facts["media"], 1)
+            self.assertEqual(facts["stage"], "ready")
+
+    def test_update_lines_rewrites_only_changed_rows(self):
+        previous = ["  a", "  b", "  c"]
+        current = ["  a", "> b", "  c"]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            updated = app.update_lines(previous, current, 3)
+        self.assertTrue(updated)
+        output = captured.getvalue()
+        self.assertIn("\033[3A", output)
+        self.assertIn("> b", output)
+        self.assertNotIn("  a", output)
+        self.assertNotIn("  c", output)
+
+    def test_update_lines_falls_back_on_wrapping(self):
+        self.assertFalse(app.update_lines(["a"], ["b"], 2))
+
+    def test_menu_window_keeps_cursor_visible(self):
+        rows = list(range(10))
+        visible, start, total = app._menu_window(rows, 7, 4)
+        self.assertEqual(total, 10)
+        self.assertEqual(len(visible), 4)
+        self.assertIn(7, visible)
+        self.assertGreaterEqual(start, 0)
+
+    def test_long_menu_does_not_clear_on_every_key(self):
+        options = [(str(index), f"item{index}") for index in range(40)]
+        keys = iter(["down"] * 10 + ["esc"])
+
+        def fake_key():
+            return next(keys)
+
+        with mock.patch.object(app, "can_raw_input", return_value=True), \
+                mock.patch.object(app, "vt_supported", return_value=True), \
+                mock.patch.object(app, "read_key", side_effect=fake_key), \
+                mock.patch.object(app.shutil, "get_terminal_size",
+                                  return_value=os.terminal_size((80, 24))):
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                answer = app.select_menu("test", options, allow_back=True)
+        self.assertIs(answer, app.BACK)
+        self.assertEqual(captured.getvalue().count("\033[2J"), 1)
+
     def test_browse_shows_nested_media_counts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -232,9 +317,11 @@ class FolderBrowseTests(unittest.TestCase):
         self.assertFalse(facts["job"])
         self.assertEqual(facts["stage"], "empty")
 
-    @unittest.skipUnless(app.RAW_KEYS, "방향키 메뉴는 macOS·Linux 에서만 동작합니다")
+    @unittest.skipUnless(app.RAW_KEYS, "터미널 입력을 지원하는 플랫폼에서만 동작합니다")
     def test_menu_left_returns_up_when_left_up(self):
-        with mock.patch.object(app, "read_key", return_value="left"), \
+        with mock.patch.object(app, "can_raw_input", return_value=True), \
+                mock.patch.object(app, "vt_supported", return_value=True), \
+                mock.patch.object(app, "read_key", return_value="left"), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertIs(
                 app.select_menu("폴더", [("a", "A")], allow_back=True,
@@ -319,7 +406,27 @@ class AtomicWriteTests(unittest.TestCase):
             path = Path(temp) / "file.json"
             app.atomic_write_text(path, '{"a": 1}', mode=0o600)
             self.assertEqual(path.read_text(encoding="utf-8"), '{"a": 1}')
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            leftovers = [p for p in Path(temp).iterdir() if p != path]
+            self.assertEqual(leftovers, [])
+
+    def test_write_retries_permission_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "file.json"
+            real_replace = os.replace
+            calls = {"count": 0}
+
+            def flaky_replace(source, target):
+                calls["count"] += 1
+                if calls["count"] < 3:
+                    raise PermissionError("locked")
+                return real_replace(source, target)
+
+            with mock.patch.object(app.os, "replace", side_effect=flaky_replace):
+                app.atomic_write_text(path, "ok")
+            self.assertEqual(path.read_text(encoding="utf-8"), "ok")
+            self.assertEqual(calls["count"], 3)
             leftovers = [p for p in Path(temp).iterdir() if p != path]
             self.assertEqual(leftovers, [])
 
@@ -1141,6 +1248,59 @@ class PackagingTests(unittest.TestCase):
         match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), app.__version__)
+
+
+class PlatformTests(unittest.TestCase):
+    def test_windows_key_mapping(self):
+        self.assertEqual(app.map_windows_key("\xe0", "H"), "up")
+        self.assertEqual(app.map_windows_key("\xe0", "P"), "down")
+        self.assertEqual(app.map_windows_key("\xe0", "K"), "left")
+        self.assertEqual(app.map_windows_key("\xe0", "M"), "right")
+        self.assertEqual(app.map_windows_key("\x00", "H"), "up")
+        self.assertEqual(app.map_windows_key("\xe0", "Z"), "other")
+        self.assertEqual(app.map_windows_key("\r"), "enter")
+        with self.assertRaises(KeyboardInterrupt):
+            app.map_windows_key("\x03")
+        with self.assertRaises(EOFError):
+            app.map_windows_key("\x04")
+
+    def test_ascii_symbol_fallback(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_ASCII": "1"}, clear=False):
+            self.assertFalse(app.unicode_ok())
+            self.assertEqual(app.pointer(), ">")
+            self.assertEqual(app.spinner_frames(), "|/-\\")
+
+    def test_unicode_symbol_override(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_UNICODE": "1"}, clear=False):
+            self.assertTrue(app.unicode_ok())
+            self.assertEqual(app.pointer(), "❯")
+
+    def test_can_raw_input_requires_tty(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=False):
+            self.assertFalse(app.can_raw_input())
+
+    def test_require_tui_rejects_non_tty(self):
+        with mock.patch.object(app, "can_raw_input", return_value=False):
+            with self.assertRaises(RuntimeError):
+                app.require_tui()
+
+    def test_find_tool_prefers_override_directory(self):
+        name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / name
+            path.write_bytes(b"")
+            with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": temp},
+                                 clear=False):
+                self.assertEqual(app.find_tool("ffmpeg"), str(path))
+
+    def test_find_tool_missing_returns_none(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": ""}, clear=False):
+            self.assertIsNone(app.find_tool("nalmeok-no-such-tool"))
+
+    def test_doctor_lines_include_environment(self):
+        text = "\n".join(app.doctor_lines())
+        for label in ("OS", "터미널", "VT/ANSI", "Python", "ffmpeg", "설정 파일"):
+            self.assertIn(label, text)
 
 
 if __name__ == "__main__":

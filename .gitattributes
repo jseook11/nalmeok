@@ -1,0 +1,2 @@
+# Windows 배치 파일은 CRLF로 체크아웃해야 cmd.exe가 안전하게 읽습니다.
+*.cmd text eol=crlf
