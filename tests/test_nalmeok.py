@@ -1594,9 +1594,9 @@ class RestartTests(unittest.TestCase):
             app.restart(Path("/tmp/app/.venv/bin/python"))
             pythonpath = os.environ["PYTHONPATH"]
         python, argv = execv.call_args.args
-        self.assertEqual(python, "/tmp/app/.venv/bin/python")
-        self.assertEqual(argv, ["/tmp/app/.venv/bin/python", "-m", "nalmeok",
-                                "wait", "folder"])
+        interpreter = str(Path("/tmp/app/.venv/bin/python"))
+        self.assertEqual(python, interpreter)
+        self.assertEqual(argv, [interpreter, "-m", "nalmeok", "wait", "folder"])
         self.assertEqual(pythonpath, os.pathsep.join([root, "/existing"]))
 
 
