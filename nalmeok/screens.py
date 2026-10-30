@@ -260,7 +260,9 @@ def folder_summary(folder, facts=None):
 
 def usage_folders():
     folders = []
-    for path in list(app.job_folders(Path.cwd())) + app.recent_folders():
+    scanned = app.job_folders(Path.cwd(), max_depth=app.JOB_SCAN_MAX_DEPTH,
+                              max_dirs=app.JOB_SCAN_MAX_DIRS)
+    for path in list(scanned) + app.recent_folders():
         try:
             path = path.resolve()
         except OSError:

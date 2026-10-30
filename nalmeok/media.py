@@ -342,8 +342,9 @@ def usage_entry(folder):
 
 
 def collect_usage(root):
-    return [job for job in (app.usage_entry(folder) for folder in app.job_folders(root))
-            if job]
+    folders = app.job_folders(root, max_depth=app.JOB_SCAN_MAX_DEPTH,
+                              max_dirs=app.JOB_SCAN_MAX_DIRS)
+    return [job for job in (app.usage_entry(folder) for folder in folders) if job]
 
 
 def stats_lines_from(jobs, root=None):

@@ -260,7 +260,8 @@ nalmeok-<version>-win64.zip   (~194KB)
 
 ### 4.12 폴더 스캔 제한 (D14)
 
-- `job_folders`: 대시보드 depth 2/2000개, CLI `stats` 20000개.
+- `job_folders`: 대시보드·CLI `stats`·사용량 화면 모두 depth 2/2000개(Windows), depth 5/20000개(POSIX).
+  v0.6.2까지 `stats`와 사용량 화면은 제한 없이(최대 200,000개) 훑어 `$HOME`에서 15초 넘게 걸렸다.
 - `scan_descendant_media`: Windows 0.03초·depth 3·150개, POSIX 0.1초·depth 8·1000개.
 - 폴더 탐색: 상세 100개, 하위 20개. 나머지는 스캔 없이 "폴더"로 표시.
 - `AppData`, `OneDrive`, `node_modules`, `.git`, `.venv`, `Program Files` 등은 건너뜀.
@@ -404,3 +405,4 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 | 2026-10-30 | 문서 정리: 오래된 기준선·중복 제거, 기준선 0.6.2/157 tests로 갱신, 코드서명·의존성 금지·단일 파일 제약 폐기 | Claude Code |
 | 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 공통 `nalmeok-app.zip` 디렉터리 교체 | Claude Code |
 | 2026-10-31 | **v0.6.2 릴리스**: thin ZIP 199KB + 공통 `nalmeok-app.zip` + `manifest.json`. Windows 11 실기·CI 통과 | Claude Code |
+| 2026-10-31 | 사용량 화면·CLI `stats`의 `job_folders` 무제한 스캔(최대 200,000개)을 D14 제한으로 통일. `$HOME` 기준 15초 → 1초 미만 | Claude Code |
