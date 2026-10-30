@@ -18,8 +18,13 @@ $items = @(
 foreach ($item in $items) {
     if (-not $item.Name -or -not $item.Target) { throw 'shortcut names/targets are not set' }
     foreach ($dir in @($desktop, $startMenu)) {
-        $path = Join-Path $dir ($item.Name + '.lnk')
-        $lnk = $ws.CreateShortcut($path)
+        $final = Join-Path $dir ($item.Name + '.lnk')
+        # WScript.Shell cannot save a .lnk whose file name contains characters
+        # outside the system ANSI code page (Korean on an English Windows fails
+        # with "Unable to save shortcut"). Save under an ASCII name, then rename
+        # with Move-Item, which is Unicode-safe.
+        $temp = Join-Path $dir ('nalmeok-' + [guid]::NewGuid().ToString('N') + '.lnk')
+        $lnk = $ws.CreateShortcut($temp)
         $lnk.TargetPath = $item.Target
         $lnk.WorkingDirectory = $env:USERPROFILE
         $lnk.Description = $item.Desc
@@ -29,5 +34,6 @@ foreach ($item in $items) {
             $lnk.IconLocation = $env:SystemRoot + '\System32\shell32.dll,0'
         }
         $lnk.Save()
+        Move-Item -LiteralPath $temp -Destination $final -Force
     }
 }
