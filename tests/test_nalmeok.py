@@ -1518,7 +1518,7 @@ class PackagingSDKTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 app.ensure_sdk()
         self.assertEqual(calls, [
-            [sys.executable, "-m", "venv", "/tmp/app/.venv"],
+            [sys.executable, "-m", "venv", str(Path("/tmp/app/.venv"))],
             [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK],
         ])
         which.assert_not_called()
@@ -1551,7 +1551,8 @@ class PackagingSDKTests(unittest.TestCase):
         rmtree.assert_called_once_with(Path("/tmp/app/.venv"),
                                        ignore_errors=True)
         self.assertEqual(calls[0],
-                         [sys.executable, "-m", "venv", "/tmp/app/.venv"])
+                         [sys.executable, "-m", "venv",
+                          str(Path("/tmp/app/.venv"))])
 
 
 if __name__ == "__main__":
