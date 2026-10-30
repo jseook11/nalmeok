@@ -120,7 +120,7 @@
   Windows 문서 폴더 해석·폴백, CLI 파싱).
 - macOS: 126 tests pass (8 skip).
 - Windows 11 (2026-10-30, SSH/ConPTY, 설치본 0.5.0):
-  - 124 tests pass (3 skip).
+  - 126 tests pass (3 skip).
   - `nalmeok-drop.cmd --help` → `drop --help` 인자 전달 확인.
   - `.lnk` → `.cmd` 경유 `--help` 전달, 종료 코드 0 확인.
   - `shortcuts.ps1`로 바탕화면·시작 메뉴에 `nalmeok`, `nalmeok에 끌어놓기` 2개 생성,
