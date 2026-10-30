@@ -1480,5 +1480,79 @@ class DropTests(unittest.TestCase):
         self.assertEqual(path, Path("/home/tester/Documents/nalmeok"))
 
 
+class PackagingSDKTests(unittest.TestCase):
+    def test_venv_path_follows_script_location(self):
+        with mock.patch.object(app, "__file__", "/tmp/nalmeok-app/nalmeok.py"):
+            self.assertEqual(app.venv_path(),
+                             Path("/tmp/nalmeok-app/.venv").resolve())
+
+    def test_project_python_reads_venv_next_to_script(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            python = root / ".venv" / "bin" / "python3"
+            python.parent.mkdir(parents=True)
+            python.write_text("")
+            with mock.patch.object(app, "__file__", str(root / "nalmeok.py")):
+                self.assertEqual(app.project_python(), python.resolve())
+
+    def test_packaged_ensure_sdk_uses_pip_without_uv_or_prompt(self):
+        fake_python = Path("/tmp/app/.venv/bin/python")
+        calls = []
+        with mock.patch.object(app, "sdk_importable", return_value=False), \
+                mock.patch.object(app, "project_python",
+                                  side_effect=[None, fake_python, fake_python]), \
+                mock.patch.object(app, "has_sdk", return_value=True), \
+                mock.patch.object(app, "venv_path",
+                                  return_value=Path("/tmp/app/.venv")), \
+                mock.patch.object(app, "packaged_mode", return_value=True), \
+                mock.patch.object(app, "auto_yes", return_value=True), \
+                mock.patch.object(app, "restart",
+                                  side_effect=SystemExit) as restart, \
+                mock.patch.object(app.shutil, "which") as which, \
+                mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(app.subprocess, "call",
+                                  side_effect=lambda cmd, **kwargs:
+                                  calls.append(cmd) or 0), \
+                mock.patch("builtins.input") as prompt, \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.ensure_sdk()
+        self.assertEqual(calls, [
+            [sys.executable, "-m", "venv", "/tmp/app/.venv"],
+            [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK],
+        ])
+        which.assert_not_called()
+        prompt.assert_not_called()
+        restart.assert_called_once_with(fake_python)
+
+    def test_packaged_ensure_sdk_recreates_broken_venv(self):
+        fake_python = Path("/tmp/app/.venv/bin/python")
+        calls = []
+        with mock.patch.object(app, "sdk_importable", return_value=False), \
+                mock.patch.object(app, "project_python",
+                                  side_effect=[fake_python, fake_python,
+                                               fake_python]), \
+                mock.patch.object(app, "has_sdk",
+                                  side_effect=[False, True]), \
+                mock.patch.object(app, "python_usable", return_value=False), \
+                mock.patch.object(app, "venv_path",
+                                  return_value=Path("/tmp/app/.venv")), \
+                mock.patch.object(app, "packaged_mode", return_value=True), \
+                mock.patch.object(app, "auto_yes", return_value=True), \
+                mock.patch.object(app, "restart", side_effect=SystemExit), \
+                mock.patch.object(app.shutil, "rmtree") as rmtree, \
+                mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(app.subprocess, "call",
+                                  side_effect=lambda cmd, **kwargs:
+                                  calls.append(cmd) or 0), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                app.ensure_sdk()
+        rmtree.assert_called_once_with(Path("/tmp/app/.venv"),
+                                       ignore_errors=True)
+        self.assertEqual(calls[0],
+                         [sys.executable, "-m", "venv", "/tmp/app/.venv"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -83,7 +83,7 @@ WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
 # 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
 RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 SDK = "google-genai"
 DEFAULT_MODEL = "gemini-3.8-flash"
@@ -361,9 +361,14 @@ def sdk_importable():
         return False
 
 
+def venv_path():
+    """앱 코드 옆의 .venv. cwd와 무관하게 같은 위치를 씁니다."""
+    return Path(__file__).resolve().parent / ".venv"
+
+
 def project_python():
     """이 스크립트 옆 .venv 의 인터프리터. 없으면 None."""
-    venv = Path(__file__).resolve().parent / ".venv"
+    venv = venv_path()
     for name in ("bin/python", "bin/python3", "Scripts/python.exe"):
         candidate = venv / name
         if candidate.exists():
@@ -377,41 +382,66 @@ def has_sdk(python):
     return result.returncode == 0
 
 
+def python_usable(python):
+    """venv 인터프리터가 실제로 실행되는지. Homebrew 업그레이드 등으로 깨질 수 있습니다."""
+    try:
+        result = subprocess.run([str(python), "-c", "import sys"],
+                                check=False, capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def packaged_mode():
+    return os.getenv("NALMEOK_PACKAGED") == "1"
+
+
+def auto_yes():
+    return os.getenv("NALMEOK_YES") == "1"
+
+
 def restart(python):
     """같은 인자로 .venv 인터프리터에서 이어서 실행합니다."""
     os.execv(str(python), [str(python), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 def ensure_sdk():
-    """SDK가 없으면 저장소 안 .venv 로 갈아타거나, 만들어 설치한 뒤 갈아탑니다.
+    """SDK가 없으면 앱 코드 옆 .venv 로 갈아타거나, 만들어 설치한 뒤 갈아탑니다.
 
-    시스템 파이썬은 건드리지 않습니다. ./app.py 로 들어와도 동작하도록 하는 장치입니다.
+    시스템 파이썬은 건드리지 않습니다. 패키징 모드(NALMEOK_PACKAGED=1)에서는
+    pyproject.toml이 없으므로 uv sync 대신 .venv의 pip를 씁니다.
     """
     if sdk_importable():
         return
     python = project_python()
     if python and has_sdk(python):
         restart(python)
+    if python and not python_usable(python):
+        shutil.rmtree(venv_path(), ignore_errors=True)
+        python = None
 
-    if not sys.stdin.isatty():
+    if not sys.stdin.isatty() and not auto_yes():
         fail(f"{SDK} SDK가 필요합니다.\n  uv run app.py\n  uv sync && ./app.py")
-    print(f"\n{SDK} SDK가 필요합니다. 저장소 안에 .venv 를 만들어 설치합니다.")
+    where = "앱 데이터 폴더" if packaged_mode() else "저장소 안"
+    print(f"\n{SDK} SDK가 필요합니다. {where}에 .venv 를 만들어 설치합니다.")
     print("(시스템 파이썬은 건드리지 않습니다.)")
-    if input("지금 설치할까요? [y/N] ").strip().lower() not in ("y", "yes"):
+    if auto_yes():
+        print("자동으로 설치합니다.")
+    elif input("지금 설치할까요? [y/N] ").strip().lower() not in ("y", "yes"):
         fail("설치를 건너뛰었습니다. 나중에: uv sync && ./app.py")
 
-    uv = shutil.which("uv")
+    uv = None if packaged_mode() else shutil.which("uv")
     if uv:
         command = [uv, "sync"]
     else:
         if not python:
-            subprocess.call([sys.executable, "-m", "venv", ".venv"], check=False)
+            subprocess.call([sys.executable, "-m", "venv", str(venv_path())])
             python = project_python()
         if not python:
             fail("가상환경을 만들지 못했습니다. uv 를 설치해 주세요: https://docs.astral.sh/uv/")
         command = [str(python), "-m", "pip", "install", "-q", "-U", SDK]
     print(f"$ {' '.join(command)}\n", flush=True)
-    if subprocess.call(command, check=False) != 0:
+    if subprocess.call(command) != 0:
         fail("자동 설치에 실패했습니다. 직접 설치해 주세요:\n  uv sync")
 
     python = project_python()

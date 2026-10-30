@@ -17,10 +17,10 @@
 | 작업 | 상태 | PR | 검증 |
 |---|---|---|---|
 | M0 · 계획 문서 | 완료 | - | 이 문서 |
-| M1 · 앱 번들·런처·부트스트랩 | 미착수 | - | - |
-| M2 · DMG·서명·공증·staple | 미착수 | - | - |
+| M1 · 앱 번들·런처·부트스트랩 | 완료 | - | 앱 2.1MB. 런처 dry-run, 임시 데이터에서 PBS 3.12.16 다운로드·SHA 검증·venv/SDK 설치 확인. 138 tests pass |
+| M2 · DMG·서명·공증·staple | 진행 중 | - | unsigned DMG 2.45MB 빌드 확인. Developer ID 서명·공증은 자격 필요 |
 | M3 · 컴포넌트 업데이트·ffmpeg 온디맨드 | 미착수 | - | - |
-| M4 · CI·테스트·문서 | 미착수 | - | - |
+| M4 · CI·테스트·문서 | 진행 중 | - | `.github/workflows/macos.yml` 추가, CI 대기 |
 | 후속 · Finder 아이콘 드롭 | 보류 (v1.1) | - | - |
 | 후속 · Intel x86_64 | 보류 | - | - |
 | 후속 · 앱 자동 업데이트(Sparkle 등) | 보류 | - | - |
@@ -496,3 +496,5 @@ xcrun stapler validate nalmeok-<v>-arm64.dmg
 |---|---|---|
 | 2026-10-30 | 최초 작성. 얇은 앱 + PBS + 기존 SDK 흐름 + 공증 DMG 결정 | Claude Code |
 | 2026-10-30 | 계획 승인. Intel 보류, 업데이트 v1 수동, 나머지 추천안 확정 | Claude Code |
+| 2026-10-30 | M1 구현. Swift 런처·bootstrap/run.command·PBS 3.12.16·ensure_sdk 패키징 경로 수정. 138 tests pass | Claude Code |
+| 2026-10-30 | M2/M4 착수. build_macos.py·unsigned DMG 2.45MB·macOS CI 워크플로 추가 | Claude Code |
