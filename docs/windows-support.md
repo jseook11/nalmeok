@@ -32,7 +32,7 @@
 | 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | WT_SESSION/WT_PROFILE_ID, VT/ANSI 가능, attached/isatty 확인(2026-10-30 20:27). TUI 체크리스트·스크린샷 대기 |
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 | 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows/macOS 134 tests pass. macOS는 터미널에 끌어다 놓으면 `d` 없이 바로 시작(pseudo-terminal 검증), Windows는 바로가기·`d`·한글/공백 경로·하드링크 확인 |
-| **후속 · Windows thin 배포(v0.6.1)** | 진행 중 | - | D16/D17. thin ZIP·bootstrap.ps1·데이터 폴더·Windows manifest |
+| **후속 · Windows thin 배포(v0.6.1)** | 완료 | - | thin ZIP 193KB. Windows 11에서 첫 실행 PBS 3.12.16·SHA 검증, 두 번째 실행 즉시 시작, SDK 2.31.0 설치, ffmpeg 160MB 온디맨드, live `update --check`, 0.6.1→0.6.2 apply/restore 확인. CI green |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -637,6 +637,7 @@ if errorlevel 1 pause
 | 2026-10-30 | 후속: 메뉴/홈 화면 diff 렌더링으로 방향키 깜빡임 제거(D15). Windows 115 tests pass | Claude Code |
 | 2026-10-30 | v0.6.0 릴리스(macOS notarized DMG + Windows ZIP) | Claude Code |
 | 2026-10-30 | Windows thin 배포 결정(D16/D17). thin ZIP 표준, 165MB는 `-offline` 확장판 | Claude Code |
+| 2026-10-30 | **v0.6.1 릴리스**. Windows thin ZIP(193KB)·bootstrap, macOS 0.6.1 notarized DMG. live manifest·update·ffmpeg 온디맨드 검증 | Claude Code |
 | 2026-10-30 | 후속: 긴 메뉴 뷰포트 추가. 40개 폴더 탐색 clear_screen 11→1, Windows 115 tests pass | Claude Code |
 | 2026-10-30 | `feature/windows-support` PR #3 CI 전체 통과 후 `master`에 머지. v0.4.0 릴리스 기준 확정 | Claude Code |
 | 2026-10-30 | 후속: 드래그앤드롭 전사(`nalmeok drop`, `nalmeok-drop.cmd`, 두 번째 바로가기). v0.5.0. macOS 124 tests pass | Claude Code |
