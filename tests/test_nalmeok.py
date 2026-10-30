@@ -1397,6 +1397,28 @@ class DropTests(unittest.TestCase):
         self.assertEqual(args.command, "drop")
         self.assertEqual(args.paths, ["./lecture", "./week1.mp4"])
 
+    def test_documents_dir_follows_windows_known_folder(self):
+        fake = mock.MagicMock()
+        fake.HKEY_CURRENT_USER = object()
+        fake.QueryValueEx.return_value = ("$USERPROFILE/OneDrive/Documents", 2)
+        with mock.patch.object(app, "IS_WINDOWS", True), \
+                mock.patch.object(app, "winreg", fake), \
+                mock.patch.dict(os.environ, {"USERPROFILE": "/tmp/tester"}):
+            path = app.documents_dir()
+        self.assertEqual(path,
+                         Path("/tmp/tester/OneDrive/Documents/nalmeok"))
+
+    def test_documents_dir_falls_back_when_registry_fails(self):
+        fake = mock.MagicMock()
+        fake.HKEY_CURRENT_USER = object()
+        fake.OpenKey.side_effect = OSError("missing")
+        with mock.patch.object(app, "IS_WINDOWS", True), \
+                mock.patch.object(app, "winreg", fake), \
+                mock.patch.object(app.Path, "home",
+                                  return_value=Path("/home/tester")):
+            path = app.documents_dir()
+        self.assertEqual(path, Path("/home/tester/Documents/nalmeok"))
+
 
 if __name__ == "__main__":
     unittest.main()

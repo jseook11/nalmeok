@@ -62,6 +62,11 @@ except ImportError:  # Windows
     fcntl = None
 
 try:
+    import winreg
+except ImportError:  # POSIX
+    winreg = None
+
+try:
     import termios
     import tty
 except ImportError:  # Windows
@@ -1011,7 +1016,22 @@ DROP_FILE_SUFFIXES = (".mp4", ".m4a")
 
 
 def documents_dir():
-    """드래그앤드롭으로 만든 결과를 모아 두는 사용자 문서 폴더."""
+    """드래그앤드롭으로 만든 결과를 모아 두는 사용자 문서 폴더.
+
+    Windows에서는 셸이 알고 있는 Documents 경로를 씁니다. OneDrive로 리디렉트된
+    PC에서 `Path.home()/Documents`를 새로 만들면 탐색기의 '문서'에 보이지 않습니다.
+    """
+    if IS_WINDOWS and winreg is not None:
+        try:
+            with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion"
+                    r"\Explorer\User Shell Folders") as key:
+                value, _ = winreg.QueryValueEx(key, "Personal")
+            if isinstance(value, str) and value.strip():
+                return Path(os.path.expandvars(value)) / "nalmeok"
+        except OSError:
+            pass
     return Path.home() / "Documents" / "nalmeok"
 
 

@@ -109,13 +109,16 @@
 
 - 완료 후 파일 작업 폴더 자동 삭제 여부 — **기본: 유지**. 재개·감사에 필요하므로 v1에서는 지우지 않습니다.
 - 터미널 창 드롭(`d` 경로 붙여넣기) — **v1 제외**, 후속.
-- `Documents`가 OneDrive로 리디렉트된 환경 — `Path.home()/Documents`가 실제 표시 경로를 따르므로 그대로 둡니다. 실기 확인 필요.
+- `Documents`가 OneDrive로 리디렉트된 환경 — **해결**: Windows에서는 셸의
+  `User Shell Folders\Personal` 값을 읽어 실제 문서 폴더를 찾고, 실패할 때만
+  `Path.home()/Documents`로 폴백합니다.
 - 여러 파일을 하나의 Batch/live 그룹으로 묶을지 — **파일별 처리**로 확정.
 
 ## 8. 검증 메모
 
-- 단위 테스트: `DropTests` 9개 (정규화, 하드링크 폴백, 작업 폴더 suffix, 문서 복사 suffix, CLI 파싱).
-- macOS: 124 tests pass (8 skip).
+- 단위 테스트: `DropTests` 11개 (정규화, 하드링크 폴백, 작업 폴더 suffix, 문서 복사 suffix,
+  Windows 문서 폴더 해석·폴백, CLI 파싱).
+- macOS: 126 tests pass (8 skip).
 - Windows 11 (2026-10-30, SSH/ConPTY, 설치본 0.5.0):
   - 124 tests pass (3 skip).
   - `nalmeok-drop.cmd --help` → `drop --help` 인자 전달 확인.
