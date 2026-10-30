@@ -53,4 +53,6 @@ jobs:
           name: nalmeok-macos-${{ github.sha }}
           path: |
             dist/*.dmg
+            dist/nalmeok.py
+            dist/macos-manifest.json
             dist/SHA256SUMS.txt

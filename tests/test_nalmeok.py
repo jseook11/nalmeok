@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -1519,7 +1520,7 @@ class PackagingSDKTests(unittest.TestCase):
                 app.ensure_sdk()
         self.assertEqual(calls, [
             [sys.executable, "-m", "venv", str(Path("/tmp/app/.venv"))],
-            [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK],
+            [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK_SPEC],
         ])
         which.assert_not_called()
         prompt.assert_not_called()
@@ -1553,6 +1554,95 @@ class PackagingSDKTests(unittest.TestCase):
         self.assertEqual(calls[0],
                          [sys.executable, "-m", "venv",
                           str(Path("/tmp/app/.venv"))])
+
+
+class UpdateTests(unittest.TestCase):
+    def test_parse_version_orders_numerically(self):
+        self.assertGreater(app.parse_version("0.10.0"),
+                           app.parse_version("0.9.9"))
+        self.assertEqual(app.parse_version("v0.6.1"), (0, 6, 1))
+
+    def test_apply_update_skips_when_already_current(self):
+        manifest = {"nalmeok": {"version": app.__version__, "url": "x",
+                                "sha256": "0" * 64}}
+        with mock.patch.object(app, "packaged_mode", return_value=True), \
+                mock.patch.object(app, "download_bytes") as download:
+            message = app.apply_update(manifest)
+        self.assertIn("최신", message)
+        download.assert_not_called()
+
+    def test_apply_update_rejects_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "nalmeok.py"
+            target.write_text('__version__ = "0.6.0"\n', encoding="utf-8")
+            manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
+                                    "sha256": "0" * 64}}
+            with mock.patch.object(app, "packaged_mode", return_value=True), \
+                    mock.patch.object(app, "__file__", str(target)), \
+                    mock.patch.object(app, "download_bytes",
+                                      return_value=b'__version__ = "0.7.0"\n'):
+                with self.assertRaises(RuntimeError):
+                    app.apply_update(manifest)
+            self.assertIn("0.6.0", target.read_text(encoding="utf-8"))
+            self.assertFalse((Path(temp) / "nalmeok.py.tmp").exists())
+
+    def test_apply_update_replaces_app_code(self):
+        content = '__version__ = "0.7.0"\n'
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
+                                "sha256": digest}}
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "nalmeok.py"
+            target.write_text('__version__ = "0.6.0"\n', encoding="utf-8")
+            with mock.patch.object(app, "packaged_mode", return_value=True), \
+                    mock.patch.object(app, "__file__", str(target)), \
+                    mock.patch.object(app, "download_bytes",
+                                      return_value=content.encode("utf-8")):
+                message = app.apply_update(manifest)
+            self.assertIn("0.7.0", message)
+            self.assertEqual(target.read_text(encoding="utf-8"), content)
+            self.assertFalse((Path(temp) / "nalmeok.py.tmp").exists())
+
+    def test_update_rejects_source_checkout(self):
+        manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
+                                "sha256": "0" * 64}}
+        with mock.patch.object(app, "packaged_mode", return_value=False):
+            with self.assertRaises(RuntimeError):
+                app.apply_update(manifest)
+
+    def test_update_target_requires_fields(self):
+        with self.assertRaises(ValueError):
+            app.update_target({"nalmeok": {"version": "0.7.0"}})
+
+    def test_update_sdk_skips_when_current(self):
+        manifest = {"sdk": {"version": "2.31.0"}}
+        with mock.patch.object(app, "installed_sdk_version",
+                               return_value="2.31.0"), \
+                mock.patch.object(app.subprocess, "call") as call:
+            message = app.update_sdk(manifest)
+        self.assertIn("최신", message)
+        call.assert_not_called()
+
+    def test_update_sdk_installs_newer_version(self):
+        calls = []
+        manifest = {"sdk": {"version": "2.32.0"}}
+        with mock.patch.object(app, "installed_sdk_version",
+                               return_value="2.31.0"), \
+                mock.patch.object(app, "project_python",
+                                  return_value=Path("/tmp/venv/python")), \
+                mock.patch.object(app.subprocess, "call",
+                                  side_effect=lambda cmd: calls.append(cmd) or 0):
+            message = app.update_sdk(manifest)
+        self.assertIn("2.32.0", message)
+        self.assertEqual(calls[0], [
+            str(Path("/tmp/venv/python")), "-m", "pip", "install", "-q", "-U",
+            "google-genai==2.32.0",
+        ])
+
+    def test_parse_args_update_check(self):
+        args = app.parse_args(["update", "--check"])
+        self.assertEqual(args.command, "update")
+        self.assertTrue(args.check)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import plistlib
@@ -44,6 +45,7 @@ PBS_URL = (
     f"{PBS_TAG}/{PBS_ASSET.replace('+', '%2B')}"
 )
 PBS_SHA256 = "fbf4afef53c2a6b72bb741bc06d5671a9dfaf87bd84e5aa73ac9b3d0d589f14e"
+SDK_NAME = "google-genai"
 
 
 class BuildError(RuntimeError):
@@ -65,6 +67,14 @@ def app_version() -> str:
     match = re.search(r'^__version__ = "([^"]+)"', text, re.MULTILINE)
     if not match:
         raise BuildError("nalmeok.py에서 __version__을 찾지 못했습니다")
+    return match.group(1)
+
+
+def sdk_version() -> str:
+    text = (ROOT / "nalmeok.py").read_text(encoding="utf-8")
+    match = re.search(r'^SDK_VERSION = "([^"]+)"', text, re.MULTILINE)
+    if not match:
+        raise BuildError("nalmeok.py에서 SDK_VERSION을 찾지 못했습니다")
     return match.group(1)
 
 
@@ -226,6 +236,30 @@ def create_dmg(app: Path, version: str) -> Path:
     return dmg
 
 
+def write_manifest(version: str) -> Path:
+    """릴리스에 올릴 macos-manifest.json과 nalmeok.py를 준비합니다."""
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    source = ROOT / "nalmeok.py"
+    shutil.copy2(source, DIST_DIR / "nalmeok.py")
+    manifest = {
+        "app_version": version,
+        "nalmeok": {
+            "version": version,
+            "url": (
+                "https://github.com/jseook11/nalmeok/releases/download/"
+                f"v{version}/nalmeok.py"
+            ),
+            "sha256": sha256(source),
+        },
+        "sdk": {"name": SDK_NAME, "version": sdk_version()},
+        "python": {"version": PBS_VERSION},
+    }
+    path = DIST_DIR / "macos-manifest.json"
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build the nalmeok macOS app")
     parser.add_argument("--unsigned", action="store_true",
@@ -252,9 +286,12 @@ def main() -> int:
     digest = sha256(dmg)
     sums = DIST_DIR / "SHA256SUMS.txt"
     sums.write_text(f"{digest}  {dmg.name}\n", encoding="utf-8")
+    manifest = write_manifest(version)
     log(f"dmg: {dmg} ({dmg.stat().st_size} bytes)")
     log(f"sha256: {digest}")
     log(f"sums: {sums}")
+    log(f"manifest: {manifest}")
+    log("release assets: dmg, nalmeok.py, macos-manifest.json, SHA256SUMS.txt")
     return 0
 
 

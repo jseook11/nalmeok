@@ -38,6 +38,7 @@ upload 는 M4A가 없고 MP4만 있으면 MP4를 먼저 M4A로 변환합니다. 
 import argparse
 import contextlib
 import getpass
+import hashlib
 import json
 import math
 import os
@@ -86,6 +87,12 @@ RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 __version__ = "0.6.0"
 
 SDK = "google-genai"
+SDK_VERSION = "2.31.0"
+SDK_SPEC = f"{SDK}=={SDK_VERSION}"
+MANIFEST_URL = (
+    "https://github.com/jseook11/nalmeok/releases/latest/download/"
+    "macos-manifest.json"
+)
 DEFAULT_MODEL = "gemini-3.8-flash"
 MAX_FILES = 10
 RECENT_LIMIT = 8
@@ -132,7 +139,7 @@ SKIP_SCAN_NAMES = {
 }
 
 COMMANDS = ("convert", "estimate", "upload", "status", "wait", "download", "stats",
-            "live", "auto", "doctor", "drop")
+            "live", "auto", "doctor", "drop", "update")
 
 # USD / 1M tokens: (텍스트 입력, 오디오 입력, 출력). 2026-10 공식 가격표 기준.
 MODELS = {
@@ -439,7 +446,7 @@ def ensure_sdk():
             python = project_python()
         if not python:
             fail("가상환경을 만들지 못했습니다. uv 를 설치해 주세요: https://docs.astral.sh/uv/")
-        command = [str(python), "-m", "pip", "install", "-q", "-U", SDK]
+        command = [str(python), "-m", "pip", "install", "-q", "-U", SDK_SPEC]
     print(f"$ {' '.join(command)}\n", flush=True)
     if subprocess.call(command) != 0:
         fail("자동 설치에 실패했습니다. 직접 설치해 주세요:\n  uv sync")
@@ -448,6 +455,146 @@ def ensure_sdk():
     if python and has_sdk(python):
         restart(python)
     fail(f"{SDK} 설치를 확인하지 못했습니다. 직접 확인해 주세요: uv sync")
+
+
+def parse_version(text):
+    """'0.10.1' 같은 버전을 비교 가능한 숫자 튜플로 바꿉니다."""
+    parts = [int(part) for part in re.findall(r"\d+", str(text))[:4]]
+    return tuple(parts) or (0,)
+
+
+def fetch_manifest(url=None, timeout=15):
+    import urllib.request
+
+    url = url or os.getenv("NALMEOK_MANIFEST_URL") or MANIFEST_URL
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("업데이트 정보 형식이 올바르지 않습니다.")
+    return data
+
+
+def download_bytes(url, timeout=60):
+    import urllib.request
+
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        return response.read()
+
+
+def update_target(manifest):
+    """manifest에서 (버전, URL, SHA-256)을 꺼냅니다."""
+    info = manifest.get("nalmeok")
+    if not isinstance(info, dict):
+        raise ValueError("업데이트 정보에 nalmeok 항목이 없습니다.")
+    version = str(info.get("version") or "").strip()
+    url = str(info.get("url") or "").strip()
+    digest = str(info.get("sha256") or "").strip().lower()
+    if not version or not url or not digest:
+        raise ValueError("업데이트 정보가 불완전합니다.")
+    return version, url, digest
+
+
+def apply_update(manifest):
+    """nalmeok.py만 원자적으로 교체합니다. 다음 실행부터 적용됩니다."""
+    if not packaged_mode():
+        raise RuntimeError("소스 실행에서는 git pull로 업데이트하세요.")
+    version, url, digest = update_target(manifest)
+    if parse_version(version) <= parse_version(__version__):
+        return f"이미 최신 버전입니다: {__version__}"
+
+    data = download_bytes(url)
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != digest:
+        raise RuntimeError("내려받은 파일의 체크섬이 맞지 않습니다.")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("내려받은 파일이 UTF-8이 아닙니다.") from exc
+    if f'__version__ = "{version}"' not in text:
+        raise RuntimeError("내려받은 파일의 버전이 일치하지 않습니다.")
+    compile(text, url, "exec")
+
+    target = Path(__file__).resolve()
+    temporary = target.with_name(target.name + ".tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.chmod(temporary, target.stat().st_mode)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return f"nalmeok {version}로 업데이트했습니다. 다음 실행부터 적용됩니다."
+
+
+def installed_sdk_version():
+    try:
+        from importlib.metadata import version
+
+        return version(SDK)
+    except Exception:  # noqa: BLE001 - 미설치·손상 모두 '없음'으로 봅니다.
+        return None
+
+
+def update_sdk(manifest):
+    """manifest의 SDK 버전이 더 새로울 때만 .venv에서 갱신합니다."""
+    info = manifest.get("sdk")
+    if not isinstance(info, dict):
+        return ""
+    target = str(info.get("version") or "").strip()
+    if not target:
+        return ""
+    current = installed_sdk_version()
+    if current is None:
+        return "SDK가 아직 설치되지 않았습니다. 다음 실행에서 설치합니다."
+    if parse_version(current) >= parse_version(target):
+        return f"SDK {current} (최신)"
+    python = project_python() or Path(sys.executable)
+    command = [str(python), "-m", "pip", "install", "-q", "-U",
+               f"{SDK}=={target}"]
+    if subprocess.call(command) != 0:
+        raise RuntimeError("SDK 업데이트에 실패했습니다.")
+    return f"SDK {current} → {target} (다음 실행부터 적용)"
+
+
+def update_screen():
+    """홈에서 수동으로 업데이트를 확인합니다."""
+    header("업데이트", "nalmeok v" + __version__)
+    print("  최신 버전을 확인합니다...")
+    try:
+        manifest = fetch_manifest()
+        latest = update_target(manifest)[0]
+    except (OSError, ValueError, RuntimeError) as exc:
+        notice(f"확인하지 못했습니다: {exc}")
+        wait()
+        return
+    if parse_version(latest) <= parse_version(__version__):
+        notice(f"이미 최신 버전입니다: {__version__}")
+        wait()
+        return
+    header("업데이트", f"{__version__} → {latest}")
+    print("  앱 코드와 SDK를 업데이트합니다.")
+    print(f"  {dim('다음 실행부터 새 버전이 적용됩니다.')}")
+    footer("Enter 업데이트 · Esc 취소")
+    if read_key() not in ("enter", "right"):
+        return
+    try:
+        log(apply_update(manifest))
+        log(update_sdk(manifest))
+    except (OSError, ValueError, RuntimeError) as exc:
+        notice(str(exc))
+    wait()
+
+
+def update_command(check=False):
+    manifest = fetch_manifest()
+    latest = update_target(manifest)[0]
+    section("업데이트", f"현재 {__version__} · 최신 {latest}")
+    if check:
+        log(f"현재: {__version__}")
+        log(f"최신: {latest}")
+        return
+    log(apply_update(manifest))
+    log(update_sdk(manifest))
 
 
 def _default_file_mode():
@@ -3288,11 +3435,16 @@ def parse_args(argv=None):
         ("stats", "지금까지 쓴 금액 합계와 평균"),
         ("doctor", "환경 진단 정보 출력 (문제 보고용)"),
         ("drop", "폴더·MP4·M4A를 받아 전사하고 문서 폴더에 모음"),
+        ("update", "앱 코드·SDK 업데이트 확인 (패키징 설치용)"),
     ):
         command = commands.add_parser(name, help=help_text)
         if name == "drop":
             command.add_argument("paths", nargs="+",
                                  help="폴더 또는 MP4/M4A 파일 (여러 개 가능)")
+            continue
+        if name == "update":
+            command.add_argument("--check", action="store_true",
+                                 help="확인만 하고 적용하지 않습니다")
             continue
         if name == "stats":
             command.add_argument("folder", nargs="?", default=".",
@@ -5360,7 +5512,7 @@ def home_lines(entries, cursor, key, folder_count):
             lines.append(f"    {text}   {tail}")
     lines.append("")
     lines.append(status_bar_line(key))
-    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · d 드롭 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · d 드롭 · v 업데이트 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
     return lines
 
 
@@ -5375,6 +5527,7 @@ def help_screen():
     for label, desc in (
         ("Enter", "선택 · 전사"),
         ("d", "드롭 · 붙여넣기 (폴더/MP4/M4A)"),
+        ("v", "업데이트 확인 (패키징 설치)"),
         ("Esc / ←", "뒤로"),
         ("k", "API 키 변경"),
         ("s", "설정 · 환경 점검"),
@@ -5423,6 +5576,7 @@ def home_screen(key):
             ("refresh", "원격 상태 새로고침", "제출한 Batch 상태 확인",
              not has_remote),
             ("stats", "사용량", "지금까지 쓴 금액과 평균"),
+            ("update", "업데이트 확인", "새 버전이 있으면 받기"),
             ("settings", "설정", "키 · 환경 · 최근 목록"),
             ("quit", "종료", ""),
         ]
@@ -5461,6 +5615,8 @@ def home_screen(key):
                 return "refresh"
             elif pressed == "u":
                 return "stats"
+            elif pressed == "v":
+                return "update"
             elif pressed == "k":
                 return "changekey"
             elif pressed in ("left", "esc"):
@@ -6427,6 +6583,8 @@ def interactive():
                     paths = drop_paths_screen()
                     if paths:
                         key = drop_session(paths, key)
+                elif answer == "update":
+                    update_screen()
                 elif answer == "refresh":
                     key = refresh_remote(dashboard_folders(), key)
                 elif answer == "stats":
@@ -6485,6 +6643,9 @@ def main():
         return
     if args.command == "drop":
         drop_flow(args.paths)
+        return
+    if args.command == "update":
+        update_command(check=args.check)
         return
     folder = Path(args.folder).expanduser().resolve()
     if not folder.is_dir():
