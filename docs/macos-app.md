@@ -474,20 +474,25 @@ xcrun stapler validate nalmeok-<v>-arm64.dmg
 - 스텁/3.9 문제로 사용 불가.
 - `/usr/bin/python3`는 탐색·실행 대상에서 제외한다.
 
-## 9. 열린 질문
+## 9. 확정된 결정
 
-| 질문 | 기본값 |
+2026-10-30 승인:
+
+| 항목 | 결정 |
 |---|---|
-| Finder 아이콘 드롭을 v1에 넣을지 | v1.1 |
-| Intel DMG를 낼지 | 보류 |
-| 업데이트 자동 확인 주기 | v1은 수동, v1.1에서 하루 1회 |
-| ffmpeg 정적 빌드 출처 | LGPL 빌드, SHA-256 고정 |
-| manifest Ed25519 서명 시점 | v1.1 |
-| 최소 macOS | 12 Monterey |
+| Finder 아이콘 드롭 | **v1.1** (v1은 터미널 드롭) |
+| Intel x86_64 | **보류** (arm64만) |
+| 업데이트 확인 | **v1 수동** (`nalmeok update`/홈 메뉴), 자동 확인은 v1.1 |
+| ffmpeg/ffprobe 출처 | **LGPL 정적 빌드**, SHA-256 고정 |
+| manifest Ed25519 서명 | **v1.1** (v1은 HTTPS + SHA-256) |
+| 최소 macOS | **12 Monterey** |
 | 앱 이름/번들 ID | `nalmeok`, `com.jseook11.nalmeok` |
+
+열린 질문은 없습니다. 새 결정이 필요하면 이 표를 먼저 갱신합니다.
 
 ## 10. 변경 이력
 
 | 날짜 | 변경 | 작성 |
 |---|---|---|
 | 2026-10-30 | 최초 작성. 얇은 앱 + PBS + 기존 SDK 흐름 + 공증 DMG 결정 | Claude Code |
+| 2026-10-30 | 계획 승인. Intel 보류, 업데이트 v1 수동, 나머지 추천안 확정 | Claude Code |
