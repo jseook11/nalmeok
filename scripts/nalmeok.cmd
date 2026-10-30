@@ -11,8 +11,9 @@ if exist "%HERE%runtime\python.exe" (
   set "NALMEOK_PACKAGED=1"
   set "NALMEOK_YES=1"
   set "NALMEOK_FFMPEG=%HERE%"
+  set "PYTHONPATH=%HERE%"
   if "%~1"=="" cd /d "%USERPROFILE%"
-  "%HERE%runtime\python.exe" "%HERE%nalmeok.py" %*
+  "%HERE%runtime\python.exe" -m nalmeok %*
   if errorlevel 1 pause
   exit /b
 )
@@ -23,7 +24,12 @@ set "NALMEOK_PACKAGED=1"
 set "NALMEOK_YES=1"
 set "NALMEOK_FFMPEG=%DATA%\bin"
 if not exist "%DATA%\app" mkdir "%DATA%\app" >nul 2>&1
-if not exist "%DATA%\app\nalmeok.py" copy /y "%HERE%nalmeok.py" "%DATA%\app\nalmeok.py" >nul 2>&1
+if not exist "%DATA%\app\nalmeok\__init__.py" (
+  if exist "%HERE%nalmeok\__init__.py" (
+    xcopy /E /I /Y /Q "%HERE%nalmeok" "%DATA%\app\nalmeok" >nul 2>&1
+  )
+)
+set "PYTHONPATH=%DATA%\app"
 
 call :find_python
 if not defined PY (
@@ -42,7 +48,7 @@ if not defined PY (
 )
 
 if "%~1"=="" cd /d "%USERPROFILE%"
-"%PY%" "%DATA%\app\nalmeok.py" %*
+"%PY%" -m nalmeok %*
 set "CODE=%errorlevel%"
 if not "%CODE%"=="0" pause
 exit /b %CODE%

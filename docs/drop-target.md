@@ -8,13 +8,13 @@
 
 | 기능 | 위치 |
 |---|---|
-| 입력 정규화·파일 작업 폴더 | `nalmeok.py` `normalize_drop_paths`, `file_job_folder`, `drop_jobs_dir` |
-| 터미널 붙여넣기 파싱 | `nalmeok.py` `split_pasted_paths` |
-| 브래킷 붙여넣기 감지 | `nalmeok.py` `read_key`, `_read_paste_posix`, `_read_paste_windows`, `_paste_mode` |
-| 문서 폴더 복사 | `nalmeok.py` `copy_result_to_documents`, `result_copy_path`, `documents_dir` |
-| 드롭 화면 흐름 | `nalmeok.py` `drop_paths_screen`, `drop_session`, `run_drop_folders`, `drop_flow`, `show_drop_summary` |
-| 홈 진입점 | `nalmeok.py` `home_screen`의 `d`, `interactive` 분기 |
-| CLI | `nalmeok.py` `parse_args`의 `drop`, `main` 분기 |
+| 입력 정규화·파일 작업 폴더 | `nalmeok/runtime.py` `normalize_drop_paths`, `file_job_folder`, `drop_jobs_dir` |
+| 터미널 붙여넣기 파싱 | `nalmeok/runtime.py` `split_pasted_paths` |
+| 브래킷 붙여넣기 감지 | `nalmeok/term.py` `read_key`, `_read_paste_posix`, `_read_paste_windows`, `_paste_mode` |
+| 문서 폴더 복사 | `nalmeok/runtime.py` `copy_result_to_documents`, `result_copy_path`, `documents_dir` |
+| 드롭 화면 흐름 | `nalmeok/screens.py` `drop_paths_screen`, `drop_session`, `run_drop_folders`, `drop_flow`, `show_drop_summary` |
+| 홈 진입점 | `nalmeok/screens.py` `home_screen`의 `d`, `interactive` 분기 |
+| CLI | `nalmeok/cli.py` `parse_args`의 `drop`, `main` 분기 |
 | 런처 | `scripts/nalmeok-drop.cmd` (ASCII), 안내 문구는 `scripts/messages.ps1` |
 | 바로가기 | `scripts/shortcuts.ps1`, `scripts/install.ps1` |
 | 테스트 | `tests/test_nalmeok.py` `DropTests` |

@@ -100,10 +100,12 @@ if (Test-Path -LiteralPath $current) {
     }
 }
 
-$seed = Join-Path $Here 'nalmeok.py'
-$app = Join-Path $AppDir 'nalmeok.py'
-if ((Test-Path -LiteralPath $seed) -and -not (Test-Path -LiteralPath $app)) {
-    Copy-Item -LiteralPath $seed -Destination $app
+$seed = Join-Path $Here 'nalmeok'
+$app = Join-Path $AppDir 'nalmeok'
+if ((Test-Path -LiteralPath (Join-Path $seed '__init__.py')) -and
+    -not (Test-Path -LiteralPath (Join-Path $app '__init__.py'))) {
+    New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
+    Copy-Item -LiteralPath $seed -Destination $app -Recurse -Force
 }
 
 $pbsVersion = $envFile['PBS_VERSION']

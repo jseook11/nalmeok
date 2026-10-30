@@ -26,8 +26,8 @@
 
 ### 0.2 기준선
 
-- 앱 버전: **0.6.2** (`nalmeok.py`, `pyproject.toml`)
-- 테스트: `python -m unittest discover -s tests -q` → **157개 통과, 8개 skip** (macOS, Python 3.12)
+- 앱 버전: **0.6.2** (`nalmeok/constants.py`, `pyproject.toml`)
+- 테스트: `python -m unittest discover -s tests -q` → **158개 통과, 8개 skip** (macOS, Python 3.12)
 - 배포물: thin `nalmeok-<v>-win64.zip` (**약 195KB**) + `windows-manifest.json` + `SHA256SUMS.txt`
 - 런타임: python-build-standalone 3.12.16 (x86_64, 내려받기 약 45MB), google-genai 2.31.0, ffmpeg 8.1.3 온디맨드(약 160MB)
 - 실기 검증: Windows 11 ko-KR(build 26200), conhost·Windows Terminal 환경 확인
@@ -101,7 +101,7 @@
 
 ## 3. 구조 요약
 
-단일 `nalmeok.py`(6,864줄)를 **`nalmeok/` 패키지로 분리하는 작업이 진행 예정**이다. 분리 후에도 배포 경로는 동일하게 `python -m nalmeok` 또는 얇은 런처를 쓴다. 그때까지 플랫폼 계층은 파일 안 섹션으로 유지한다.
+앱 코드는 **`nalmeok/` 패키지**다(2026-10-31 분리). 배포 경로는 `python -m nalmeok` 또는 얇은 런처를 쓴다. 모듈 경계는 `docs/development.md` 참고.
 
 역사적 진단(v0.4.0 이전, 이슈 #1에 전체 기록):
 
@@ -138,7 +138,9 @@ nalmeok-<version>-win64.zip   (~194KB)
    ├─ bootstrap.ps1         # PBS 다운로드·SHA-256·압축 해제
    ├─ bootstrap.env         # 고정 URL/SHA
    ├─ shortcuts.ps1         # 바로가기 2개
-   ├─ nalmeok.py  app.py  pyproject.toml
+   ├─ nalmeok/               # 앱 패키지 (constants, runtime, keys, update,
+   │                         #  term, media, engine, screens, cli)
+   ├─ app.py  pyproject.toml
    ├─ nalmeok.ico  README.md  LICENSE
    └─ licenses/THIRD-PARTY.md
 ```
@@ -148,7 +150,7 @@ nalmeok-<version>-win64.zip   (~194KB)
 ```text
 %LOCALAPPDATA%\Programs\nalmeok\     # 앱 (평평한 구조, ~200KB)
 %LOCALAPPDATA%\nalmeok\
-  app\nalmeok.py                     # 실행·업데이트 대상
+  app\nalmeok\                       # 실행·업데이트 대상 패키지
   app\.venv\                         # google-genai
   runtime\<version>\python.exe       # PBS
   runtime\current.txt                # 현재 버전
@@ -162,10 +164,10 @@ nalmeok-<version>-win64.zip   (~194KB)
 ```text
 바로가기 → nalmeok.cmd
   → offline: %HERE%runtime\python.exe 로 바로 실행
-  → thin:  %DATA%\app\nalmeok.py 로 복사(seed)
+  → thin:  %DATA%\app\nalmeok\ 로 복사(seed)
            runtime\current.txt 확인 → 없으면 bootstrap.ps1 (PBS, SHA-256)
   → NALMEOK_HOME, NALMEOK_PACKAGED=1, NALMEOK_YES=1, NALMEOK_FFMPEG=...
-  → python nalmeok.py %*
+  → PYTHONPATH=%DATA%\app, python -m nalmeok %*
   → cli() → bootstrap_platform() → configure_stdio() + VT 준비
   → TUI. 첫 전사 때 get_client() → ensure_sdk()가 app\.venv에 SDK 설치
      → 설치 직후 .venv 인터프리터로 restart()
@@ -177,7 +179,7 @@ nalmeok-<version>-win64.zip   (~194KB)
 
 ### 4.3 플랫폼 계층
 
-패키지 분리 전까지는 `nalmeok.py` 안의 섹션으로 둔다. 필수 함수:
+플랫폼 계층은 `nalmeok/term.py`와 `nalmeok/runtime.py`에 있다. 필수 함수:
 
 - `can_raw_input()`: POSIX TTY(termios) 또는 Windows TTY(msvcrt)
 - `vt_supported()` / `_enable_windows_vt()`: Windows `SetConsoleMode(+ENABLE_VIRTUAL_TERMINAL_PROCESSING)`
@@ -267,13 +269,13 @@ nalmeok-<version>-win64.zip   (~194KB)
 
 - thin 런처는 `NALMEOK_PACKAGED=1`, `NALMEOK_HOME=%LOCALAPPDATA%\nalmeok`, `NALMEOK_FFMPEG=%NALMEOK_HOME%\bin`을 설정한다.
 - `nalmeok update`는 `releases/latest/download/windows-manifest.json`을 읽는다.
-  - `nalmeok.py` SHA-256 검증 후 원자적 교체(다음 실행부터 적용)
+  - `nalmeok-app.zip`(패키지) SHA-256 검증 → `.nalmeok-next`에 풀어 컴파일 검증 → 디렉터리 교체(다음 실행부터 적용, 실패 시 기존 유지)
   - SDK 버전이 manifest보다 낮을 때만 `.venv` pip 갱신
   - `NALMEOK_MANIFEST_URL`로 다른 manifest를 지정할 수 있다(테스트·미러용)
 - ffmpeg/ffprobe가 없고 MP4 변환이 필요하면 manifest의 고정 URL·SHA로 `%NALMEOK_HOME%\bin`에 받는다. `NALMEOK_FFMPEG_YES=1`은 자동화용.
 - `scripts/build_windows.py`가 thin ZIP과 `windows-manifest.json`을 생성한다.
-- offline 확장판은 `%HERE%runtime`을 쓰고, update는 설치 폴더의 `nalmeok.py`를 교체한다.
-- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`, `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`.
+- offline 확장판은 `%HERE%runtime`을 쓰고, update는 설치 폴더의 `nalmeok/` 패키지를 교체한다.
+- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`, `nalmeok-app.zip`, `windows-manifest.json`, `SHA256SUMS.txt`.
 
 ---
 
@@ -282,7 +284,8 @@ nalmeok-<version>-win64.zip   (~194KB)
 ### 5.1 `nalmeok.cmd` (순수 ASCII)
 
 - offline이면 `%HERE%runtime\python.exe`.
-- thin이면 `%DATA%\app\nalmeok.py`로 seed하고 `runtime\current.txt`를 읽는다. 없으면 `bootstrap.ps1` 실행.
+- thin이면 `%DATA%\app\nalmeok\` 패키지로 seed하고 `runtime\current.txt`를 읽는다. 없으면 `bootstrap.ps1` 실행.
+- `PYTHONPATH=%DATA%\app`(offline은 `%HERE%`)로 두고 `python -m nalmeok`을 실행한다.
 - 인자가 없을 때만 `cd /d "%USERPROFILE%"`(D10).
 - 런타임 오류 안내는 `messages.ps1 -Id install-failed|python-missing`.
 - 종료 코드가 0이 아니면 `pause`.
@@ -314,9 +317,9 @@ nalmeok-<version>-win64.zip   (~194KB)
 - `windows-latest` 빌드 잡:
   - thin ZIP 빌드 → 압축 해제
   - 루트에 `installer.cmd` + `app\`만 있는지, `app\` 필수 파일이 모두 있는지 확인
-  - `app\nalmeok.py --version`, `app\nalmeok.cmd --version`(첫 실행 PBS 부트스트랩), `app\nalmeok-drop.cmd --help`
+  - `python -m nalmeok --version`(PYTHONPATH=app), `app\nalmeok.cmd --version`(첫 실행 PBS 부트스트랩), `app\nalmeok-drop.cmd --help`
   - `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 생성 확인, 출력에 `is not recognized`가 없어야 함
-  - ZIP·`nalmeok.py`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
+  - ZIP·`nalmeok-app.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
 - offline 확장판은 기본 CI에서 빌드하지 않는다: `python scripts/build_windows.py --offline`
 
 ### 6.3 수동 검증 매트릭스
@@ -353,7 +356,7 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 3. `python scripts/build_windows.py`로 thin ZIP을 만든다(필요 시 `--offline`).
 4. ZIP을 풀어 **깨끗한 Windows 11**에서 첫 실행(PBS/SDK/ffmpeg)·업데이트를 확인한다.
 5. `SHA256SUMS.txt`와 `windows-manifest.json`을 확인한다.
-6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
+6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok-app.zip`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
 7. README의 Windows 절과 다운로드 링크를 갱신한다.
 8. 이 문서의 상태 표와 변경 이력을 갱신한다.
 
@@ -399,3 +402,4 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 | 2026-10-30 | thin 배포 결정(D16/D17). v0.6.1 릴리스(thin ZIP 193KB, bootstrap·update 검증) | Claude Code |
 | 2026-10-30 | **v0.6.2**: `'더의' is not recognized` 수정. `.cmd` 순수 ASCII(D19), ZIP 루트 `installer.cmd`만(D18). Windows 11 실기 검증 | Claude Code |
 | 2026-10-30 | 문서 정리: 오래된 기준선·중복 제거, 기준선 0.6.2/157 tests로 갱신, 코드서명·의존성 금지·단일 파일 제약 폐기 | Claude Code |
+| 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 `nalmeok-app.zip` 디렉터리 교체 | Claude Code |

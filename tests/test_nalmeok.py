@@ -1600,37 +1600,69 @@ class UpdateTests(unittest.TestCase):
         self.assertIn("최신", message)
         download.assert_not_called()
 
+    @staticmethod
+    def _package_zip(version, extra=""):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("nalmeok/__init__.py", "")
+            archive.writestr("nalmeok/constants.py",
+                             f'__version__ = "{version}"\n{extra}')
+        return buffer.getvalue()
+
+    def _app_dir(self, temp):
+        root = Path(temp)
+        package = root / "nalmeok"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        init = package / "constants.py"
+        init.write_text('__version__ = "0.6.0"\n', encoding="utf-8")
+        return root, init
+
     def test_apply_update_rejects_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as temp:
-            target = Path(temp) / "nalmeok.py"
-            target.write_text('__version__ = "0.6.0"\n', encoding="utf-8")
+            root, init = self._app_dir(temp)
             manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
                                     "sha256": "0" * 64}}
             with mock.patch.object(app, "packaged_mode", return_value=True), \
-                    mock.patch.object(app, "__file__", str(target)), \
+                    mock.patch.object(app, "__file__", str(init)), \
                     mock.patch.object(app, "download_bytes",
-                                      return_value=b'__version__ = "0.7.0"\n'):
+                                      return_value=self._package_zip("0.7.0")):
                 with self.assertRaises(RuntimeError):
                     app.apply_update(manifest)
-            self.assertIn("0.6.0", target.read_text(encoding="utf-8"))
-            self.assertFalse((Path(temp) / "nalmeok.py.tmp").exists())
+            self.assertIn("0.6.0", init.read_text(encoding="utf-8"))
+            self.assertFalse((root / ".nalmeok-next").exists())
 
-    def test_apply_update_replaces_app_code(self):
-        content = '__version__ = "0.7.0"\n'
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    def test_apply_update_rejects_non_zip_payload(self):
+        content = b'__version__ = "0.7.0"\n'
+        digest = hashlib.sha256(content).hexdigest()
         manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
                                 "sha256": digest}}
         with tempfile.TemporaryDirectory() as temp:
-            target = Path(temp) / "nalmeok.py"
-            target.write_text('__version__ = "0.6.0"\n', encoding="utf-8")
+            root, init = self._app_dir(temp)
             with mock.patch.object(app, "packaged_mode", return_value=True), \
-                    mock.patch.object(app, "__file__", str(target)), \
+                    mock.patch.object(app, "__file__", str(init)), \
                     mock.patch.object(app, "download_bytes",
-                                      return_value=content.encode("utf-8")):
+                                      return_value=content):
+                with self.assertRaises(RuntimeError):
+                    app.apply_update(manifest)
+            self.assertIn("0.6.0", init.read_text(encoding="utf-8"))
+
+    def test_apply_update_replaces_app_code(self):
+        content = self._package_zip("0.7.0")
+        digest = hashlib.sha256(content).hexdigest()
+        manifest = {"nalmeok": {"version": "0.7.0", "url": "x",
+                                "sha256": digest}}
+        with tempfile.TemporaryDirectory() as temp:
+            root, init = self._app_dir(temp)
+            with mock.patch.object(app, "packaged_mode", return_value=True), \
+                    mock.patch.object(app, "__file__", str(init)), \
+                    mock.patch.object(app, "download_bytes",
+                                      return_value=content):
                 message = app.apply_update(manifest)
             self.assertIn("0.7.0", message)
-            self.assertEqual(target.read_text(encoding="utf-8"), content)
-            self.assertFalse((Path(temp) / "nalmeok.py.tmp").exists())
+            self.assertIn("0.7.0", init.read_text(encoding="utf-8"))
+            self.assertFalse((root / ".nalmeok-next").exists())
+            self.assertFalse((root / ".nalmeok-old").exists())
 
     def test_update_rejects_source_checkout(self):
         manifest = {"nalmeok": {"version": "0.7.0", "url": "x",

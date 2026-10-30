@@ -26,7 +26,7 @@ build\nalmeok-offline\             # offline ZIP 중간 파일
 build\cache\                       # 내려받은 런타임/ffmpeg 캐시 (SHA-256 검증됨)
 ```
 
-`<version>`은 `nalmeok.py`의 `__version__`에서 읽습니다.
+`<version>`은 `nalmeok/constants.py`의 `__version__`에서 읽습니다.
 
 ## 고정 입력
 
@@ -50,7 +50,8 @@ app/
   install.ps1        (설치 로직·한국어 안내, UTF-8 BOM)
   messages.ps1       (런처 안내 문구, UTF-8 BOM)
   shortcuts.ps1      (바로가기 2개 생성: nalmeok, nalmeok에 끌어놓기)
-  nalmeok.py         app.py             pyproject.toml
+  nalmeok/           (앱 패키지: __init__.py, __main__.py, cli.py, ...)
+  app.py             pyproject.toml
   README.md          LICENSE
   nalmeok.ico        (있을 때만. 없으면 install.ps1이 기본 아이콘 사용)
   licenses/          THIRD-PARTY.md (+ offline: Python/ffmpeg 고지)
@@ -72,7 +73,8 @@ mkdir smoke
 tar -xf dist\nalmeok-<version>-win64.zip -C smoke
 cd smoke
 
-python app\nalmeok.py --version
+set PYTHONPATH=app
+python -m nalmeok --version
 app\nalmeok.cmd --version < NUL
 app\nalmeok-drop.cmd --help < NUL
 installer.cmd < NUL
@@ -100,9 +102,9 @@ offline 확장판은 런타임이 들어 있으므로 `app\runtime\python.exe -c
 - Windows/Linux/macOS × Python 3.10/3.12 단위 테스트
 - windows-latest에서 thin ZIP 빌드
 - 압축 해제 후 루트 구성(`installer.cmd` + `app\`) 확인
-- `app\nalmeok.py --version`, `app\nalmeok.cmd --version`(PBS 부트스트랩 포함), `app\nalmeok-drop.cmd --help`
+- `python -m nalmeok --version`(PYTHONPATH=app), `app\nalmeok.cmd --version`(PBS 부트스트랩 포함), `app\nalmeok-drop.cmd --help`
 - `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 확인, `is not recognized` 회귀 검사
-- ZIP·`nalmeok.py`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
+- ZIP·`nalmeok-app.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
 
 CI는 대화형 콘솔을 검증하지 못하므로, 최종 릴리스 전 Windows 실기 수동 검증이 필요합니다.
 
