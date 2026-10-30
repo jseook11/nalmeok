@@ -12,28 +12,47 @@ jobs:
         run: |
           $code = @'
           $ErrorActionPreference = 'Stop'
-          "ps: " + $PSVersionTable.PSVersion.ToString()
           "culture: " + (Get-Culture).Name
-          "cp: " + [Console]::OutputEncoding.WebName
           $d = [Environment]::GetFolderPath('Desktop')
-          "desktop: [$d] exists=" + (Test-Path -LiteralPath $d)
-          $s = [Environment]::GetFolderPath('StartMenu')
-          "startmenu: [$s] exists=" + (Test-Path -LiteralPath $s)
           $name = 'nalmeok에 끌어놓기'
-          "name codepoints: " + (($name.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+          $desc = 'nalmeok - 폴더/MP4/M4A 드래그앤드롭 전사'
           $ws = New-Object -ComObject WScript.Shell
-          $p = Join-Path $d ($name + '.lnk')
-          "path codepoints: " + (($p.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+
+          "--- A: ASCII filename, Korean description ---"
+          $a = Join-Path $d 'nalmeok-probe-a.lnk'
           try {
-            $lnk = $ws.CreateShortcut($p)
-            $lnk.TargetPath = "$env:SystemRoot\System32\notepad.exe"
-            $lnk.WorkingDirectory = $env:USERPROFILE
-            $lnk.Save()
-            "save ok, file exists: " + (Test-Path -LiteralPath $p)
-            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
-          } catch {
-            "save failed: " + $_.Exception.Message
-          }
+            $l = $ws.CreateShortcut($a)
+            $l.TargetPath = "$env:SystemRoot\System32\notepad.exe"
+            $l.WorkingDirectory = $env:USERPROFILE
+            $l.Description = $desc
+            $l.Save()
+            "A save ok: " + (Test-Path -LiteralPath $a)
+            if (Test-Path -LiteralPath $a) {
+              $back = $ws.CreateShortcut($a).Description
+              "A desc back codepoints: " + (($back.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+              Remove-Item -LiteralPath $a -Force
+            }
+          } catch { "A save failed: " + $_.Exception.Message }
+
+          "--- B: ASCII temp file then rename to Korean ---"
+          $b = Join-Path $d 'nalmeok-probe-b.lnk'
+          $target = Join-Path $d ($name + '.lnk')
+          try {
+            $l = $ws.CreateShortcut($b)
+            $l.TargetPath = "$env:SystemRoot\System32\notepad.exe"
+            $l.WorkingDirectory = $env:USERPROFILE
+            $l.Description = $desc
+            $l.Save()
+            Move-Item -LiteralPath $b -Destination $target -Force
+            "B renamed exists: " + (Test-Path -LiteralPath $target)
+            if (Test-Path -LiteralPath $target) {
+              $back = $ws.CreateShortcut($target)
+              "B target: " + $back.TargetPath
+              $descBack = $back.Description
+              "B desc back codepoints: " + (($descBack.ToCharArray() | ForEach-Object { [int]$_ }) -join ',')
+              Remove-Item -LiteralPath $target -Force
+            }
+          } catch { "B failed: " + $_.Exception.Message }
           '@
           $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
           powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
