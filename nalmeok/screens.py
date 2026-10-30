@@ -1921,18 +1921,21 @@ def session_screen(folder, key):
         if state and state.get("mode") == "mixed":
             return app.mixed_session(folder, key)
         return app.live_session(folder, key)
+    if stage == "done":
+        return app.done_screen(folder, key)
     if facts["watcher"]:
         app.progress_screen(folder)
         return key
-    if facts["submitted"]:
-        return app.wait_session(folder, key)
+    # 완료·손상 폴더에 다시 네트워크를 걸지 않도록 받기 전에 걸러냅니다.
+    if stage in ("changed", "corrupt"):
+        return app.folder_session(folder, key)
     if stage == "received":
         if facts.get("live"):
             return app.live_session(folder, key)
         return app.merge_session(folder, key)
-    if stage == "done":
-        return app.done_screen(folder, key)
-    # 파일 없음 · 입력 확인 필요 · 변경됨 · 손상 → 고급 메뉴로 위임
+    if facts["submitted"]:
+        return app.wait_session(folder, key)
+    # 파일 없음 · 입력 확인 필요 → 고급 메뉴로 위임
     return app.folder_session(folder, key)
 
 

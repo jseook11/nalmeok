@@ -1585,6 +1585,66 @@ class PackagingSDKTests(unittest.TestCase):
                           str(Path("/tmp/app/.venv"))])
 
 
+class RestartTests(unittest.TestCase):
+    def test_restart_reexecutes_package_from_its_root(self):
+        root = str(Path(app.__file__).resolve().parent.parent)
+        with mock.patch.dict(os.environ, {"PYTHONPATH": "/existing"}, clear=False), \
+                mock.patch.object(app.sys, "argv", ["/tmp/app.py", "wait", "folder"]), \
+                mock.patch.object(app.os, "execv") as execv:
+            app.restart(Path("/tmp/app/.venv/bin/python"))
+            pythonpath = os.environ["PYTHONPATH"]
+        python, argv = execv.call_args.args
+        self.assertEqual(python, "/tmp/app/.venv/bin/python")
+        self.assertEqual(argv, ["/tmp/app/.venv/bin/python", "-m", "nalmeok",
+                                "wait", "folder"])
+        self.assertEqual(pythonpath, os.pathsep.join([root, "/existing"]))
+
+
+class SessionRoutingTests(unittest.TestCase):
+    """완료 폴더는 네트워크·SDK 없이 완료 화면으로 바로 갑니다."""
+
+    def route(self, stage, submitted=False, watcher=False):
+        facts = {"exists": True, "stage": stage, "watcher": watcher,
+                 "submitted": submitted, "live": False}
+        with mock.patch.object(app, "inspect_folder", return_value=facts), \
+                mock.patch.object(app, "done_screen", return_value="done") as done, \
+                mock.patch.object(app, "wait_session", return_value="wait") as wait, \
+                mock.patch.object(app, "merge_session", return_value="merge") as merge, \
+                mock.patch.object(app, "folder_session",
+                                  return_value="advanced") as advanced, \
+                mock.patch.object(app, "progress_screen") as progress:
+            result = app.session_screen(Path("/tmp/folder"), "key")
+        return result, {"done": done, "wait": wait, "merge": merge,
+                        "advanced": advanced, "progress": progress}
+
+    def test_done_with_batch_id_opens_done_screen(self):
+        result, calls = self.route("done", submitted=True)
+        self.assertEqual(result, "done")
+        calls["done"].assert_called_once()
+        calls["wait"].assert_not_called()
+
+    def test_changed_with_batch_id_goes_to_advanced_menu(self):
+        result, calls = self.route("changed", submitted=True)
+        self.assertEqual(result, "advanced")
+        calls["wait"].assert_not_called()
+
+    def test_submitted_waits(self):
+        result, calls = self.route("submitted", submitted=True)
+        self.assertEqual(result, "wait")
+        calls["merge"].assert_not_called()
+
+    def test_received_merges_without_waiting(self):
+        result, calls = self.route("received", submitted=True)
+        self.assertEqual(result, "merge")
+        calls["wait"].assert_not_called()
+
+    def test_watching_shows_progress(self):
+        result, calls = self.route("watching", submitted=True, watcher=True)
+        self.assertEqual(result, "key")
+        calls["progress"].assert_called_once()
+        calls["wait"].assert_not_called()
+
+
 class UpdateTests(unittest.TestCase):
     def test_parse_version_orders_numerically(self):
         self.assertGreater(app.parse_version("0.10.0"),

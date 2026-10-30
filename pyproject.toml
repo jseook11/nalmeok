@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nalmeok"
-version = "0.6.2"
+version = "0.6.3"
 description = "Gemini Batch·무료 live로 강의 음성을 저렴하게 전사하는 도구"
 readme = "README.md"
 requires-python = ">=3.10"

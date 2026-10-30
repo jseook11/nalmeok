@@ -29,6 +29,7 @@ usable_python() {
 
 find_python() {
   for candidate in \
+    "$DATA/app/.venv/bin/python3" \
     "$DATA/runtime/current/bin/python3" \
     "/Library/Frameworks/Python.framework/Versions/Current/bin/python3" \
     "$HOME/.pyenv/shims/python3" \

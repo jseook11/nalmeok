@@ -83,7 +83,14 @@ def auto_yes():
 
 def restart(python):
     """같은 인자로 .venv 인터프리터에서 이어서 실행합니다."""
-    os.execv(str(python), [str(python), str(Path(__file__).resolve()), *sys.argv[1:]])
+    # 패키지 분리 뒤에는 __file__ 이 update.py 라서 그대로 실행하면 상대 import가
+    # 깨집니다. 패키지 루트를 PYTHONPATH에 넣고 `-m nalmeok`으로 다시 시작합니다.
+    root = Path(__file__).resolve().parent.parent
+    parts = [str(root)]
+    parts += [part for part in os.environ.get("PYTHONPATH", "").split(os.pathsep)
+              if part]
+    os.environ["PYTHONPATH"] = os.pathsep.join(parts)
+    os.execv(str(python), [str(python), "-m", "nalmeok", *sys.argv[1:]])
 
 
 def ensure_sdk():

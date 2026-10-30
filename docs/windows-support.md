@@ -1,6 +1,6 @@
 # Windows 지원 및 배포
 
-> **상태:** 운영 중 (v0.6.2 기준) · **관련 이슈:** [#1](https://github.com/jseook11/nalmeok/issues/1)
+> **상태:** 운영 중 (v0.6.3 기준) · **관련 이슈:** [#1](https://github.com/jseook11/nalmeok/issues/1)
 > 이 문서가 Windows 지원·배포의 단일 기준입니다. 코드와 어긋나면 코드를 고치기 전에 이 문서를 먼저 갱신하세요.
 
 ---
@@ -20,15 +20,16 @@
 | 설치 오류·ZIP 구조 정리 (v0.6.2) | 완료 | ko-KR Windows 11에서 설치·바로가기·드롭 안내·`--version` 확인, 오류 없음 |
 | Windows 11 Windows Terminal TUI 체크리스트 | 진행 중 | 환경(WT_SESSION·VT·isatty) 확인 완료. 화면 체크리스트·스크린샷 대기 |
 | Windows 10 22H2 실기 검증 | 보류 | 2026-10-30 사용자 결정(D13). best-effort로 표기 |
-| v0.6.2 릴리스(패키지 분리) | 완료 | [v0.6.2](https://github.com/jseook11/nalmeok/releases/tag/v0.6.2) thin ZIP·`nalmeok-app-win64.zip`·manifest |
+| v0.6.2 릴리스(패키지 분리) | 완료 | [v0.6.2](https://github.com/jseook11/nalmeok/releases/tag/v0.6.2) thin ZIP·`nalmeok-app.zip`·manifest |
+| v0.6.3 릴리스(SDK 전환·완료 폴더 수정) | 완료 | [v0.6.3](https://github.com/jseook11/nalmeok/releases/tag/v0.6.3) thin ZIP·`nalmeok-app.zip`·manifest |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
 ### 0.2 기준선
 
-- 앱 버전: **0.6.2** (`nalmeok/constants.py`, `pyproject.toml`)
-- 테스트: `python -m unittest discover -s tests -q` → **158개 통과, 8개 skip** (macOS, Python 3.12)
-- 배포물: thin `nalmeok-<v>-win64.zip` (**약 195KB**) + `windows-manifest.json` + `SHA256SUMS.txt`
+- 앱 버전: **0.6.3** (`nalmeok/constants.py`, `pyproject.toml`)
+- 테스트: `python -m unittest discover -s tests -q` → **165개 통과, 8개 skip** (macOS, Python 3.12)
+- 배포물: thin `nalmeok-<v>-win64.zip` (**약 195KB**) + `manifest.json` + `SHA256SUMS.txt`
 - 런타임: python-build-standalone 3.12.16 (x86_64, 내려받기 약 45MB), google-genai 2.31.0, ffmpeg 8.1.3 온디맨드(약 160MB)
 - 실기 검증: Windows 11 ko-KR(build 26200), conhost·Windows Terminal 환경 확인
 - 지원 하한: Windows 10 22H2(19045) / Windows 11, x64. 그 이하·ARM64·32비트는 best-effort 또는 미지원
@@ -406,3 +407,5 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 | 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 공통 `nalmeok-app.zip` 디렉터리 교체 | Claude Code |
 | 2026-10-31 | **v0.6.2 릴리스**: thin ZIP 199KB + 공통 `nalmeok-app.zip` + `manifest.json`. Windows 11 실기·CI 통과 | Claude Code |
 | 2026-10-31 | 사용량 화면·CLI `stats`의 `job_folders` 무제한 스캔(최대 200,000개)을 D14 제한으로 통일. `$HOME` 기준 15초 → 1초 미만 | Claude Code |
+| 2026-10-31 | SDK 전환 수정: 패키지 분리 뒤 `restart()`가 `update.py`를 실행해 `ImportError`로 끝나던 문제를 `-m nalmeok` + 패키지 루트 `PYTHONPATH`로 고침. 완료 폴더는 네트워크 없이 완료 화면으로 이동 | Claude Code |
+| 2026-10-31 | **v0.6.3 릴리스**: thin ZIP 200KB + 공통 `nalmeok-app.zip` + `manifest.json`. macOS DMG 서명·공증 Accepted(`ffc6596f`) | Claude Code |
