@@ -1397,6 +1397,66 @@ class DropTests(unittest.TestCase):
         self.assertEqual(args.command, "drop")
         self.assertEqual(args.paths, ["./lecture", "./week1.mp4"])
 
+    def test_split_pasted_paths_unescapes_macos_spaces(self):
+        text = r"/Users/me/My\ Folder/week1.mp4 /Users/me/other.m4a"
+        with mock.patch.object(app, "IS_WINDOWS", False):
+            paths = app.split_pasted_paths(text)
+        self.assertEqual(paths, [
+            "/Users/me/My Folder/week1.mp4",
+            "/Users/me/other.m4a",
+        ])
+
+    def test_split_pasted_paths_accepts_quoted_macos_path(self):
+        self.assertEqual(
+            app.split_pasted_paths("'/Users/me/My Folder/week1.mp4'"),
+            ["/Users/me/My Folder/week1.mp4"])
+
+    def test_split_pasted_paths_handles_windows_quotes_and_backslashes(self):
+        text = r'"C:\Users\me\My Folder\week1.mp4" "C:\Users\me\b.m4a"'
+        with mock.patch.object(app, "IS_WINDOWS", True):
+            paths = app.split_pasted_paths(text)
+        self.assertEqual(paths, [
+            r"C:\Users\me\My Folder\week1.mp4",
+            r"C:\Users\me\b.m4a",
+        ])
+
+    def test_split_pasted_paths_keeps_plain_windows_path(self):
+        with mock.patch.object(app, "IS_WINDOWS", True):
+            self.assertEqual(app.split_pasted_paths(r"C:\lecture\week1.mp4"),
+                             [r"C:\lecture\week1.mp4"])
+
+    def test_split_pasted_paths_ignores_empty_text(self):
+        self.assertEqual(app.split_pasted_paths("   "), [])
+
+    def test_split_pasted_paths_falls_back_on_unbalanced_quote(self):
+        self.assertEqual(app.split_pasted_paths('"/tmp/a b'),
+                         ['"/tmp/a b'])
+
+    def test_windows_key_reader_surfaces_bracketed_paste(self):
+        payload = "C:\\a b\\week1.m4a"
+        chars = iter(list("\x1b[200~" + payload + "\x1b[201~"))
+        fake = mock.MagicMock()
+        fake.getwch.side_effect = lambda: next(chars)
+        fake.kbhit.return_value = True
+        with mock.patch.object(app, "msvcrt", fake):
+            key = app._read_key_windows()
+        self.assertEqual(key, ("paste", payload))
+
+    @unittest.skipIf(os.name == "nt", "POSIX pipe test")
+    def test_posix_paste_reader_stops_at_terminator(self):
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, "강의 폴더/week1.m4a".encode("utf-8")
+                     + b"\x1b[201~")
+            os.close(write_fd)
+            write_fd = -1
+            self.assertEqual(app._read_paste_posix(read_fd),
+                             "강의 폴더/week1.m4a")
+        finally:
+            os.close(read_fd)
+            if write_fd != -1:
+                os.close(write_fd)
+
     def test_documents_dir_follows_windows_known_folder(self):
         fake = mock.MagicMock()
         fake.HKEY_CURRENT_USER = object()

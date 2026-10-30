@@ -31,7 +31,7 @@
 | 수동 검증 · Windows 11 conhost | 진행 중 | - | VT/ANSI 가능, attached=True, stdin/stdout isatty=True 확인(2026-10-30). TUI 체크리스트·스크린샷 대기 |
 | 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | WT_SESSION/WT_PROFILE_ID, VT/ANSI 가능, attached/isatty 확인(2026-10-30 20:27). TUI 체크리스트·스크린샷 대기 |
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
-| 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows 126 tests pass(3 skip), 바로가기 2개·한글/공백 경로·하드링크·드롭 요약 확인. 실제 마우스 드래그 1회만 사용자 확인 대기 |
+| 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows/macOS 134 tests pass. macOS는 터미널에 끌어다 놓으면 `d` 없이 바로 시작(pseudo-terminal 검증), Windows는 바로가기·`d`·한글/공백 경로·하드링크 확인 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -600,3 +600,4 @@ if errorlevel 1 pause
 | 2026-10-30 | `feature/windows-support` PR #3 CI 전체 통과 후 `master`에 머지. v0.4.0 릴리스 기준 확정 | Claude Code |
 | 2026-10-30 | 후속: 드래그앤드롭 전사(`nalmeok drop`, `nalmeok-drop.cmd`, 두 번째 바로가기). v0.5.0. macOS 124 tests pass | Claude Code |
 | 2026-10-30 | Windows 11에서 드롭 기능 검증: 126 tests pass(3 skip), 바로가기 2개·한글/공백 인자·NTFS 하드링크·드롭 요약 확인. OneDrive 문서 폴더 해석 추가 | Claude Code |
+| 2026-10-30 | 터미널 드롭: 브래킷 붙여넣기(`ESC[200~`) 감지로 macOS에서 `d` 없이 바로 전사. 134 tests pass(Win 4 skip/macOS 8 skip) | Claude Code |

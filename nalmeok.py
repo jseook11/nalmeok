@@ -1057,6 +1057,29 @@ def _available_job_dir(stem):
     return candidate
 
 
+def split_pasted_paths(text):
+    """터미널에 드롭·붙여넣은 경로 문자열을 인자 목록으로 나눕니다.
+
+    macOS Terminal/iTerm2는 공백을 `\\ `로 이스케이프하고, Windows Terminal은
+    경로를 큰따옴표로 감쌉니다. 두 형식을 모두 받아들입니다.
+    """
+    text = str(text).strip()
+    if not text:
+        return []
+    try:
+        tokens = shlex.split(text, posix=not IS_WINDOWS)
+    except ValueError:
+        tokens = [text]
+    paths = []
+    for token in tokens:
+        token = token.strip()
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+            token = token[1:-1]
+        if token:
+            paths.append(token)
+    return paths
+
+
 def file_job_folder(source):
     """드롭한 미디어 파일 하나를 자기만의 작업 폴더로 가져옵니다.
 
@@ -3598,6 +3621,49 @@ def map_windows_key(char, next_char=None):
     return char
 
 
+PASTE_LIMIT = 1_048_576
+
+
+def _paste_mode(enabled):
+    """붙여넣기(드래그 포함)를 ESC[200~ ... ESC[201~ 로 감싸 받습니다.
+
+    화면 제어가 되는 터미널에서만 켭니다. 입력 줄(input/getpass)을 쓰는 동안은
+    read_key 밖이라 자동으로 꺼져 있어 API 키 붙여넣기가 오염되지 않습니다.
+    """
+    if not vt_supported():
+        return
+    sys.stdout.write("\033[?2004h" if enabled else "\033[?2004l")
+    sys.stdout.flush()
+
+
+def _read_paste_posix(fd):
+    data = b""
+    end = b"\x1b[201~"
+    deadline = time.monotonic() + 2.0
+    while len(data) < PASTE_LIMIT and time.monotonic() < deadline:
+        if not select.select([fd], [], [], 0.2)[0]:
+            continue
+        data += os.read(fd, 4096)
+        if end in data:
+            data = data.split(end, 1)[0]
+            break
+    return data.decode("utf-8", "replace")
+
+
+def _read_paste_windows():
+    text = ""
+    end = "\x1b[201~"
+    deadline = time.monotonic() + 2.0
+    while len(text) < PASTE_LIMIT and time.monotonic() < deadline:
+        if msvcrt.kbhit():
+            text += msvcrt.getwch()
+            if text.endswith(end):
+                return text[:-len(end)]
+        else:
+            time.sleep(0.005)
+    return text
+
+
 def _read_key_windows():
     char = msvcrt.getwch()
     if char in ("\x00", "\xe0"):
@@ -3612,35 +3678,56 @@ def _read_key_windows():
                 time.sleep(0.005)
         if not rest:
             return "esc"
+        if rest == "[2":
+            deadline = time.monotonic() + 0.5
+            while len(rest) < 5 and time.monotonic() < deadline:
+                if msvcrt.kbhit():
+                    rest += msvcrt.getwch()
+                else:
+                    time.sleep(0.005)
+            if rest == "[200~":
+                return ("paste", _read_paste_windows())
         return ARROWS.get(rest, "other")
     return map_windows_key(char)
 
 
 def read_key():
-    """raw 모드로 키 하나를 읽습니다. 방향키는 up/down/left/right 로 돌려줍니다."""
-    if os.name == "nt":
-        return _read_key_windows()
-    fd = sys.stdin.fileno()
-    saved = termios.tcgetattr(fd)
+    """raw 모드로 키 하나를 읽습니다. 방향키는 up/down/left/right 로 돌려줍니다.
+
+    붙여넣기·드래그는 ("paste", 텍스트) 튜플로 돌려줍니다.
+    """
+    _paste_mode(True)
     try:
-        tty.setraw(fd)
-        char = os.read(fd, 1).decode("utf-8", "ignore")
-        if char in ("\r", "\n"):
-            return "enter"
-        if char == "\x03":
-            raise KeyboardInterrupt
-        if char == "\x04":
-            raise EOFError
-        if char != "\x1b":
-            return char
-        rest = ""
-        while len(rest) < 2 and select.select([fd], [], [], 0.05)[0]:
-            rest += os.read(fd, 1).decode("utf-8", "ignore")
-        if not rest:
-            return "esc"
-        return ARROWS.get(rest, "other")
+        if os.name == "nt":
+            return _read_key_windows()
+        fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            char = os.read(fd, 1).decode("utf-8", "ignore")
+            if char in ("\r", "\n"):
+                return "enter"
+            if char == "\x03":
+                raise KeyboardInterrupt
+            if char == "\x04":
+                raise EOFError
+            if char != "\x1b":
+                return char
+            rest = ""
+            while len(rest) < 2 and select.select([fd], [], [], 0.05)[0]:
+                rest += os.read(fd, 1).decode("utf-8", "ignore")
+            if not rest:
+                return "esc"
+            if rest == "[2":
+                while len(rest) < 5 and select.select([fd], [], [], 0.5)[0]:
+                    rest += os.read(fd, 1).decode("utf-8", "ignore")
+                if rest == "[200~":
+                    return ("paste", _read_paste_posix(fd))
+            return ARROWS.get(rest, "other")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        _paste_mode(False)
 
 
 def wait_key():
@@ -5243,7 +5330,7 @@ def home_lines(entries, cursor, key, folder_count):
             lines.append(f"    {text}   {tail}")
     lines.append("")
     lines.append(status_bar_line(key))
-    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+    lines.append(f"  {dim('↑↓ 이동 · Enter 선택 · d 드롭 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
     return lines
 
 
@@ -5257,6 +5344,7 @@ def help_screen():
     header("도움말", "날먹 v" + __version__)
     for label, desc in (
         ("Enter", "선택 · 전사"),
+        ("d", "드롭 · 붙여넣기 (폴더/MP4/M4A)"),
         ("Esc / ←", "뒤로"),
         ("k", "API 키 변경"),
         ("s", "설정 · 환경 점검"),
@@ -5300,6 +5388,7 @@ def home_screen(key):
         entries += [
             None,
             ("open", "새 전사", "폴더를 고르거나 경로를 붙여넣기"),
+            ("drop", "드롭 · 붙여넣기", "끌어다 놓으면 바로 전사 · 직접 입력도 가능"),
             ("multi", "여러 폴더 유료 Batch", f"{candidates}개 준비됨", not candidates),
             ("refresh", "원격 상태 새로고침", "제출한 Batch 상태 확인",
              not has_remote),
@@ -5316,6 +5405,8 @@ def home_screen(key):
         height = draw_lines(lines)
         while True:
             pressed = read_key()
+            if isinstance(pressed, tuple) and pressed[0] == "paste":
+                return ("drop-paste", pressed[1])
             if pressed == "up":
                 for _ in range(len(entries)):
                     cursor = (cursor - 1) % len(entries)
@@ -5334,6 +5425,8 @@ def home_screen(key):
                 return "settings"
             elif pressed == "m":
                 return "multi"
+            elif pressed == "d":
+                return "drop"
             elif pressed == "r":
                 return "refresh"
             elif pressed == "u":
@@ -6195,8 +6288,54 @@ def show_drop_summary(results):
     wait("Enter 닫기")
 
 
+def drop_paths_screen():
+    """터미널에 드롭한 경로 한 줄을 받습니다. 빈 입력이면 취소입니다."""
+    header("드롭 · 붙여넣기", "폴더 또는 MP4/M4A")
+    print("  파일이나 폴더를 이 창에 끌어다 놓으세요.")
+    print(f"  {dim('경로가 붙여넣어지면 Enter. 직접 입력해도 됩니다.')}")
+    footer("Enter 시작 · Ctrl+C 취소")
+    try:
+        text = prompt_box("경로")
+    except (EOFError, KeyboardInterrupt):
+        return []
+    return split_pasted_paths(text)
+
+
+def run_drop_folders(folders, skipped, key):
+    """이미 전체 화면인 상태에서 드롭 항목을 차례로 전사하고 요약합니다."""
+    results = []
+    for folder in folders:
+        remember_folder(folder)
+        try:
+            key = session_screen(folder, key)
+            target, error = copy_result_to_documents(folder)
+            results.append((folder, target, error))
+        except KeyboardInterrupt:
+            results.append((folder, None, "중단됨"))
+            break
+        except (RuntimeError, OSError, ValueError) as exc:
+            results.append((folder, None, str(exc)))
+    for name, reason in skipped:
+        results.append((None, None, f"{name}: {reason}"))
+    show_drop_summary(results)
+    return key
+
+
+def drop_session(raw_paths, key):
+    """드롭·붙여넣은 경로를 정리해 전사합니다. 전체 화면 안에서 호출합니다."""
+    folders, skipped = normalize_drop_paths(raw_paths)
+    if not folders:
+        header("드롭 · 붙여넣기", "항목 없음")
+        notice("전사할 폴더나 MP4/M4A 파일이 없습니다.")
+        for name, reason in skipped:
+            print(f"  · {clip(name, WIDTH - 12)}: {reason}")
+        wait()
+        return key
+    return run_drop_folders(folders, skipped, key)
+
+
 def drop_flow(raw_paths):
-    """바로가기에 떨어뜨린 폴더·파일을 차례로 전사하고 결과를 모읍니다."""
+    """바로가기·CLI로 받은 폴더·파일을 차례로 전사하고 결과를 모읍니다."""
     if not sys.stdin.isatty():
         fail("드롭 실행은 실제 터미널에서 해야 합니다.")
     require_tui()
@@ -6210,21 +6349,7 @@ def drop_flow(raw_paths):
             key = key_screen()
         if not current_key(key):
             fail("API 키가 없어 전사를 시작할 수 없습니다.")
-        results = []
-        for folder in folders:
-            remember_folder(folder)
-            try:
-                key = session_screen(folder, key)
-                target, error = copy_result_to_documents(folder)
-                results.append((folder, target, error))
-            except KeyboardInterrupt:
-                results.append((folder, None, "중단됨"))
-                break
-            except (RuntimeError, OSError, ValueError) as exc:
-                results.append((folder, None, str(exc)))
-        for name, reason in skipped:
-            results.append((None, None, f"{name}: {reason}"))
-        show_drop_summary(results)
+        run_drop_folders(folders, skipped, key)
 
 
 def interactive():
@@ -6245,6 +6370,11 @@ def interactive():
                 return
             if answer is BACK or answer == "quit":
                 return
+            if isinstance(answer, tuple) and answer[0] == "drop-paste":
+                paths = split_pasted_paths(answer[1])
+                if paths:
+                    key = drop_session(paths, key)
+                continue
             if answer == "changekey":
                 key = key_screen()
                 continue
@@ -6263,6 +6393,10 @@ def interactive():
                     if not current_key(key):
                         continue
                     key = multi_submit(key)
+                elif answer == "drop":
+                    paths = drop_paths_screen()
+                    if paths:
+                        key = drop_session(paths, key)
                 elif answer == "refresh":
                     key = refresh_remote(dashboard_folders(), key)
                 elif answer == "stats":
