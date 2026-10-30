@@ -97,6 +97,12 @@ jobs:
             # `< NUL` keeps the launcher's error-path `pause` from hanging CI.
             & cmd /c '.\nalmeok.cmd --version < NUL'
             if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
+
+            foreach ($name in @('nalmeok-drop.cmd', 'shortcuts.ps1')) {
+              if (-not (Test-Path $name)) { throw "$name is missing from the ZIP" }
+            }
+            & .\runtime\python.exe .\nalmeok.py drop --help | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "drop --help failed: $LASTEXITCODE" }
           } finally {
             Pop-Location
           }
