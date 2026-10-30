@@ -102,6 +102,7 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 - **폴더**는 그 자리에서 전사하고 결과만 문서 폴더로 복사합니다. 폴더 안의 상태 파일과 원본은 그대로 둡니다.
 - **MP4/M4A 파일 하나**는 `%LOCALAPPDATA%\nalmeok\jobs\<파일명>`에 별도 작업 폴더를 만들어 처리합니다. 같은 폴더의 다른 강의와 섞이지 않으며, 원본 파일은 하드링크로 연결하고 안 되면 복사합니다.
 - 여러 항목을 한 번에 떨어뜨려도 순서대로 처리하고 마지막에 성공·실패를 요약합니다.
+- 한 강의가 `part1.mp4`, `part2.mp4`처럼 여러 파일이면 **폴더째** 떨어뜨리세요. 파일을 따로 떨어뜨리면 파일마다 결과가 하나씩 생깁니다.
 - 이름이 겹치면 `강의 (2).md`처럼 번호를 붙여 저장합니다.
 
 ### Windows 문제 해결
@@ -147,7 +148,7 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 ### 2. 작업
 
 ```text
-  날먹   강의 음성을 Batch·live로 전사   v0.4.0
+  날먹   강의 음성을 Batch·live로 전사   v0.5.0
   ───────────────────────────────────────────
 
   작업
@@ -607,7 +608,7 @@ python -m unittest discover -s tests -v
 
 `tests/__init__.py`가 있어 저장소 루트에서 `python -m unittest discover`만 실행해도 테스트를 찾습니다.
 
-테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정(준비·제출 전·제출됨·전사 중·live·혼합·결과 수신·완료·입력 변경·손상), live 그룹핑(7×20분 → 2요청, 130분 상한), 무료/유료 키 레지스트리와 라벨·마이그레이션, 혼합 배분(130/130/40)·긴 파일 분할·무료 키 우선·유료 키 분산, 혼합 결과 병합, live 상태·아카이브·CLI 인자, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택.
+테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정(준비·제출 전·제출됨·전사 중·live·혼합·결과 수신·완료·입력 변경·손상), live 그룹핑(7×20분 → 2요청, 130분 상한), 무료/유료 키 레지스트리와 라벨·마이그레이션, 혼합 배분(130/130/40)·긴 파일 분할·무료 키 우선·유료 키 분산, 혼합 결과 병합, live 상태·아카이브·CLI 인자, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택, 드롭 입력 정규화·작업 폴더·문서 폴더 복사.
 
 ## 프로젝트 구조
 
@@ -615,7 +616,8 @@ python -m unittest discover -s tests -v
 app.py                 # 실행 진입점 (./app.py)
 nalmeok.py             # CLI 본체 (TUI, Batch·live 파이프라인, 설정)
 tests/test_nalmeok.py  # 순수 로직·상태 전이 테스트
-scripts/               # Windows 배포 빌드 (build_windows.py, nalmeok.cmd, installer.cmd)
+scripts/               # Windows 배포 빌드 (build_windows.py, nalmeok.cmd, nalmeok-drop.cmd,
+                       # installer.cmd, shortcuts.ps1)
 pyproject.toml         # 패키지 정의와 nalmeok 콘솔 스크립트
 ```
 
