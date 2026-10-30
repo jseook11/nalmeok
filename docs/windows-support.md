@@ -38,7 +38,7 @@
 
 - 계획 수립 시점 커밋: `103fe69`
 - 테스트: `python -m unittest discover -s tests -q` → **99개 통과, 8개 skip** (macOS, Python 3.12.13)
-- 앱 버전: `0.3.0` → Windows 배포는 `0.4.0`을 목표로 함
+- 앱 버전: `0.4.0` (Windows 지원 릴리스)
 - 배포 런타임: Python 3.12.x (python-build-standalone, x86_64)
 - **2026-10-30 Windows 1차 검증**
   - 환경: Windows 11 build 26200.9457, OpenSSH/ConPTY, Python 3.12.16 standalone

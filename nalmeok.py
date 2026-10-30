@@ -77,7 +77,7 @@ WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
 # 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
 RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 SDK = "google-genai"
 DEFAULT_MODEL = "gemini-3.8-flash"
