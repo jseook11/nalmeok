@@ -55,6 +55,7 @@ import threading
 import time
 import unicodedata
 import uuid
+import zipfile
 from pathlib import Path
 
 try:
@@ -84,7 +85,7 @@ WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
 # 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
 RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 SDK = "google-genai"
 SDK_VERSION = "2.31.0"
@@ -93,6 +94,14 @@ MANIFEST_URL = (
     "https://github.com/jseook11/nalmeok/releases/latest/download/"
     "macos-manifest.json"
 )
+WINDOWS_MANIFEST_URL = (
+    "https://github.com/jseook11/nalmeok/releases/latest/download/"
+    "windows-manifest.json"
+)
+
+
+def manifest_url():
+    return WINDOWS_MANIFEST_URL if IS_WINDOWS else MANIFEST_URL
 DEFAULT_MODEL = "gemini-3.8-flash"
 MAX_FILES = 10
 RECENT_LIMIT = 8
@@ -466,7 +475,7 @@ def parse_version(text):
 def fetch_manifest(url=None, timeout=15):
     import urllib.request
 
-    url = url or os.getenv("NALMEOK_MANIFEST_URL") or MANIFEST_URL
+    url = url or os.getenv("NALMEOK_MANIFEST_URL") or manifest_url()
     with urllib.request.urlopen(url, timeout=timeout) as response:
         data = json.loads(response.read().decode("utf-8"))
     if not isinstance(data, dict):
@@ -554,6 +563,94 @@ def update_sdk(manifest):
     if subprocess.call(command) != 0:
         raise RuntimeError("SDK 업데이트에 실패했습니다.")
     return f"SDK {current} → {target} (다음 실행부터 적용)"
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_file(url, destination, timeout=180):
+    import urllib.request
+
+    destination = Path(destination)
+    with urllib.request.urlopen(url, timeout=timeout) as response, \
+            destination.open("wb") as handle:
+        total = int(response.headers.get("Content-Length") or 0)
+        done = 0
+        while True:
+            chunk = response.read(1024 * 256)
+            if not chunk:
+                break
+            handle.write(chunk)
+            done += len(chunk)
+            if total and sys.stdout.isatty():
+                percent = done * 100 // total
+                sys.stdout.write(
+                    f"\r  {percent:3d}%  {done // (1024 * 1024)}/"
+                    f"{total // (1024 * 1024)}MB")
+                sys.stdout.flush()
+        if total and sys.stdout.isatty():
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+    return destination
+
+
+def ensure_ffmpeg():
+    """패키징 설치에서 ffmpeg/ffprobe를 한 번 받아 옵니다."""
+    if find_tool("ffmpeg") and find_tool("ffprobe"):
+        return True
+    if not packaged_mode():
+        return False
+    try:
+        manifest = fetch_manifest()
+        info = manifest.get("ffmpeg") or {}
+        url = str(info.get("url") or "").strip()
+        digest = str(info.get("sha256") or "").strip().lower()
+    except (OSError, ValueError, RuntimeError):
+        return False
+    if not url or not digest:
+        return False
+
+    print("\nMP4 변환에는 ffmpeg가 필요합니다. (약 160MB)")
+    if os.getenv("NALMEOK_FFMPEG_YES") != "1":
+        if not sys.stdin.isatty():
+            return False
+        if input("지금 받을까요? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+            return False
+
+    home = Path(os.getenv("NALMEOK_HOME") or Path(__file__).resolve().parent)
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    archive = bin_dir / "ffmpeg-download.zip"
+    suffix = ".exe" if IS_WINDOWS else ""
+    try:
+        download_file(url, archive)
+        actual = file_sha256(archive)
+        if actual != digest:
+            raise RuntimeError("ffmpeg 체크섬이 맞지 않습니다.")
+        with zipfile.ZipFile(archive) as bundle:
+            names = bundle.namelist()
+            for base in ("ffmpeg", "ffprobe"):
+                exe = base + suffix
+                matches = [name for name in names
+                           if name.lower() == exe.lower()
+                           or name.lower().endswith("/" + exe.lower())]
+                if not matches:
+                    raise RuntimeError(f"{exe}를 찾지 못했습니다.")
+                target = bin_dir / exe
+                with bundle.open(matches[0]) as source, \
+                        target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+    finally:
+        if archive.exists():
+            archive.unlink()
+    if find_tool("ffmpeg") and find_tool("ffprobe"):
+        return True
+    fail("ffmpeg 설치를 확인하지 못했습니다.")
 
 
 def update_screen():
@@ -1698,6 +1795,8 @@ def convert(folder):
         log("변환할 MP4 파일이 없습니다.")
         return
     ffmpeg = find_tool("ffmpeg")
+    if not ffmpeg and ensure_ffmpeg():
+        ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
         fail("ffmpeg가 필요합니다. Windows는 설치 폴더의 ffmpeg.exe를 확인하거나 "
              "NALMEOK_FFMPEG를 지정하세요. macOS: brew install ffmpeg")
@@ -5999,6 +6098,8 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
 
 def start_screen(folder, facts, key):
     """화면 3-1. 무료 계획을 먼저 보여주고 Enter 로 시작을 받습니다."""
+    if facts["mp4"] and not find_tool("ffmpeg"):
+        ensure_ffmpeg()
     free_keys = key_entries_for_tier("free")
     paid_keys = key_entries_for_tier("paid")
     prepared = facts["stage"] == "prepared"
