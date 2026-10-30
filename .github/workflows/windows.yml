@@ -1,0 +1,111 @@
+name: Windows
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Windows, Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python -m unittest discover -s tests -v
+
+  test-posix:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python -m unittest discover -s tests -v
+
+  build:
+    name: Build Windows ZIP
+    runs-on: windows-latest
+    needs: test
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache build downloads
+        uses: actions/cache@v4
+        with:
+          path: build/cache
+          key: nalmeok-win-build-${{ hashFiles('scripts/build_windows.py') }}
+      - name: Build the distribution
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python scripts/build_windows.py
+      - name: Smoke test the extracted ZIP
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem -Path dist -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'No ZIP found in dist/' }
+
+          Remove-Item -Recurse -Force smoke -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path smoke | Out-Null
+          tar -xf $zip.FullName -C smoke
+          if ($LASTEXITCODE -ne 0) { throw "ZIP extraction failed: $LASTEXITCODE" }
+
+          Copy-Item -Path tests -Destination smoke -Recurse -Force
+          Push-Location smoke
+          try {
+            & .\runtime\python.exe -m unittest discover -s tests -v
+            if ($LASTEXITCODE -ne 0) { throw "Bundled runtime tests failed: $LASTEXITCODE" }
+
+            # `< NUL` keeps the launcher's error-path `pause` from hanging CI.
+            & cmd /c '.\nalmeok.cmd --version < NUL'
+            if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+      - name: Upload ZIP and SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: nalmeok-windows-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -31,6 +31,7 @@ wheels/
 !README.md
 !CLAUDE.md
 !docs/**/*.md
+!scripts/README.md
 
 # Command Code 세션 설정
 .commandcode/

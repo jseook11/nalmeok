@@ -54,6 +54,55 @@ cd nalmeok
 
 ---
 
+## Windows 설치 (비개발자용)
+
+> **지원 범위:** Windows 10 22H2(빌드 19045) / Windows 11, x64. 그 이전 Windows 10 빌드는 best-effort이며, Windows ARM64와 32비트는 지원하지 않습니다. Windows 11에서 1차 검증을 마쳤고, Windows 10 22H2와 Windows Terminal 실기 검증은 남아 있습니다.
+
+Python·uv·Git을 설치할 필요가 없습니다. ZIP에 실행에 필요한 Python 런타임과 ffmpeg/ffprobe가 들어 있습니다. 설치는 관리자 권한 없이 사용자 폴더에만 합니다.
+
+### 1. ZIP 내려받기
+
+[Releases](https://github.com/jseook11/nalmeok/releases)에서 최신 `nalmeok-<버전>-win64.zip`과 `SHA256SUMS.txt`를 내려받습니다.
+
+### 2. 압축 풀기 전에 차단 해제
+
+1. 내려받은 ZIP을 마우스 오른쪽 버튼으로 클릭합니다.
+2. **속성** → **일반** 탭 아래의 **차단 해제(Unblock)** 를 체크합니다.
+3. **확인**을 누릅니다.
+4. 그다음 **모두 압축 풀기**로 풉니다.
+
+> 차단 해제를 먼저 하지 않으면 SmartScreen이 `installer.cmd` 실행을 막을 수 있습니다. 압축을 푼 뒤에는 차단 해제가 파일에 적용되지 않으므로 순서를 지켜 주세요.
+
+### 3. 설치
+
+1. 압축을 푼 폴더에서 `installer.cmd`를 더블클릭합니다.
+2. SmartScreen 경고가 나오면 **추가 정보** → **실행**을 누릅니다. 코드서명을 하지 않아 경고가 정상적으로 표시됩니다.
+3. "설치가 끝났습니다"가 나오면 창을 닫습니다.
+
+설치 위치는 `%LOCALAPPDATA%\Programs\nalmeok`이고, 바탕화면과 시작 메뉴에 **날먹** 바로가기가 생깁니다. 레지스트리와 PATH는 건드리지 않습니다.
+
+### 4. 첫 실행
+
+1. 바탕화면의 **날먹** 바로가기를 더블클릭합니다.
+2. 첫 화면에서 **무료 키** 또는 **유료 키**를 고르고 API 키를 등록합니다. ([Gemini API 키 발급](#gemini-api-키-발급))
+3. 전사할 강의 폴더를 고릅니다.
+4. Enter로 전사를 시작합니다.
+
+MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴더의 `ffmpeg.exe`와 `ffprobe.exe`는 지우지 마세요.
+
+### Windows 문제 해결
+
+- **SmartScreen이 실행을 막습니다.** ZIP을 풀기 전에 속성에서 **차단 해제**를 했는지 확인하세요. 그래도 막히면 **추가 정보 → 실행**을 선택합니다.
+- **Windows Terminal 사용을 권장합니다.** Windows 10 기본 콘솔(conhost)보다 색상·키 입력·창 크기 변경이 안정적입니다. Microsoft Store에서 "Windows Terminal"을 설치한 뒤 바로가기를 Windows Terminal로 열어도 됩니다.
+- **화면이 멈춘 것처럼 보입니다.** 콘솔에서 글자를 드래그하면 QuickEdit 때문에 앱이 잠시 멈춥니다. Enter나 Esc를 누르면 돌아옵니다. 자주 겪으면 콘솔 속성 → 옵션에서 **빠른 편집(QuickEdit) 모드**를 끄세요.
+- **오류 창이 금방 닫힙니다.** `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`로 창을 유지합니다. 그래도 닫히면 설치 폴더에서 `nalmeok.cmd`를 직접 실행하세요.
+- **Ctrl+C로 종료하면 "일괄 작업을 끝내시겠습니까?(Y/N)"가 뜹니다.** 배치 런처 특성입니다. TUI의 `q` 또는 종료 메뉴를 사용하면 나오지 않습니다. 프롬프트가 뜨면 `Y`를 누르면 됩니다.
+- **진단 정보가 필요합니다.** `nalmeok doctor`를 실행하면 Windows 버전, 터미널, VT 지원, 인코딩, ffmpeg/ffprobe, SDK, 설정 경로를 한 번에 확인할 수 있습니다. 이슈에는 이 출력과 `winver`, 실행 방법, 스크린샷을 붙여 주세요.
+- **제거하려면** `%LOCALAPPDATA%\Programs\nalmeok` 폴더와 바탕화면·시작 메뉴의 `날먹` 바로가기를 삭제합니다. `%APPDATA%\nalmeok`의 설정과 키는 별도이므로 필요하면 함께 삭제하세요.
+- **다운로드 무결성 확인(선택).** PowerShell에서 `Get-FileHash .\nalmeok-<버전>-win64.zip -Algorithm SHA256`을 실행해 `SHA256SUMS.txt`의 값과 비교합니다.
+
+---
+
 ## 터미널 대시보드
 
 인자 없이 실행하면 **키 → 작업 → 진행** 3화면으로 이어집니다. 메뉴를 찾아 헤맬 필요 없이, 폴더를 고르고 Enter만 누르면 됩니다.
@@ -549,6 +598,7 @@ python -m unittest discover -s tests -v
 app.py                 # 실행 진입점 (./app.py)
 nalmeok.py             # CLI 본체 (TUI, Batch·live 파이프라인, 설정)
 tests/test_nalmeok.py  # 순수 로직·상태 전이 테스트
+scripts/               # Windows 배포 빌드 (build_windows.py, nalmeok.cmd, installer.cmd)
 pyproject.toml         # 패키지 정의와 nalmeok 콘솔 스크립트
 ```
 

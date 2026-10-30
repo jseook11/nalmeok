@@ -23,11 +23,11 @@
 |---|---|---|---|
 | PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
 | PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
-| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 진행 중 | - | 스캐폴드·체크섬 확정. Windows 빌드/설치 E2E 검증 대기 |
+| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 완료 | - | Windows 11에서 빌드·압축 해제·런처·번들 테스트 108 pass·ffmpeg 변환·설치·바로가기·doctor 확인. ZIP 164.7MiB |
 | 수동 검증 · Windows 10 22H2 conhost | 미착수 | - | - |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 미착수 | - | - |
 | 수동 검증 · Windows 11 Windows Terminal | 미착수 | - | - |
-| README Windows 설치 안내 | 진행 중 | - | 초안 추가, PR3 E2E 후 확정 |
+| README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -43,7 +43,9 @@
   - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
   - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
   - PR2: 한글 클립보드 왕복, 프로세스 간 `job_lock` 차단, `doctor`, `NALMEOK_DEBUG` 로그 확인
-  - 남은 검증: 실제 conhost/Windows Terminal, Windows 10, 폴더 선택·전사 전체 흐름
+  - PR3: Windows에서 ZIP 빌드(164.7MiB, SHA-256 `248db552…`), 압축 해제 실행, 번들 테스트 108 pass,
+    번들 ffmpeg `convert`/`estimate`, `installer.cmd` 복사·바탕화면/시작 메뉴 바로가기, 설치 후 `doctor` 확인
+  - 남은 검증: 실제 Windows Terminal, Windows 10, 무료 live/유료 Batch 실제 전사
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
 
@@ -97,7 +99,7 @@
 | D2 | PyInstaller 대신 python-build-standalone 런타임 + 소스 + cmd | hidden imports/onefile 재압축/frozen 분기/AV 오탐 회피. 디버깅 쉬움 | `sys.frozen` 분기 불필요, `sys.executable`·`__file__` 기존 코드 그대로 동작 |
 | D3 | 배포 파일명 `nalmeok.cmd`, `installer.cmd` | ASCII 파일명은 경로/AV/압축 도구 호환성이 좋음 | 바로가기 이름만 `날먹`으로 표시 |
 | D4 | 코드서명 안 함 | Azure Artifact Signing은 한국 개인 불가, OV는 연 $150~300, EV는 2024년부터 SmartScreen 즉시 통과 특례 없음 | ZIP "차단 해제" 안내 + SHA256 공개 |
-| D5 | ffmpeg/ffprobe를 ZIP에 번들 | 학생 파일 대부분이 MP4. PATH/winget 안내는 비개발자 이탈 지점 | LGPL 정적 빌드 + 라이선스/출처 고지 |
+| D5 | ffmpeg/ffprobe를 ZIP에 번들 | 학생 파일 대부분이 MP4. PATH/winget 안내는 비개발자 이탈 지점 | LGPL 정적 빌드 + 고지. 실측 ZIP 164.7MiB, v1은 번들 유지 |
 | D6 | 지원 하한 Windows 10 22H2 / 11, x64 | 남은 Win10 사용자의 사실상 표준. conhost VT 동작을 보장하기 쉬움 | 1809~21H2는 best-effort로 문서화 |
 | D7 | conhost와 Windows Terminal 모두 지원 | Win10은 Windows Terminal이 기본이 아님 | VT 활성화 + conhost 심볼 폴백 |
 | D8 | ZIP은 최상위 폴더 없이 루트에 파일 배치 | Explorer "압축 풀기"가 ZIP 이름 폴더를 만들므로 이중 중첩 방지 | `installer.cmd`가 `%~dp0` 기준으로 복사 |
@@ -159,12 +161,14 @@ nalmeok-0.4.0-win64.zip
 ├─ nalmeok.cmd
 ├─ installer.cmd
 ├─ nalmeok.py
+├─ app.py
+├─ pyproject.toml
 ├─ runtime/                  # python-build-standalone + site-packages
 │  ├─ python.exe
 │  └─ Lib/site-packages/google/...
 ├─ ffmpeg.exe
 ├─ ffprobe.exe
-├─ nalmeok.ico
+├─ nalmeok.ico            # 선택. 없으면 installer.cmd가 기본 아이콘 사용
 ├─ README.md
 ├─ LICENSE
 └─ licenses/
@@ -528,7 +532,7 @@ if errorlevel 1 pause
 | SmartScreen 경고 | 설치 이탈 | ZIP 차단 해제 안내, SHA256, 스크린샷 |
 | AV가 python.exe 오탐 | 실행 실패 | 공식 standalone 빌드, 체크섬, PyInstaller 미사용 |
 | ffmpeg LGPL 고지 누락 | 라이선스 위반 | `licenses/`에 고지/출처, 별도 프로세스 호출 |
-| ZIP 용량 | 다운로드 부담 | 빌드 후 측정. 150MB 초과 시 ffmpeg 온디맨드로 전환 검토 |
+| ZIP 용량 | 다운로드 부담 | 실측 164.7MiB(runtime+ffmpeg+의존성). v1은 번들 유지, 계속 문제면 온디맨드 전환 |
 | Python 보안 업데이트 | 취약점 | 분기별 또는 CVE 시 런타임 재빌드 |
 | `cd`로 CLI 상대 경로 깨짐 | CLI 회귀 | 인자 없을 때만 `cd` (D10) |
 | QuickEdit로 화면 정지 | 앱 멈춘 것처럼 보임 | README 안내, Windows Terminal 권장 |
@@ -543,11 +547,12 @@ if errorlevel 1 pause
 |---|---|---|---|
 | Q1 | 바로가기 표시 이름 | `날먹` | 확정 |
 | Q2 | 제거 프로그램(`uninstaller.cmd`) 포함 | 미포함, 수동 삭제 안내 | 보류 |
-| Q3 | ffmpeg 번들 vs 온디맨드 | 번들 (D5) | 확정, 용량 측정 후 재검토 |
+| Q3 | ffmpeg 번들 vs 온디맨드 | 번들 유지 (D5). 실측 ZIP 164.7MiB | 확정, 용량 민감 시 재검토 |
 | Q4 | Windows 10 최소 빌드 | 22H2 (D6) | 확정 |
 | Q5 | Windows 알림 | 후순위, 터미널 벨 유지 | 보류 |
 | Q6 | line-mode TUI | 범위 밖 (D9) | 보류 |
 | Q7 | 실기 검증 담당 | 사용자 보유 Windows PC | 확인 필요 |
+| Q8 | 한 줄 `install.ps1`을 주 경로로 할지 | ZIP + `installer.cmd` 유지, `install.ps1`은 보조 후보 | 논의 |
 
 ---
 
@@ -557,3 +562,5 @@ if errorlevel 1 pause
 |---|---|---|
 | 2026-10-30 | 최초 작성. 이슈 #1 분석, 배포/호환성 결정, PR 분해 | Claude Code |
 | 2026-10-30 | PR1 입력/터미널 계층 구현. Windows 11 SSH/ConPTY에서 TUI 렌더링·키 입력 검증 | Claude Code |
+| 2026-10-30 | PR2 인코딩·도구·잠금·클립보드·doctor 구현. Windows 11에서 108 tests pass | Claude Code |
+| 2026-10-30 | PR3 런타임 ZIP·cmd 설치 스크립트·CI·README 추가. Windows 11에서 빌드/설치/번들 실행 E2E 검증 (ZIP 164.7MiB) | Claude Code |
