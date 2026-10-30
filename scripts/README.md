@@ -4,11 +4,10 @@
 
 ## 요구 사항
 
-- **Windows 10/11 x64** 또는 GitHub Actions `windows-latest` (offline 빌드)
-  - thin ZIP은 어디서나 빌드할 수 있습니다. offline ZIP은 Windows용 실행 파일(`python.exe`, `ffmpeg.exe`)을 넣으므로 Windows에서만 빌드합니다.
+- **thin ZIP**은 어디서나(빌드 PC의 OS 무관) 빌드할 수 있고, 내려받는 것이 없습니다.
+- **offline ZIP**은 Windows용 실행 파일(`python.exe`, `ffmpeg.exe`)을 넣으므로 **Windows에서만** 빌드하고, 첫 빌드에 인터넷이 필요합니다.
 - Python 3.12 (빌드 스크립트 자체를 실행하는 용도)
-- 인터넷 연결 (첫 빌드에서 런타임과 ffmpeg를 내려받습니다)
-- `uv` 불필요. 추출한 런타임에 포함된 `runtime\python.exe -m pip`로 의존성을 설치합니다.
+- `uv` 불필요. offline 빌드는 추출한 런타임의 `runtime\python.exe -m pip`로 의존성을 설치합니다.
 
 ## 빌드
 
@@ -19,8 +18,8 @@ python scripts\build_windows.py
 결과:
 
 ```text
-dist\nalmeok-<version>-win64.zip   # installer.cmd + app\ (thin, ~1MB)
-dist\nalmeok-<version>-win64-offline.zip   # + runtime\, ffmpeg.exe (--offline)
+dist\nalmeok-<version>-win64.zip   # installer.cmd + app\ (thin, ~200KB)
+dist\nalmeok-<version>-win64-offline.zip   # app\ 안에 runtime\, ffmpeg.exe (--offline)
 dist\SHA256SUMS.txt                # ZIP의 SHA-256
 build\nalmeok-thin\                # thin ZIP 중간 파일
 build\nalmeok-offline\             # offline ZIP 중간 파일
@@ -65,21 +64,25 @@ ZIP 항목의 타임스탬프는 고정값을 사용합니다.
 
 ## 검증
 
+thin ZIP에는 런타임이 없으므로 빌드 후에는 **압축을 풀고 실제 실행 경로를 확인**합니다. Windows에서:
+
 ```bat
 python scripts\build_windows.py
 mkdir smoke
 tar -xf dist\nalmeok-<version>-win64.zip -C smoke
-xcopy /E /I tests smoke\tests
 cd smoke
-runtime\python.exe -m unittest discover -s tests -v
-nalmeok.cmd --version
+
+python app\nalmeok.py --version
+app\nalmeok.cmd --version < NUL
+app\nalmeok-drop.cmd --help < NUL
+installer.cmd < NUL
 ```
 
-`runtime\python.exe`가 `google-genai`를 import하는지 확인합니다.
+기대 결과:
 
-```bat
-runtime\python.exe -c "import google.genai; print('ok')"
-```
+- ZIP 루트에는 `installer.cmd`와 `app\`만 있다.
+- `app\nalmeok.cmd --version`의 **첫 실행이 PBS를 내려받고** `%LOCALAPPDATA%\nalmeok\runtime\current.txt`를 만든다.
+- `installer.cmd` 출력에 `is not recognized`가 없고, `%LOCALAPPDATA%\Programs\nalmeok\nalmeok.cmd`가 생긴다.
 
 ZIP 해시 확인:
 
@@ -88,27 +91,35 @@ Get-FileHash .\dist\nalmeok-<version>-win64.zip -Algorithm SHA256
 Get-Content .\dist\SHA256SUMS.txt
 ```
 
+offline 확장판은 런타임이 들어 있으므로 `app\runtime\python.exe -c "import google.genai; print('ok')"`로 SDK를 확인합니다.
+
 ## CI
 
 `.github/workflows/windows.yml`이 다음을 수행합니다.
 
-- Windows Python 3.10/3.12 단위 테스트
-- ubuntu/macOS Python 3.10/3.12 회귀 테스트
-- Windows ZIP 빌드, 압축 해제 후 `runtime\python.exe -m unittest`, `nalmeok.cmd --version`
-- ZIP과 `SHA256SUMS.txt` 아티팩트 업로드
+- Windows/Linux/macOS × Python 3.10/3.12 단위 테스트
+- windows-latest에서 thin ZIP 빌드
+- 압축 해제 후 루트 구성(`installer.cmd` + `app\`) 확인
+- `app\nalmeok.py --version`, `app\nalmeok.cmd --version`(PBS 부트스트랩 포함), `app\nalmeok-drop.cmd --help`
+- `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 확인, `is not recognized` 회귀 검사
+- ZIP·`nalmeok.py`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
 
 CI는 대화형 콘솔을 검증하지 못하므로, 최종 릴리스 전 Windows 실기 수동 검증이 필요합니다.
 
 ## 수동 검증 키트
 
-릴리스 ZIP을 푼 폴더에 `verify-windows.cmd`를 복사한 뒤 각 터미널에서 실행합니다.
+`verify-windows.cmd`는 **런타임이 옆에 있는 배치**를 전제로 합니다(offline 확장판, 또는 예전 평면 ZIP). thin 설치본에서는 런타임이 `%LOCALAPPDATA%\nalmeok\runtime`에 있으므로, 설치 폴더에서 직접 `doctor`를 실행하세요.
 
 ```bat
-:: conhost (명령 프롬프트)
-verify-windows.cmd conhost
+:: thin 설치본
+cd /d "%LOCALAPPDATA%\Programs\nalmeok"
+nalmeok.cmd doctor
 
-:: Windows Terminal
+:: offline 확장판 (runtime\이 같은 폴더에 있음)
+verify-windows.cmd conhost
 verify-windows.cmd wt
 ```
 
-`verify-report-conhost.txt` / `verify-report-wt.txt`에 `WT_SESSION`, `chcp`, `ver`, `doctor` 출력이 기록됩니다. TUI 항목은 [`docs/windows-support.md`](../docs/windows-support.md) 6.3 매트릭스를 따릅니다.
+offline 배치에서 `verify-report-conhost.txt` / `verify-report-wt.txt`에 `WT_SESSION`, `chcp`, `ver`, `doctor` 출력이 기록됩니다. TUI 항목은 [`docs/windows-support.md`](../docs/windows-support.md) 6.3 매트릭스를 따릅니다.
+
+> thin 레이아웃에 맞춘 `verify-windows.cmd` 갱신은 후속 작업입니다.

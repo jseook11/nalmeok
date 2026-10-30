@@ -1,88 +1,59 @@
-# Windows 지원 및 배포 계획
+# Windows 지원 및 배포
 
-> **상태:** 승인됨 (2026-10-30)
-> **관련 이슈:** [#1 Windows TUI 실행 문제 해결 및 비개발자를 위한 Easy Setup 제공](https://github.com/jseook11/nalmeok/issues/1)
-> **이 문서가 단일 기준입니다.** 코드와 이 문서가 어긋나면, 작업을 멈추고 이 문서를 먼저 갱신하세요.
+> **상태:** 운영 중 (v0.6.2 기준) · **관련 이슈:** [#1](https://github.com/jseook11/nalmeok/issues/1)
+> 이 문서가 Windows 지원·배포의 단일 기준입니다. 코드와 어긋나면 코드를 고치기 전에 이 문서를 먼저 갱신하세요.
 
 ---
 
 ## 0. 이 문서를 먼저 읽는 사람에게
 
-컨텍스트가 요약되거나 새 세션에서 이어받더라도, 아래 순서만 지키면 같은 방향으로 진행할 수 있습니다.
+1. **상태(0.1)** 와 **불변 조건(0.3)**, **하지 말 것(0.4)** 을 확인합니다.
+2. 동작을 바꾸려면 **결정 로그(2장)** 에 해당 항목이 있는지 봅니다. 없으면 결정을 먼저 추가합니다.
+3. 작업을 마치면 **상태 표와 변경 이력(10장)** 을 갱신합니다.
 
-1. 이 문서의 **결정 로그(2장)** 와 **불변 조건(0.3)** 을 확인합니다.
-2. **상태 표(0.1)** 에서 마지막으로 끝난 작업과 다음 작업을 확인합니다.
-3. 해당 PR의 **작업 범위(5장)** 만 구현합니다. 범위 밖 개선은 하지 않습니다.
-4. 작업을 마치면 **상태 표와 변경 이력(10장)** 을 갱신합니다.
+### 0.1 상태
 
-### 0.1 상태 표
-
-작업이 끝날 때마다 이 표를 갱신합니다. `PR` 열에는 실제 PR 번호/링크를 적습니다.
-
-| 작업 | 상태 | PR | 검증 |
-|---|---|---|---|
-| PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
-| PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
-| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 완료 | - | Windows 11에서 빌드·압축 해제·런처·번들 테스트 108 pass·ffmpeg 변환·설치·바로가기·doctor 확인. ZIP 164.7MiB |
-| 후속 · Windows 타이틀/폴더 스캔 제한 | 완료 | - | 타이틀/바로가기 ASCII `nalmeok`. Windows 111 tests pass. 홈 대시보드 0.013s, 기본 스캔 0.111s |
-| 후속 · 메뉴/홈 깜빡임 제거 | 완료 | - | Windows 115 tests pass. select_menu/home clear_screen 1회, 40개 폴더 탐색 11→1회 확인 |
-| 수동 검증 · Windows 10 22H2 conhost | 보류 | - | 2026-10-30 사용자 결정으로 실기 검증 보류. best-effort로 문서화 (D13) |
-| 수동 검증 · Windows 10 22H2 Windows Terminal | 보류 | - | 위와 동일 |
-| 수동 검증 · Windows 11 conhost | 진행 중 | - | VT/ANSI 가능, attached=True, stdin/stdout isatty=True 확인(2026-10-30). TUI 체크리스트·스크린샷 대기 |
-| 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | WT_SESSION/WT_PROFILE_ID, VT/ANSI 가능, attached/isatty 확인(2026-10-30 20:27). TUI 체크리스트·스크린샷 대기 |
-| README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
-| 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows/macOS 134 tests pass. macOS는 터미널에 끌어다 놓으면 `d` 없이 바로 시작(pseudo-terminal 검증), Windows는 바로가기·`d`·한글/공백 경로·하드링크 확인 |
-| **후속 · Windows thin 배포(v0.6.1)** | 완료 | - | thin ZIP 193KB. Windows 11에서 첫 실행 PBS 3.12.16·SHA 검증, 두 번째 실행 즉시 시작, SDK 2.31.0 설치, ffmpeg 160MB 온디맨드, live `update --check`, 0.6.1→0.6.2 apply/restore 확인. CI green |
-| **후속 · 설치 오류 수정·ZIP 구조 단순화(v0.6.2)** | 완료 | - | Windows 11(ko-KR)에서 `'더의' is not recognized` 재현 → `.cmd` ASCII화(D19)·`app\` 구조(D18). 새 thin ZIP 194KB로 설치·바로가기·드롭 안내·`--version` 확인, 오류 없음 |
+| 작업 | 상태 | 검증 |
+|---|---|---|
+| Windows 입력/터미널 계층, 정합성, 배포 (PR1–3) | 완료 | Windows 11 SSH/ConPTY에서 TUI·한글 클립보드·잠금·doctor 확인 |
+| thin ZIP 배포 (v0.6.1) | 완료 | 첫 실행 PBS·SDK, MP4 첫 사용 ffmpeg, `update --check`/apply/restore |
+| 설치 오류·ZIP 구조 정리 (v0.6.2) | 완료 | ko-KR Windows 11에서 설치·바로가기·드롭 안내·`--version` 확인, 오류 없음 |
+| Windows 11 Windows Terminal TUI 체크리스트 | 진행 중 | 환경(WT_SESSION·VT·isatty) 확인 완료. 화면 체크리스트·스크린샷 대기 |
+| Windows 10 22H2 실기 검증 | 보류 | 2026-10-30 사용자 결정(D13). best-effort로 표기 |
+| v0.6.2 릴리스 | 보류 | 2026-10-30 사용자 결정으로 아직 배포하지 않음 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
 ### 0.2 기준선
 
-- 계획 수립 시점 커밋: `103fe69`
-- 테스트: `python -m unittest discover -s tests -q` → **99개 통과, 8개 skip** (macOS, Python 3.12.13)
-- 앱 버전: `0.4.0` (Windows 지원 릴리스)
-- 배포 런타임: Python 3.12.x (python-build-standalone, x86_64)
-- **2026-10-30 Windows 1차 검증**
-  - 환경: Windows 11 build 26200.9457, OpenSSH/ConPTY, Python 3.12.16 standalone
-  - 테스트: **111개 통과, 3개 skip** (Windows)
-  - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
-  - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
-  - PR2: 한글 클립보드 왕복, 프로세스 간 `job_lock` 차단, `doctor`, `NALMEOK_DEBUG` 로그 확인
-  - PR3: Windows에서 ZIP 빌드(164.7MiB, SHA-256 `248db552…`), 압축 해제 실행, 번들 테스트 108 pass,
-    번들 ffmpeg `convert`/`estimate`, `installer.cmd` 복사·바탕화면/시작 메뉴 바로가기, 설치 후 `doctor` 확인
-  - 남은 검증: Windows 11 Windows Terminal(사용자 직접 진행 예정), 무료 live/유료 Batch 실제 전사
-  - 후속: Windows 타이틀/바로가기를 ASCII `nalmeok`으로 변경, 폴더 스캔 제한(D14).
-    Windows 111 tests pass, 홈 대시보드 0.013s, 기본 스캔 0.111s, `scan_descendant_media` 0.022s.
-  - Windows 11 conhost(2026-10-30 20:23): `VT/ANSI 가능`, `attached=True`, `stdin/stdout isatty=True` 확인.
-  - Windows 11 Windows Terminal(2026-10-30 20:27): `WT_SESSION`/`WT_PROFILE_ID` 확인, `VT/ANSI 가능`, `stdin/stdout isatty=True`. TUI 체크리스트·스크린샷은 대기.
-  - 후속(diff 렌더링): select_menu/home 화면에서 `clear_screen` 1회, 이후 변경된 줄만 갱신됨을 Windows 프로브로 확인.
-    긴 메뉴는 커서 주변 뷰포트만 렌더링(40개 폴더 탐색 clear 11→1). Windows 115 tests pass.
-  - **Windows 10 22H2 실기 검증은 2026-10-30 사용자 결정으로 보류.** README와 이 문서에서 best-effort로 표기한다 (D13).
+- 앱 버전: **0.6.2** (`nalmeok.py`, `pyproject.toml`)
+- 테스트: `python -m unittest discover -s tests -q` → **157개 통과, 8개 skip** (macOS, Python 3.12)
+- 배포물: thin `nalmeok-<v>-win64.zip` (**약 195KB**) + `windows-manifest.json` + `SHA256SUMS.txt`
+- 런타임: python-build-standalone 3.12.16 (x86_64, 내려받기 약 45MB), google-genai 2.31.0, ffmpeg 8.1.3 온디맨드(약 160MB)
+- 실기 검증: Windows 11 ko-KR(build 26200), conhost·Windows Terminal 환경 확인
+- 지원 하한: Windows 10 22H2(19045) / Windows 11, x64. 그 이하·ARM64·32비트는 best-effort 또는 미지원
 
-### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
+### 0.3 불변 조건
 
-1. **TUI 화면을 재작성하지 않는다.** 화면/레이아웃/문구는 그대로 두고 입력·터미널 계층만 바꾼다.
-2. **PyInstaller/frozen exe를 만들지 않는다.** 배포물은 "런타임 포함 ZIP + cmd 런처"다.
-3. **코드서명하지 않는다.** (현 단계. 비용 대비 효과 없음, 2장 D4)
-4. **새 런타임 의존성을 추가하지 않는다.** 표준 라이브러리와 기존 `google-genai`만 쓴다.
-5. **macOS/Linux 동작과 기존 테스트를 깨지 않는다.** 99개 통과 기준선을 유지한다.
-6. **Windows 지원을 실기 검증 없이 "지원됨"으로 표기하지 않는다.**
-7. **지원 하한은 Windows 10 22H2(빌드 19045) / Windows 11, x64.** 그 이하는 best-effort.
-8. **`.cmd` 파일은 순수 ASCII다.** 한국어를 포함한 비ASCII 문구는 UTF-8 BOM이 있는 `.ps1`이 소유한다(D19). 빌드는 이를 검사하고 위반 시 실패한다.
+1. **TUI 화면 구조를 새로 만들지 않는다.** 화면/문구는 그대로 두고 입력·터미널 계층을 바꾼다. 깜빡임 방지용 diff 렌더링(D15)은 화면 구조 변경이 아니다.
+2. **PyInstaller/frozen exe를 만들지 않는다.** 배포물은 "얇은 ZIP + 첫 실행 부트스트랩"이다.
+3. **`.cmd` 파일은 순수 ASCII다.** 한국어 문구는 UTF-8 BOM이 있는 `.ps1`이 소유한다(D19). 빌드와 테스트가 위반을 거부한다.
+4. **Windows 지원을 실기 검증 없이 "지원됨"으로 표기하지 않는다.** README의 지원 범위와 검증 상태가 일치해야 한다.
+5. **지원 하한은 Windows 10 22H2 / Windows 11, x64.** 22H2의 실기 검증은 보류(D13)이므로 문서·README에는 best-effort로 적는다. 그 이하는 best-effort.
+6. **macOS/Linux 동작과 기존 테스트를 깨지 않는다.**
 
-### 0.4 하지 말 것 (Do-not list)
+> 2026-10-30 폐기: "코드서명하지 않는다"(D4는 배포 편의 결정일 뿐 개발 제약이 아님), "새 런타임 의존성을 추가하지 않는다", "앱 코드는 단일 `nalmeok.py`". 근거는 `CLAUDE.md`의 제약 조정 절을 참고.
 
-- `os.path` 사용 금지. 경로는 항상 `pathlib.Path`.
-- `subprocess(..., text=True)` 단독 사용 금지. 항상 `encoding="utf-8", errors="replace"`를 함께 준다.
-- Windows 클립보드에 `clip.exe` 사용 금지. ctypes `CF_UNICODETEXT`를 쓴다.
-- 화면 코드에서 `termios`/`tty`를 직접 참조하지 않는다. 플랫폼 계층 밖으로 새지 않게 한다.
-- Windows 경로에 POSIX 규칙의 `shlex.split()`을 쓰지 않는다.
-- VT 지원을 확인하지 않고 ANSI 시퀀스를 출력하지 않는다.
-- `os.chmod(0o600)`이 Windows에서 권한을 보호한다고 가정하지 않는다.
-- `os.execv` 재시작 경로를 Windows 배포물에서 타게 하지 않는다. (런타임에 SDK가 이미 있어 `ensure_sdk`가 조기 반환해야 정상)
-- 전체 line-mode TUI를 새로 만들지 않는다. (2장 D9)
-- `.cmd`(배치) 파일에 한국어·비ASCII 문자를 넣지 않는다. cmd.exe가 UTF-8 줄을 중간부터 실행해 `'더의' is not recognized` 같은 오류가 난다. (D19)
+### 0.4 하지 말 것
+
+- `subprocess(..., text=True)` 단독 사용. 항상 `encoding="utf-8", errors="replace"`를 함께 준다.
+- Windows 클립보드에 `clip.exe` 사용. ctypes `CF_UNICODETEXT`를 쓴다.
+- 화면 코드에서 `termios`/`tty` 직접 참조. 플랫폼 계층 밖으로 새지 않게 한다.
+- Windows 경로에 POSIX 규칙의 `shlex.split()` 사용.
+- VT 지원을 확인하지 않고 ANSI 시퀀스 출력. 화면 코드는 `require_tui()`를 통과한 뒤에만 그린다.
+- `os.chmod(0o600)`이 Windows에서 권한을 보호한다고 가정.
+- `.cmd`(배치)에 한국어·비ASCII 문자. cmd.exe가 UTF-8 줄을 중간부터 실행해 `'더의' is not recognized` 같은 오류가 난다(D19).
+- 경로를 문자열 결합으로 다루기. `pathlib.Path`를 쓴다. `winreg` 조회값의 `os.path.expandvars`처럼 문자열 API 경계는 예외.
 
 ---
 
@@ -91,18 +62,14 @@
 ### 1.1 목표
 
 - Windows 10/11에서 기존 TUI가 **첫 화면부터 정상 동작**한다.
-- Python·uv·Git이 없는 PC에서 **압축 해제 → `installer.cmd` → 바탕화면 바로가기 → 실행**으로 첫 전사까지 도달한다.
-- 실패했을 때 사용자가 이슈에 붙일 수 있는 **진단 정보(`nalmeok doctor`)** 를 제공한다.
+- Python·uv·Git이 없는 PC에서 **압축 해제 → `installer.cmd` → 바로가기 → 첫 전사**로 도달한다.
+- 실패 시 사용자가 이슈에 붙일 수 있는 **진단 정보(`nalmeok doctor`)** 를 제공한다.
 
-### 1.2 비목표 (이번 작업에서 하지 않음)
+### 1.2 비목표
 
-- GUI/웹 UI, Electron/Tauri 래퍼
-- macOS 설치 프로그램
-- 자동 업데이트
-- 코드서명, Microsoft Store/winget 배포
-- 32비트 Windows, Windows ARM64 공식 지원
-- 전체 line-mode TUI 대체 화면
-- `fcntl` 수준의 완전한 POSIX 호환 파일 잠금 semantics
+- GUI/웹 UI, Electron/Tauri 래퍼, 32비트/ARM64 공식 지원
+- Microsoft Store/winget 배포, 코드서명(D4 — SmartScreen 확인창 한 번은 감수)
+- 전체 line-mode TUI 대체 화면(D9), `fcntl` 수준의 완전한 POSIX 파일 잠금 semantics
 
 ---
 
@@ -110,66 +77,49 @@
 
 | ID | 결정 | 이유 | 결과 |
 |---|---|---|---|
-| D1 | TUI를 유지하고 입력/터미널 계층만 수정 | 화면 재작성은 범위가 크고 오픈소스 유지보수 부담이 큼 | PR1이 300~500줄 규모로 제한됨 |
-| D2 | PyInstaller 대신 python-build-standalone 런타임 + 소스 + cmd | hidden imports/onefile 재압축/frozen 분기/AV 오탐 회피. 디버깅 쉬움 | `sys.frozen` 분기 불필요, `sys.executable`·`__file__` 기존 코드 그대로 동작 |
-| D3 | 배포 파일명 `nalmeok.cmd`, `installer.cmd` | ASCII 파일명은 경로/AV/압축 도구 호환성이 좋음 | 타이틀/바로가기는 `nalmeok`(ASCII) |
-| D4 | 코드서명 안 함 | Azure Artifact Signing은 한국 개인 불가, OV는 연 $150~300, EV는 2024년부터 SmartScreen 즉시 통과 특례 없음 | ZIP "차단 해제" 안내 + SHA256 공개 |
-| D5 | ffmpeg/ffprobe를 ZIP에 번들 | 학생 파일 대부분이 MP4. PATH/winget 안내는 비개발자 이탈 지점 | LGPL 정적 빌드 + 고지. 실측 ZIP 164.7MiB, v1은 번들 유지 |
-| D6 | 지원 하한 Windows 10 22H2 / 11, x64 | 남은 Win10 사용자의 사실상 표준. conhost VT 동작을 보장하기 쉬움 | 1809~21H2는 best-effort로 문서화 |
-| D7 | conhost와 Windows Terminal 모두 지원 | Win10은 Windows Terminal이 기본이 아님 | VT 활성화 + conhost 심볼 폴백 |
-| D8 | ZIP은 최상위 폴더 없이 루트에 파일 배치 | Explorer "압축 풀기"가 ZIP 이름 폴더를 만들므로 이중 중첩 방지 | v0.6.2부터 D18로 대체. 압축을 풀면 `installer.cmd` + `app\` |
-| D9 | 전체 line-mode TUI는 범위 밖 | VT 실패는 지원 하한에서 드묾. 화면별 대체 구현 비용이 큼 | VT 실패 시 명확한 오류 + Windows Terminal 안내. 필요 시 후속 이슈 |
-| D10 | `nalmeok.cmd`는 인자가 없을 때만 `cd /d "%USERPROFILE%"` | CLI에서 상대 경로 인자를 깨지 않기 위함 | 더블클릭은 홈에서 시작, `nalmeok.cmd estimate .\x`는 cwd 유지 |
-| D11 | ffmpeg 탐색은 `find_tool()`로 통일 | 번들 파일은 PATH에 없음. `shutil.which` 3곳이 흩어져 있음 | `NALMEOK_FFMPEG` 환경변수 → 앱 폴더 → PATH 순 |
-| D12 | `doctor` 서브커맨드 추가 | Windows 실기 없이 원격 진단하기 위한 최소 장치 | 키/SDK 없이 동작 |
-| D13 | Windows 10 22H2 실기 검증 보류 | Hyper-V 활성화·재부팅·Win10 설치 비용 대비, 사용 API는 22H2에서 안정적. 2026-10-30 사용자 결정 | README/문서에 best-effort로 표기. 필요 시 `nalmeok-verify` 키트로 재개 |
-| D14 | Windows 폴더 스캔에 깊이·개수 제한 | `%USERPROFILE%` 아래 AppData/OneDrive 전체 재귀로 메인 화면이 수 분 걸림 | `job_folders` depth 2/dirs 2000(대시보드), `scan_descendant_media` 0.03s/depth 3/dirs 150, 탐색 상세 100/하위 20. 무거운 폴더 이름은 건너뜀 |
-| D15 | 메뉴·홈 화면을 diff 렌더링 | 방향키마다 전체 메뉴를 다시 출력해 Windows Terminal에서 깜빡임 | 첫 프레임만 전체 출력. 이후 변경된 줄만 `\033[K`로 갱신하고 나머지는 커서만 이동. 긴 메뉴는 커서 주변 뷰포트만 그려 `(시작-끝/전체)` 표시. 줄바꿈·리사이즈·작은 화면은 전체 재렌더로 폴백 |
-| **D16** | **thin ZIP이 Windows 표준 배포** | 165MB ZIP은 업데이트마다 전체 재다운로드·폴더 복제를 유발. macOS에서 검증한 "얇은 앱 + 첫 실행 다운로드" 모델을 Windows에도 적용 | `nalmeok-<v>-win64.zip` (~1MB): 앱 파일만 포함. 첫 실행에 PBS/SDK, MP4 첫 사용에 ffmpeg 다운로드. 데이터는 `%LOCALAPPDATA%\nalmeok` |
-| **D17** | **오프라인 번들은 선택 확장판** | 인터넷이 없거나 배포를 단일 파일로 고정해야 하는 환경 | `nalmeok-<v>-win64-offline.zip` (~165MB, 기존 번들). 기본 배포/CI 릴리스에는 thin만 올리고 offline은 필요 시 빌드 |
-| **D18** | **ZIP 루트에는 `installer.cmd`만, 나머지는 `app\`** | 일반 사용자는 파일이 많으면 installer를 못 찾는다. 구조를 단순하게 보여 주는 편이 설치 성공률에 직접 기여 | ZIP: `installer.cmd` + `app\`. 설치 결과는 평평한 `%LOCALAPPDATA%\Programs\nalmeok` |
-| **D19** | **`.cmd`는 순수 ASCII, 한국어는 UTF-8 BOM PowerShell로** | cmd.exe는 배치 파일을 실행 중 다시 읽는데, `chcp 65001` 뒤 UTF-8 줄에서 중간부터 파싱해 한글 조각을 명령으로 실행한다(0.6.2에서 재현: `'더의' is not recognized`). PowerShell 5.1은 BOM이 있는 UTF-8을 정확히 읽고 콘솔에 유니코드로 출력한다 | `install.ps1`, `messages.ps1`이 모든 한국어 문구 소유. 빌드가 .cmd의 비ASCII 바이트를 거부 |
-| D5 (역사) | ffmpeg/ffprobe를 ZIP에 번들 | 위 D5는 v0.6.0까지의 결정. v0.6.1부터 D16/D17로 대체 | offline 확장판에서만 번들 |
+| D1 | TUI 유지, 입력/터미널 계층만 수정 | 화면 재작성은 범위·유지보수 부담이 큼 | PR1이 300~500줄로 제한됨 |
+| D2 | PyInstaller 대신 PBS 런타임 + 소스 + cmd | hidden imports/재압축/frozen/AV 오탐 회피, 디버깅 쉬움 | `sys.frozen` 분기 불필요 |
+| D3 | 배포 파일명 `nalmeok.cmd`, `installer.cmd` | ASCII 파일명은 경로/AV/압축 도구 호환성이 좋음 | 타이틀·바로가기도 ASCII `nalmeok` |
+| D4 | 코드서명 안 함 | Azure Artifact Signing은 한국 개인 불가, OV/EV 비용 대비 이득 없음 | **개발 제약 아님.** SmartScreen 확인창 1회는 감수 |
+| D5 | ffmpeg/ffprobe 번들 | 학생 파일 대부분이 MP4, PATH/winget 안내는 이탈 지점 | v0.6.0까지 유지 → D16/D17로 대체 |
+| D6 | 지원 하한 Win10 22H2 / 11, x64 | 남은 Win10의 사실상 표준, conhost VT 보장이 쉬움 | 1809~21H2는 best-effort |
+| D7 | conhost와 Windows Terminal 모두 지원 | Win10은 WT가 기본이 아님 | VT 활성화 + conhost 심볼 폴백 |
+| D8 | ZIP 최상위 폴더 없이 루트에 파일 배치 | Explorer 이중 중첩 방지 | **D18로 대체** |
+| D9 | 전체 line-mode TUI는 범위 밖 | VT 실패는 지원 하한에서 드묾 | VT 실패 시 명확한 오류 + WT 안내 |
+| D10 | `nalmeok.cmd`는 인자가 없을 때만 `cd /d "%USERPROFILE%"` | CLI 상대 경로를 깨지 않기 위함 | 더블클릭은 홈에서, `estimate .\x`는 cwd 유지 |
+| D11 | ffmpeg 탐색은 `find_tool()`로 통일 | 번들 파일은 PATH에 없음 | `NALMEOK_FFMPEG` → 앱 폴더 → PATH |
+| D12 | `doctor` 서브커맨드 | Windows 실기 없이 원격 진단 | 키/SDK 없이 동작 |
+| D13 | Win10 22H2 실기 검증 보류 | Hyper-V·Win10 설치 비용 대비 API 안정성. 2026-10-30 사용자 결정 | README/문서에 best-effort 표기 |
+| D14 | Windows 폴더 스캔에 깊이·개수 제한 | `%USERPROFILE%` 전체 재귀가 분 단위로 걸림 | 4.12의 수치 |
+| D15 | 메뉴·홈 화면 diff 렌더링 | 방향키마다 전체 출력하면 WT에서 깜빡임 | 첫 프레임만 전체, 이후 변경 줄만 갱신 |
+| **D16** | **thin ZIP이 표준 배포** | 165MB ZIP은 업데이트마다 전체 재다운로드 유발 | `nalmeok-<v>-win64.zip`(~194KB) + 첫 실행 다운로드 |
+| **D17** | **오프라인 번들은 선택 확장판** | 인터넷 없거나 단일 파일로 고정해야 하는 환경 | `-offline.zip`(~165MB). 릴리스 기본은 thin |
+| **D18** | **ZIP 루트에는 `installer.cmd`만, 나머지는 `app\`** | 파일이 많으면 일반 사용자가 installer를 못 찾음 | 설치 결과는 평평한 `%LOCALAPPDATA%\Programs\nalmeok` |
+| **D19** | **`.cmd`는 순수 ASCII, 한국어는 UTF-8 BOM PowerShell** | cmd.exe가 `chcp 65001` 뒤 UTF-8 배치 줄을 중간부터 실행(`'더의' is not recognized`) | `install.ps1`·`messages.ps1`이 문구 소유, 빌드가 비ASCII `.cmd` 거부 |
 
 ---
 
-## 3. 현재 코드 진단 (요약)
+## 3. 구조 요약
 
-전체 진단은 이슈 #1과 PR1 설명에 남긴다. 이후 세션이 같은 조사를 반복하지 않도록 핵심만 기록한다.
+단일 `nalmeok.py`(6,864줄)를 **`nalmeok/` 패키지로 분리하는 작업이 진행 예정**이다. 분리 후에도 배포 경로는 동일하게 `python -m nalmeok` 또는 얇은 런처를 쓴다. 그때까지 플랫폼 계층은 파일 안 섹션으로 유지한다.
 
-### 3.1 Windows에서 TUI가 죽는 경로
+역사적 진단(v0.4.0 이전, 이슈 #1에 전체 기록):
 
 ```text
-import termios 실패 → RAW_KEYS = False
-interactive() → fullscreen() → key_screen() → add_key_flow()
-  → select_menu() → if not RAW_KEYS: fail("방향키 메뉴는 macOS·Linux 에서만...")
-  → cli()가 RuntimeError를 잡고 종료
+import termios 실패 → RAW_KEYS = False → select_menu/home_screen의 fail()
+  → cli()가 RuntimeError를 잡고 종료 (키가 이미 등록돼 있어도 동일)
 ```
 
-키가 이미 등록되어 있어도 `home_screen()`이 같은 가드를 갖고 있어 동일하게 종료한다.
-
-### 3.2 원인 목록
-
-| 증상 | 원인 | 위치(함수) |
+| 증상 | 원인 | 현재 |
 |---|---|---|
-| 첫 화면 즉시 종료 | `termios` ImportError → `RAW_KEYS=False` → `fail()` | 모듈 import, `select_menu`, `select_many`, `home_screen` |
-| 키 입력 불가 | `os.read(stdin)`, `select.select([stdin])`, `termios.tcsetattr`, `tty.setraw` | `read_key`, `read_secret`, `cbreak_keys`, `_wait_for_key` |
-| 화면 깨짐/이스케이프 노출 | VT 처리 미활성 | `fullscreen`, `clear_screen`, `_color_enabled` |
-| 리다이렉트/로그에서 크래시 | 로캘 인코딩 + `⠋ ✓ ❯ ● ─` | `live_status`, `log`, 백그라운드 로그 |
-| 동시 작업 보호 없음 | `fcntl` 없음 → 잠금 no-op | `job_lock`, `config_lock` |
-| 한글 경로 복사 깨짐 | `clip.exe` 코드페이지 | `copy_to_clipboard` |
-| ffmpeg 못 찾음 | 번들 파일이 PATH에 없음 | `probe_duration`, `convert`, `split_audio` |
-| 오류 창 즉시 닫힘 | 더블클릭 실행 | 새 런처(`nalmeok.cmd`) |
-
-### 3.3 이미 Windows 대응이 된 부분 (재사용)
-
-- `process_alive()`: Windows는 `OpenProcess` 사용
-- 백그라운드 감시: `DETACHED_PROCESS`, `stdin=DEVNULL`
-- `open_result()`: `os.startfile`
-- 설정 경로: `%APPDATA%\nalmeok\config.json`
-- `.venv` 탐색에 `Scripts/python.exe` 포함 (배포물에서는 사용하지 않음)
-- `__main__` 가드: `app.py`, `nalmeok.py` 모두 존재
-- `asyncio`/`multiprocessing` 사용 없음 → spawn 문제 없음
+| 첫 화면 즉시 종료 | `termios` ImportError → 가드 | `can_raw_input()`/`require_tui()` |
+| 키 입력 불가 | `termios` 직접 사용 | `read_key()` 내부 플랫폼 분기 |
+| 화면 깨짐 | VT 미활성 | `_enable_windows_vt()`, conhost ASCII 폴백 |
+| 리다이렉트 크래시 | 로캘 인코딩 | `configure_stdio()`, `errors="replace"` |
+| 잠금 no-op | `fcntl` 없음 | `file_lock()` (msvcrt) |
+| 한글 경로 복사 깨짐 | `clip.exe` 코드페이지 | ctypes `CF_UNICODETEXT` |
+| ffmpeg 못 찾음 | 번들 파일이 PATH에 없음 | `find_tool()` |
+| 오류 창 즉시 닫힘 | 더블클릭 실행 | 런처의 `pause` |
 
 ---
 
@@ -177,327 +127,175 @@ interactive() → fullscreen() → key_screen() → add_key_flow()
 
 ### 4.1 배포물 구조
 
-**표준은 thin ZIP**이다 (D16). 앱 파일만 들어 있고, 런타임은 첫 실행에 받는다.
-
 ```text
-nalmeok-<version>-win64.zip   (~1MB)
-├─ installer.cmd            # ZIP 루트에서 유일하게 보이는 파일
+nalmeok-<version>-win64.zip   (~194KB)
+├─ installer.cmd            # ZIP 루트에서 유일하게 보이는 파일 (순수 ASCII)
 └─ app/
-   ├─ nalmeok.cmd
-   ├─ nalmeok-drop.cmd
+   ├─ nalmeok.cmd           # 실행 런처 (ASCII)
+   ├─ nalmeok-drop.cmd      # 드래그앤드롭 런처 (ASCII)
    ├─ install.ps1           # 설치 로직·한국어 안내 (UTF-8 BOM)
    ├─ messages.ps1          # 런처 안내 문구 (UTF-8 BOM)
    ├─ bootstrap.ps1         # PBS 다운로드·SHA-256·압축 해제
-   ├─ bootstrap.env         # 고정 URL/SHA (PBS, ffmpeg)
-   ├─ shortcuts.ps1
-   ├─ nalmeok.py
-   ├─ app.py
-   ├─ pyproject.toml
-   ├─ nalmeok.ico
-   ├─ README.md
-   ├─ LICENSE
+   ├─ bootstrap.env         # 고정 URL/SHA
+   ├─ shortcuts.ps1         # 바로가기 2개
+   ├─ nalmeok.py  app.py  pyproject.toml
+   ├─ nalmeok.ico  README.md  LICENSE
    └─ licenses/THIRD-PARTY.md
 ```
-
-비개발자가 ZIP을 열었을 때 `installer.cmd` 하나만 보이게 한다(D18). 설치할 때는 `app\*`를 `%LOCALAPPDATA%\Programs\nalmeok`로 복사하므로 **설치된 폴더는 평평한 구조**를 유지한다.
 
 설치 후:
 
 ```text
-%LOCALAPPDATA%\Programs\nalmeok\     # 앱 (~1MB)
+%LOCALAPPDATA%\Programs\nalmeok\     # 앱 (평평한 구조, ~200KB)
 %LOCALAPPDATA%\nalmeok\
-  app\nalmeok.py                     # 실행/업데이트 대상
+  app\nalmeok.py                     # 실행·업데이트 대상
   app\.venv\                         # google-genai
   runtime\<version>\python.exe       # PBS
   runtime\current.txt                # 현재 버전
   bin\ffmpeg.exe, ffprobe.exe        # MP4 첫 사용 시
 ```
 
-**오프라인 확장판**(D17)은 `nalmeok-<version>-win64-offline.zip`(~165MB)이며, 기존처럼 `runtime/`과 `ffmpeg.exe`를 포함한다. `nalmeok.cmd`가 `%HERE%runtime\python.exe`를 발견하면 offline 모드로 동작한다. 기본 릴리스에는 thin만 올린다.
+**오프라인 확장판**(D17)은 `runtime/`과 ffmpeg를 포함한다. `nalmeok.cmd`가 `%HERE%runtime\python.exe`를 찾으면 offline 모드로 동작한다.
 
 ### 4.2 실행 흐름
 
 ```text
 바로가기 → nalmeok.cmd
-  → 오프라인 번들이면 %HERE%runtime\python.exe 사용
-  → thin이면:
-     → %LOCALAPPDATA%\nalmeok\app\nalmeok.py seed
-     → runtime\current.txt 확인
-       → 없으면 bootstrap.ps1 (PBS ~25MB, SHA-256, tar)
-     → NALMEOK_PACKAGED=1, NALMEOK_YES=1, NALMEOK_FFMPEG=%DATA%\bin
+  → offline: %HERE%runtime\python.exe 로 바로 실행
+  → thin:  %DATA%\app\nalmeok.py 로 복사(seed)
+           runtime\current.txt 확인 → 없으면 bootstrap.ps1 (PBS, SHA-256)
+  → NALMEOK_HOME, NALMEOK_PACKAGED=1, NALMEOK_YES=1, NALMEOK_FFMPEG=...
   → python nalmeok.py %*
-  → cli()
-     → bootstrap_platform()
-     → main() → ensure_sdk()가 .venv에 google-genai 설치
-     → MP4 변환이 필요하면 ensure_ffmpeg()가 windows-manifest로 ffmpeg 다운로드
-     → interactive() → 기존 TUI
+  → cli() → bootstrap_platform() → configure_stdio() + VT 준비
+  → TUI. 첫 전사 때 get_client() → ensure_sdk()가 app\.venv에 SDK 설치
+     → 설치 직후 .venv 인터프리터로 restart()
+  → MP4 변환이 필요하면 ensure_ffmpeg()가 manifest로 ffmpeg 설치
   → 종료 코드 != 0 이면 pause
 ```
 
-### 4.3 플랫폼 계층 (PR1에서 `nalmeok.py` 안에 섹션으로 추가)
+`ensure_sdk()`는 `main()`이 아니라 **첫 API 클라이언트 생성 시점**에 호출된다. 그래서 `--version`, `doctor`, `convert`는 SDK 없이 동작한다.
 
-별도 모듈로 분리하지 않는다. 단일 파일 배포(`py-modules = ["nalmeok"]`)를 유지하기 위함이다. 400줄을 넘으면 그때 분리를 검토한다.
+### 4.3 플랫폼 계층
 
-필수 함수/개념:
+패키지 분리 전까지는 `nalmeok.py` 안의 섹션으로 둔다. 필수 함수:
 
 - `can_raw_input()`: POSIX TTY(termios) 또는 Windows TTY(msvcrt)
-- `can_render_full()`: TTY + VT/ANSI 사용 가능
-- `enable_vt()`: Windows `SetConsoleMode(+ENABLE_VIRTUAL_TERMINAL_PROCESSING)`
-- `read_key()`: POSIX 분기 / Windows 분기
+- `vt_supported()` / `_enable_windows_vt()`: Windows `SetConsoleMode(+ENABLE_VIRTUAL_TERMINAL_PROCESSING)`
+- `read_key()`: POSIX 분기 / Windows 분기 (`msvcrt.getwch`), `_key_ready()`
 - `read_secret()`: POSIX raw / Windows getwch / 비-TTY getpass
-- `key_ready()`: POSIX `select` / Windows `msvcrt.kbhit()`
-- `cbreak_keys()`: POSIX termios / Windows no-op
-- `wait_key()`: 화면 대기용. raw 불가면 `input()`
+- `cbreak_keys()`, `wait_key()`, `unicode_ok()` (심볼 폴백 판정)
 - `configure_stdio()`: `reconfigure(encoding="utf-8", errors="replace")`
-- `find_tool(name)`: ffmpeg/ffprobe 탐색
-- `file_lock(handle, blocking)`: POSIX fcntl / Windows msvcrt
+- `find_tool(name)`, `_lock_file(handle, blocking)`
 
 ### 4.4 모드 결정과 폴백
 
 | 조건 | 동작 |
 |---|---|
 | TTY + 전체 렌더 가능 | 기존 TUI 그대로 |
-| TTY + VT 실패 | 명확한 오류: 지원 OS/터미널 확인, Windows Terminal 사용 안내. `nalmeok --help` 안내 |
+| TTY + VT 실패 | 명확한 오류: 지원 OS/터미널 확인, Windows Terminal 안내 |
 | 비-TTY(파이프/IDE) | 기존과 동일하게 오류 + 서브커맨드 안내 |
-| conhost (`WT_SESSION` 없음) | 전체 TUI + **ASCII 심볼 폴백** |
-| `NALMEOK_ASCII=1` | 강제 ASCII 심볼 |
+| `WT_SESSION` 없음(conhost, ConPTY/SSH 포함) | 전체 TUI + **ASCII 심볼 폴백**(`❯`→`>`, 스피너 `|/-\`) |
+| `NALMEOK_ASCII=1` / `NALMEOK_UNICODE=1` | 심볼 폴백 강제 / 유니코드 강제 |
 | `NALMEOK_DEBUG=1` | `%APPDATA%\nalmeok\nalmeok.log`에 진단 로그 |
 
-ASCII 폴백 대상(최소): 스피너 `⠋...` → `|/-\`, 커서 표시 `❯` → `>`. 상자/불릿/체크는 KS X 1001/TrueType 폴백으로 렌더되는지 수동 확인 후 필요 시 추가한다.
+심볼 폴백은 `WT_SESSION` 유무로만 판단한다. ConPTY·SSH 세션은 VT가 동작해도 `WT_SESSION`이 없어 ASCII 심볼을 쓴다(기능 손실 없음).
 
 ### 4.5 입력 계약 (Windows)
 
-`msvcrt.getwch()` 기준 매핑:
+`msvcrt.getwch()` 기준:
 
 | 키 | POSIX | Windows |
 |---|---|---|
-| ↑ | `ESC [ A` / `ESC O A` | `\x00 H` / `\xe0 H` |
-| ↓ | `ESC [ B` / `ESC O B` | `\x00 P` / `\xe0 P` |
-| ← | `ESC [ D` / `ESC O D` | `\x00 K` / `\xe0 K` |
-| → | `ESC [ C` / `ESC O C` | `\x00 M` / `\xe0 M` |
+| ↑/↓/←/→ | `ESC [ A/B/D/C` 또는 `ESC O …` | `\x00`/`\xe0` + `H/P/K/M` |
 | Enter | `\r` / `\n` | `\r` |
 | Esc | `\x1b` | `\x1b` |
 | Ctrl+C | `\x03` | `\x03` 또는 `KeyboardInterrupt` |
 | Backspace | `\x7f` / `\b` | `\b` |
 
-- `getwch()`는 에코가 없으므로 Windows에서 termios raw 모드가 필요 없다.
-- Ctrl+C는 처리된 입력이 켜져 있으면 `KeyboardInterrupt`, 꺼져 있으면 `\x03`으로 온다. 둘 다 처리한다.
-- 붙여넣기는 Windows Terminal/conhost가 키 이벤트로 전달한다. API 키 입력은 ASCII이므로 `read_secret`에서 문제없다.
-- 화면 코드의 `read_key()` 호출은 그대로 둔다. 플랫폼 분기는 `read_key()` 내부에서만 한다.
+- `getwch()`는 에코가 없어 raw 모드가 필요 없다.
+- Ctrl+C는 처리된 입력 여부에 따라 `KeyboardInterrupt` 또는 `\x03`으로 온다. 둘 다 처리한다.
+- 화면 코드는 `read_key()`만 호출하고, 플랫폼 분기는 그 안에서만 한다.
 
 ### 4.6 인코딩 계약
 
-1. 모든 파일 I/O는 `encoding="utf-8"` 명시. JSON은 `ensure_ascii=False`.
+1. 모든 파일 I/O는 `encoding="utf-8"`, JSON은 `ensure_ascii=False`.
 2. 모든 `subprocess` 텍스트 모드는 `encoding="utf-8", errors="replace"`.
-   - 대상: `probe_duration`, ffmpeg 진행 파이프, 오디오 분할, 클립보드(교체 후), 새로 추가하는 호출 전부.
-3. 자식 프로세스 환경에 `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8` 전달. 특히 백그라운드 `_wait`.
-4. 시작 시 `sys.stdout`/`sys.stderr`를 UTF-8 + `errors="replace"`로 재설정. 콘솔에서는 Python의 Unicode console API를 그대로 쓴다. `chcp`를 호출하지 않는다.
-5. ANSI 출력은 `can_render_full()`일 때만. `live_status`, 스피너, progress bar도 동일.
-6. Windows 클립보드는 ctypes `CF_UNICODETEXT`. 64비트에서 `GlobalAlloc`/`GlobalLock`의 `restype`을 `c_void_p`로 지정한다.
+3. 자식 프로세스 env에 `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`.
+4. 시작 시 `sys.stdout`/`sys.stderr`를 UTF-8 + `errors="replace"`로 재설정. `chcp`를 호출하지 않는다.
+5. ANSI 출력은 `vt_supported()`일 때만.
+6. Windows 클립보드는 ctypes `CF_UNICODETEXT`(64비트에서 `restype = c_void_p`).
 
-### 4.7 도구 탐색 계약
+### 4.7 도구 탐색
 
-`find_tool("ffmpeg")` / `find_tool("ffprobe")` 우선순위:
-
-1. `NALMEOK_FFMPEG` 환경변수(파일 경로 또는 디렉터리)
-2. 앱 폴더: `Path(__file__).resolve().parent / "ffmpeg.exe"` (Windows), `ffmpeg` (POSIX)
-3. `shutil.which("ffmpeg")`
-
-없을 때 오류 메시지에 다음을 포함한다: "Windows는 ZIP에 포함된 ffmpeg를 사용합니다. 설치 폴더의 ffmpeg.exe를 지우지 마세요." / "macOS: brew install ffmpeg" / "Ubuntu: sudo apt install ffmpeg".
-
-`probe_duration`, `convert`, 오디오 분할, `capabilities()`의 모든 `shutil.which` 호출을 `find_tool`로 교체한다.
+`find_tool("ffmpeg")` 우선순위: `NALMEOK_FFMPEG`(파일 또는 디렉터리) → 앱 폴더 → `shutil.which`.
+없을 때: `ensure_ffmpeg()`가 `NALMEOK_PACKAGED=1`에서 manifest의 고정 URL·SHA로 `NALMEOK_HOME/bin`에 받는다(첫 MP4 변환 시). 그래도 없으면 오류 메시지가 설치 폴더의 `ffmpeg.exe`와 `NALMEOK_FFMPEG`, `brew install ffmpeg`를 안내한다.
 
 ### 4.8 잠금과 원자적 쓰기
 
-- `job_lock`, `config_lock`은 `file_lock(handle, blocking)`을 쓴다.
-  - POSIX: `fcntl.flock(LOCK_EX [| LOCK_NB])`
-  - Windows: `msvcrt.locking(fd, LK_LOCK | LK_NBLCK, 1)` (offset 0, `seek(0)` 필요)
-  - 실패 시 기존과 같은 사용자 메시지로 `fail()`.
-- `atomic_write_text`의 `os.replace`는 `PermissionError`에 한해 5회, 50ms 간격 재시도. AV/인덱서가 파일을 잡는 Windows 특성 대응.
-- `chmod(0600)`은 POSIX에서만 의미. Windows는 `%APPDATA%` 기본 ACL에 의존한다고 문서화.
+- `job_lock`, `config_lock` → `_lock_file()`: POSIX `fcntl.flock`, Windows `msvcrt.locking`(offset 0).
+- `atomic_write_text`의 `os.replace`는 `PermissionError`에 5회 재시도(대기 50ms×시도 횟수, AV/인덱서 대응).
+- `chmod(0600)`은 POSIX에서만 의미. Windows는 `%APPDATA%` ACL에 의존.
 
 ### 4.9 경로 계약
 
-- 파일 경로는 항상 `Path`. 문자열 결합·`os.path` 금지.
-- `clean_path`:
-  - 공통: 앞뒤 공백 제거, 양끝 따옴표 제거, `expanduser()`
-  - POSIX에서만 `"\\ "` → `" "` 치환
-  - Windows에서는 역슬래시를 보존
-- `shlex.split(editor)`는 `posix=(os.name != "nt")`. Windows에서 남는 따옴표는 제거.
-- `short_path`는 `Path.home()` 기준 상대 경로를 `os.sep`로 표시. (`~/Documents\...` 혼합 방지)
-- 드라이브 루트는 `current.parent == current`로 판정 (기존 로직 유지).
-- MAX_PATH 초과 경로는 이번 범위 밖. 필요 시 별도 이슈.
+- 경로는 항상 `Path`.
+- `clean_path`: 앞뒤 공백·따옴표 제거, `expanduser()`. POSIX에서만 `"\ "` → `" "`. Windows는 역슬래시 보존.
+- `shlex.split(editor)`는 `posix=(os.name != "nt")`.
+- 드라이브 루트는 `current.parent == current`로 판정. MAX_PATH 초과는 범위 밖.
 
 ### 4.10 백그라운드 감시
 
-- 명령: `[sys.executable, str(Path(__file__).resolve()), "_wait", str(folder), ...]`
-  - 배포물에서 `sys.executable`은 `runtime\python.exe`, `__file__`은 실제 소스 경로이므로 기존 코드 그대로 동작한다.
-- `creationflags=DETACHED_PROCESS` (기존), `stdin=DEVNULL` (기존).
-- env에 `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8` 추가.
-- 로그 파일은 기존대로 UTF-8.
-- 중단은 `os.kill(pid, SIGTERM)` → Windows에서는 `TerminateProcess`. 정상 종료 협상은 하지 않는다고 문서화.
+- `[sys.executable, __file__, "_wait", folder, ...]`, `DETACHED_PROCESS`, `stdin=DEVNULL`.
+- env에 UTF-8 설정 추가. 로그는 UTF-8.
+- 중단은 `TerminateProcess`. 정상 종료 협상은 하지 않는다.
 
 ### 4.11 오류 UX와 `doctor`
 
-- `nalmeok doctor`:
-  - OS/빌드, 터미널(`WT_SESSION`, `TERM_PROGRAM`, conhost), VT 활성화 여부, 콘솔 attached/stdin isatty, stdout encoding, isatty
-  - Python/실행 파일/앱 폴더, ffmpeg/ffprobe 경로와 버전, SDK 설치 여부
-  - 설정 경로, cwd, 마지막 오류 요약
-  - 키/SDK 없이 동작해야 한다 (`ensure_sdk` 호출 전 경로)
-- `NALMEOK_DEBUG=1`이면 `%APPDATA%\nalmeok\nalmeok.log`에 `log()` 출력을 tee.
-- 처리되지 않은 예외 시 화면에 "진단 정보: `nalmeok doctor`"와 로그 경로를 표시.
-- `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`로 창을 유지.
+- `doctor`는 버전, OS, 터미널 이름(`WT_SESSION`/`TERM_PROGRAM`/conhost), VT, 콘솔 attached·isatty, stdout isatty·encoding,
+  Python, 실행 파일, 앱 폴더, ffmpeg/ffprobe 경로, SDK 설치 여부, API 키 요약, 설정 파일, 로그 경로, 작업 폴더를 출력한다. 키/SDK 없이 동작.
+- `NALMEOK_DEBUG=1`이면 `log()`가 `%APPDATA%\nalmeok\nalmeok.log`에도 기록된다.
+- `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`. 처리되지 않은 예외는 `cli()`가 `오류:`로 출력하고 종료 코드를 남긴다.
 
-### 4.12 Windows 폴더 스캔 제한
+### 4.12 폴더 스캔 제한 (D14)
 
-Windows는 `%USERPROFILE%` 아래 AppData/OneDrive가 커서 전체 재귀가 분 단위로 걸릴 수 있습니다. 다음 제한을 둡니다 (D14).
+- `job_folders`: 대시보드 depth 2/2000개, CLI `stats` 20000개.
+- `scan_descendant_media`: Windows 0.03초·depth 3·150개, POSIX 0.1초·depth 8·1000개.
+- 폴더 탐색: 상세 100개, 하위 20개. 나머지는 스캔 없이 "폴더"로 표시.
+- `AppData`, `OneDrive`, `node_modules`, `.git`, `.venv`, `Program Files` 등은 건너뜀.
 
-- `job_folders`: 대시보드는 depth 2, 방문 2000개. CLI `stats` 기본은 방문 20000개.
-- `scan_descendant_media`: Windows 0.03초, depth 3, 방문 150개. POSIX는 0.1초, depth 8, 1000개.
-- 폴더 탐색: 상세 계산 100개, 하위 재귀 20개까지만. 나머지는 스캔 없이 "폴더"로 표시.
-- `AppData`, `OneDrive`, `node_modules`, `.git`, `.venv`, `Program Files` 등은 하위 스캔에서 건너뜀.
-- 깊은 곳의 작업은 "최근 작업" 목록이나 해당 폴더에서 직접 실행해 찾습니다.
+### 4.13 업데이트와 manifest
 
-### 4.13 업데이트와 manifest (v0.6.1)
-
-- thin `nalmeok.cmd`는 `NALMEOK_PACKAGED=1`, `NALMEOK_HOME=%LOCALAPPDATA%\nalmeok`,
-  `NALMEOK_FFMPEG=%NALMEOK_HOME%\bin`을 설정한다.
+- thin 런처는 `NALMEOK_PACKAGED=1`, `NALMEOK_HOME=%LOCALAPPDATA%\nalmeok`, `NALMEOK_FFMPEG=%NALMEOK_HOME%\bin`을 설정한다.
 - `nalmeok update`는 `releases/latest/download/windows-manifest.json`을 읽는다.
-  - `nalmeok.py` SHA-256 검증 후 원자적 교체 (다음 실행부터 적용)
+  - `nalmeok.py` SHA-256 검증 후 원자적 교체(다음 실행부터 적용)
   - SDK 버전이 manifest보다 낮을 때만 `.venv` pip 갱신
-- ffmpeg/ffprobe가 없고 MP4 변환이 필요하면 manifest의 고정 URL·SHA로
-  `%NALMEOK_HOME%\bin`에 내려받는다. (`NALMEOK_FFMPEG_YES=1`은 자동화용)
+  - `NALMEOK_MANIFEST_URL`로 다른 manifest를 지정할 수 있다(테스트·미러용)
+- ffmpeg/ffprobe가 없고 MP4 변환이 필요하면 manifest의 고정 URL·SHA로 `%NALMEOK_HOME%\bin`에 받는다. `NALMEOK_FFMPEG_YES=1`은 자동화용.
 - `scripts/build_windows.py`가 thin ZIP과 `windows-manifest.json`을 생성한다.
-- offline 확장판은 `%HERE%runtime`을 사용하고, update는 설치 폴더의
-  `nalmeok.py`를 교체한다.
-- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`,
-  `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`.
+- offline 확장판은 `%HERE%runtime`을 쓰고, update는 설치 폴더의 `nalmeok.py`를 교체한다.
+- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`, `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`.
 
 ---
 
-## 5. 작업 계획
+## 5. 런처·설치 계약
 
-각 PR은 앞의 PR이 병합된 뒤 시작한다. 범위를 넘는 수정은 별도 이슈로 분리한다.
+### 5.1 `nalmeok.cmd` (순수 ASCII)
 
-### PR 1 · Windows 입력/터미널 계층 (P0)
+- offline이면 `%HERE%runtime\python.exe`.
+- thin이면 `%DATA%\app\nalmeok.py`로 seed하고 `runtime\current.txt`를 읽는다. 없으면 `bootstrap.ps1` 실행.
+- 인자가 없을 때만 `cd /d "%USERPROFILE%"`(D10).
+- 런타임 오류 안내는 `messages.ps1 -Id install-failed|python-missing`.
+- 종료 코드가 0이 아니면 `pause`.
 
-**목표:** Windows에서 TUI가 첫 화면부터 동작한다.
+### 5.2 `installer.cmd` / `install.ps1`
 
-**변경 파일:** `nalmeok.py`, `tests/test_nalmeok.py`
-
-**작업**
-
-- [x] `_enable_windows_vt()`, `configure_stdio()`, `can_raw_input()`, `vt_supported()` 추가
-- [x] `read_key()` Windows 분기 (`msvcrt.getwch`, `\x00`/`\xe0` 매핑)
-- [x] `read_secret()` Windows 분기, 비-TTY는 `getpass` 유지
-- [x] `_key_ready()` 추가, `_wait_for_key()`를 플랫폼 중립으로 변경
-- [x] `cbreak_keys()` Windows no-op 분기
-- [x] `RAW_KEYS` 가드를 `can_raw_input()`/`require_tui()`로 교체
-- [x] `select_menu`, `select_many`, `home_screen`의 "macOS·Linux 전용" `fail()` 제거
-- [x] `message_screen` 등 `read_key()` 직접 호출부가 비-TTY에서 NameError 없이 동작하도록 `wait_key()`로 교체
-- [x] `_color_enabled`, `clear_screen`, `fullscreen`, `live_status`에 ANSI 가능 여부 반영
-- [x] conhost ASCII 심볼 폴백 (스피너, 커서 표시, 진행 막대)
-- [x] `bootstrap_platform()`을 `cli()` 시작에 연결
-- [x] 테스트: Windows 키 매핑 순수 함수, 비-TTY 경로, ASCII 폴백, 가드 회귀
-
-**수용 기준**
-
-- Windows 10 22H2 conhost와 Windows Terminal에서: 첫 실행 키 등록, ↑↓, Enter, Esc, Backspace, Ctrl+C, 한글 경로 붙여넣기, 다중 선택이 동작.
-- macOS/Linux 기존 테스트 99개 통과 유지. (현재 104개)
-- Windows에서 `nalmeok` 실행 시 "macOS·Linux 전용" 오류가 나오지 않음. (Windows 11 SSH/ConPTY에서 확인)
-
-**범위 밖:** 런타임 ZIP, cmd 런처, line-mode TUI, ffmpeg 번들.
-
-### PR 2 · Windows 정합성 (P1)
-
-**목표:** 파일·프로세스·도구 계층이 Windows에서 안전하게 동작한다.
-
-**변경 파일:** `nalmeok.py`, `tests/test_nalmeok.py`
-
-**작업**
-
-- [x] `subprocess` 텍스트 모드 4곳 + 신규 호출에 `encoding="utf-8", errors="replace"`
-- [x] `find_tool()` 도입, `probe_duration`/`convert`/분할/`capabilities` 교체
-- [x] `file_lock()` 도입, `job_lock`/`config_lock` 교체 (Windows `msvcrt.locking`)
-- [x] `atomic_write_text`의 `os.replace` 재시도
-- [x] `copy_to_clipboard` Windows를 ctypes `CF_UNICODETEXT`로 교체
-- [x] `clean_path` Windows 분기, `shlex.split(posix=...)`, `short_path` 표시 수정
-- [x] 백그라운드 `_wait` env에 UTF-8 설정 추가
-- [x] `doctor` 서브커맨드 + `NALMEOK_DEBUG` 로그
-- [x] 테스트: `find_tool` 우선순위, `clean_path` Windows/ POSIX 케이스, 원자적 쓰기 재시도, doctor 출력 형식
-
-**수용 기준**
-
-- 한글 경로의 MP4 변환/분할/전사가 동작.
-- 결과 경로 복사가 한글을 보존.
-- 같은 폴더 동시 작업 시 잠금 메시지가 Windows에서도 나옴.
-- `nalmeok doctor`가 키/SDK 없이 실행.
-
-**범위 밖:** Windows 알림, line-mode TUI.
-
-### PR 3 · 배포 (P1)
-
-**목표:** Python 없는 Windows PC에서 ZIP만으로 첫 전사까지.
-
-**변경/추가 파일**
-
-- `scripts/build_windows.py` (또는 `.ps1`)
-- `.github/workflows/windows.yml`
-- `nalmeok.cmd`, `installer.cmd` (템플릿은 `scripts/`에 두고 빌드 시 ZIP 루트로 복사)
-- `README.md` Windows 절
-- `.gitattributes` (`*.cmd text eol=crlf`)
-- `licenses/` 생성 로직
-
-**작업**
-
-- [ ] python-build-standalone 3.12.x x86_64 다운로드·압축 해제 → `runtime/`
-- [ ] `uv pip install --python runtime/python.exe`로 `google-genai`와 전이 의존성 설치 (버전 고정)
-- [ ] LGPL ffmpeg/ffprobe 고정 버전 다운로드 + SHA256 검증 + 라이선스 복사
-- [ ] `nalmeok.py`, `README.md`, `LICENSE`, 아이콘 복사
-- [ ] ZIP 루트에 파일 배치, `SHA256SUMS.txt` 생성
-- [ ] `nalmeok.cmd` / `installer.cmd` 작성 (CRLF)
-- [ ] GitHub Actions: Windows 빌드 + `runtime\python.exe -m unittest` + ZIP 아티팩트
-- [ ] README: 차단 해제 → 압축 풀기 → `installer.cmd` → 바로가기 → 첫 실행, 문제 해결
-- [ ] 수동 검증 결과를 이슈 #1에 기록
-
-**`nalmeok.cmd` 계약**
-
-```bat
-@echo off
-title nalmeok
-setlocal EnableExtensions
-set "HERE=%~dp0"
-set "PYTHONUTF8=1"
-set "PYTHONIOENCODING=utf-8"
-rem offline: %HERE%runtime\python.exe + %HERE%ffmpeg.exe
-rem thin:    %LOCALAPPDATA%\nalmeok\runtime\<version>\python.exe
-if "%~1"=="" cd /d "%USERPROFILE%"
-"%PY%" "%DATA%\app\nalmeok.py" %*
-if errorlevel 1 pause
-```
-
-- 순수 ASCII. 런타임 오류 안내는 `messages.ps1 -Id install-failed|python-missing`(D19).
-
-**`installer.cmd` 계약**
-
-- ZIP 루트의 유일한 파일. 순수 ASCII 런처로, 실제 설치는 `app\install.ps1`이 한다.
+- ZIP 루트의 유일한 파일. 순수 ASCII 런처가 `app\install.ps1`(UTF-8 BOM)을 호출한다.
 - `app\*` → `%LOCALAPPDATA%\Programs\nalmeok`로 복사(삭제 없이 덮어쓰기). 설치 폴더는 평평하다.
 - 바탕화면 + 시작 메뉴에 `nalmeok.lnk`, `nalmeok에 끌어놓기.lnk`
   - Target: `%DEST%\nalmeok.cmd`, `%DEST%\nalmeok-drop.cmd`
-  - WorkingDirectory: `%USERPROFILE%`
-  - Icon: `%DEST%\nalmeok.ico`
-- 관리자 권한, 레지스트리, PATH 변경 없음
-- 제거 안내: 폴더와 바로가기 삭제
-- 오류 시 `pause`와 한국어 안내, 성공 시 "바탕화면의 nalmeok 바로가기로 실행하세요"
-
-**수용 기준**
-
-- Python·uv·Git이 없는 Windows 10 22H2에서 ZIP만으로 설치·첫 실행.
-- SmartScreen 차단 해제 절차가 README에 있고 실제로 경고 없이 실행됨.
-- 바로가기 더블클릭 → 콘솔 → TUI → 키 등록 → 폴더 선택 → 전사 시작.
-- 오류 시 창이 닫히지 않고 진단 안내가 보임.
-
-**범위 밖:** 코드서명, 자동 업데이트, 제거 프로그램(선택 사항).
+  - WorkingDirectory: `%USERPROFILE%`, Icon: `%DEST%\nalmeok.ico`
+- 바로가기 파일명은 ASCII 임시 이름으로 저장한 뒤 `Move-Item`으로 변경한다. WScript.Shell은 시스템 ANSI 코드페이지 밖의 파일명(영문 Windows의 한글)으로 `.lnk`를 저장하지 못한다.
+- 관리자 권한, 레지스트리, PATH 변경 없음. 제거는 폴더·바로가기 삭제.
 
 ---
 
@@ -505,61 +303,46 @@ if errorlevel 1 pause
 
 ### 6.1 단위 테스트
 
-- Windows 키 매핑: `\x00H`, `\xe0P`, `\r`, `\x1b`, `\x03`, `\b`
-- `can_raw_input`/`can_render_full` 조합별 동작
-- 비-TTY에서 `wait_key()`가 `input()`으로 대체
-- `find_tool` 우선순위 (`NALMEOK_FFMPEG` → 앱 폴더 → PATH)
-- `clean_path` 케이스: `"C:\Users\홍길동\강의"`, `'C:\path with space'`, POSIX escape
-- `atomic_write_text`의 `PermissionError` 재시도 (monkeypatch)
-- `doctor` 출력에 필수 필드 포함
-- 기존 99개 유지
+- Windows 키 매핑, `can_raw_input`/`vt_supported` 조합, 비-TTY `wait_key()` 폴백
+- `find_tool` 우선순위, `clean_path` 케이스, `atomic_write_text` 재시도, `doctor` 출력
+- `.cmd` 순수 ASCII, `.ps1` UTF-8 BOM, `installer.cmd` → `app\install.ps1` 연결
+- 현재: **157 pass, 8 skip** (macOS 기준. Windows CI는 3.10/3.12에서 같은 스위트 실행)
 
 ### 6.2 CI
 
-- `ubuntu-latest`, `macos-latest`, `windows-latest` × Python 3.10/3.12: `unittest`
-- `windows-latest`: thin ZIP 빌드, `app\nalmeok.py --version`, **첫 실행 bootstrap**(PBS 다운로드) 후 `app\nalmeok.cmd --version`, `app\nalmeok-drop.cmd --help`, `installer.cmd` 실행 후 설치 폴더·바로가기 확인, 출력에 `is not recognized`가 없는지 검사
-- CI는 대화형 콘솔을 검증하지 못한다. **수동 검증이 최종 게이트**다.
-- offline 확장판은 기본 CI에서 빌드하지 않는다. 필요 시 `python scripts/build_windows.py --offline`.
+- `windows-latest` / `ubuntu-latest` / `macos-latest` × Python 3.10/3.12: `unittest`
+- `windows-latest` 빌드 잡:
+  - thin ZIP 빌드 → 압축 해제
+  - 루트에 `installer.cmd` + `app\`만 있는지, `app\` 필수 파일이 모두 있는지 확인
+  - `app\nalmeok.py --version`, `app\nalmeok.cmd --version`(첫 실행 PBS 부트스트랩), `app\nalmeok-drop.cmd --help`
+  - `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 생성 확인, 출력에 `is not recognized`가 없어야 함
+  - ZIP·`nalmeok.py`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
+- offline 확장판은 기본 CI에서 빌드하지 않는다: `python scripts/build_windows.py --offline`
 
 ### 6.3 수동 검증 매트릭스
 
-> 2026-10-30: **Windows 10 22H2 검증은 사용자 결정으로 보류** (D13, best-effort). Windows 11 Windows Terminal은 환경(WT_SESSION/VT/isatty) 확인 완료, TUI 체크리스트만 남았습니다.
-> Windows 10 열은 재개 시 사용한다.
+> Windows 10 22H2는 보류(D13). Windows 11 Windows Terminal은 환경 확인 완료, TUI 체크리스트만 남음.
 
-각 환경에서 이슈 #1에 결과를 기록한다.
-
-| 항목 | Win10 22H2 conhost | Win10 22H2 WT | Win11 WT |
+| 항목 | Win10 22H2 | Win11 conhost | Win11 WT |
 |---|---|---|---|
 | ZIP 차단 해제/압축 풀기 | | | |
 | `installer.cmd` + 바로가기 | | | |
-| 설치 콘솔에 `is not recognized` 없음 | | | |
-| 첫 실행 Python 다운로드(~25MB) | | | |
-| SDK 자동 설치(~20MB) | | | |
-| 첫 MP4 변환 시 ffmpeg 다운로드 | | | |
-| `nalmeok update --check` | | | |
-| 오프라인 ZIP 첫 실행 | | | |
-| 첫 실행 키 등록 | | | |
-| ↑↓/Enter/Esc/Backspace/Ctrl+C | | | |
-| 한글 경로 붙여넣기 | | | |
-| 다중 선택(폴더) | | | |
-| 창 크기 변경 | | | |
-| 화면 클릭 후 복귀(QuickEdit) | | | |
-| MP4 → M4A 변환 | | | |
-| 무료 live 전사 | | | |
-| 백그라운드 대기/복귀 | | | |
-| 결과 경로 복사(한글) | | | |
-| `nalmeok doctor` | | | |
+| 설치 콘솔에 `is not recognized` 없음 | | | ✓ |
+| 첫 실행 PBS(~45MB)/SDK(~20MB) | | | ✓ |
+| 첫 MP4 변환 시 ffmpeg(~160MB) | | | |
+| `nalmeok update --check` | | | ✓ |
+| 첫 실행 키 등록 · ↑↓/Enter/Esc/Ctrl+C | | | |
+| 한글 경로 붙여넣기 · 다중 선택 | | | |
+| 창 크기 변경 · QuickEdit 후 복귀 | | | |
+| MP4 변환 · live 전사 · 백그라운드 대기 | | | |
+| 결과 경로 복사(한글) · `doctor` | | | ✓ |
 
-기록 항목: Windows 빌드(`winver`), 터미널/버전, 실행 경로, 결과, 스크린샷, 오류 로그.
+기록 항목: 빌드(`winver`), 터미널/버전, 실행 경로, 결과, 스크린샷, 오류 로그.
 
 ### 6.4 이슈 재현 정보 템플릿
 
-- Windows 버전/빌드
-- 터미널: Windows Terminal / conhost / 기타 + 버전
-- 실행 방법: 바로가기 / `nalmeok.cmd` / `runtime\python.exe nalmeok.py`
-- `nalmeok doctor` 출력
-- `%APPDATA%\nalmeok\nalmeok.log` (있는 경우)
-- 스크린샷
+Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nalmeok doctor` 출력 ·
+`%APPDATA%\nalmeok\nalmeok.log` · 스크린샷.
 
 ---
 
@@ -567,8 +350,8 @@ if errorlevel 1 pause
 
 1. `__version__`과 `pyproject.toml` 버전을 올린다.
 2. 테스트를 통과시킨다.
-3. `python scripts/build_windows.py`로 **thin ZIP**을 만든다. 필요하면 `--offline`으로 확장판도 만든다.
-4. ZIP을 풀어 **깨끗한 Windows 11**에서 thin 첫 실행(Python/SDK/ffmpeg 다운로드)과 업데이트를 확인한다.
+3. `python scripts/build_windows.py`로 thin ZIP을 만든다(필요 시 `--offline`).
+4. ZIP을 풀어 **깨끗한 Windows 11**에서 첫 실행(PBS/SDK/ffmpeg)·업데이트를 확인한다.
 5. `SHA256SUMS.txt`와 `windows-manifest.json`을 확인한다.
 6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
 7. README의 Windows 절과 다운로드 링크를 갱신한다.
@@ -576,50 +359,21 @@ if errorlevel 1 pause
 
 ---
 
-## 8. 리스크와 대안
-
-### 8.1 왜 PyInstaller가 아닌가
-
-| 항목 | PyInstaller onedir | 런타임 포함 ZIP |
-|---|---|---|
-| hidden imports | google-genai/pydantic 대응 필요 | 불필요 |
-| onefile | 실행마다 재압축 해제, `_wait` 재실행 비용 | 해당 없음 |
-| frozen 분기 | `ensure_sdk`, `restart`, `_wait` 경로 수정 필요 | 불필요 |
-| 디버깅 | 스택트레이스/소스 접근이 어려움 | 소스 그대로 실행 가능 |
-| AV 오탐 | 상대적으로 높음 | 낮음 |
-| 크기 | 비슷 | 비슷 |
-
-### 8.2 왜 코드서명하지 않는가
-
-- Azure Artifact Signing(구 Trusted Signing)은 개인 기준 미국/캐나다만 가능.
-- OV는 연 $150~300, EV는 연 $400~600. 2024년부터 EV도 SmartScreen 즉시 통과 특례가 없음.
-- 따라서 지금은 "차단 해제 + SHA256 + 문서"로 대응하고, 배포 규모가 커지면 OV/winget/Store를 재검토한다.
-
-### 8.3 왜 시스템 Python을 쓰지 않는가
-
-- 이슈 완료 기준이 "Python·uv·Git이 없는 깨끗한 Windows"다.
-- Windows의 `python.exe` Store 별칭은 Microsoft Store를 열 수 있어 신뢰할 수 없다.
-
-### 8.4 왜 웹 UI가 아닌가
-
-- TUI 자산을 버리고 UI/폴더 선택/서버 수명 관리를 새로 만들어야 한다.
-- Windows TUI 복구와 설치 경로가 먼저다. 수요가 검증되면 별도 v2로 검토한다.
-
-### 8.5 리스크 표
+## 8. 리스크
 
 | 리스크 | 영향 | 완화 |
 |---|---|---|
-| conhost VT/대체 화면 quirks | 화면 깨짐 | 지원 하한 22H2, 수동 게이트, Windows Terminal 안내 |
-| conhost 폰트 두부 | 심볼 안 보임 | 스피너/커서 ASCII 폴백, `NALMEOK_ASCII=1` |
-| SmartScreen 경고 | 설치 이탈 | ZIP 차단 해제 안내, SHA256, 스크린샷 |
+| conhost VT/대체 화면 quirks | 화면 깨짐 | 지원 하한 22H2, 수동 게이트, WT 안내 |
+| conhost 폰트 두부 | 심볼 안 보임 | ASCII 폴백, `NALMEOK_ASCII=1` |
+| SmartScreen 경고 | 설치 이탈 | ZIP 차단 해제 안내, SHA256 |
 | AV가 python.exe 오탐 | 실행 실패 | 공식 standalone 빌드, 체크섬, PyInstaller 미사용 |
-| ffmpeg LGPL 고지 누락 | 라이선스 위반 | `licenses/`에 고지/출처, 별도 프로세스 호출 |
-| ZIP 용량 | 다운로드 부담 | 실측 164.7MiB(runtime+ffmpeg+의존성). v1은 번들 유지, 계속 문제면 온디맨드 전환 |
+| ffmpeg LGPL 고지 누락 | 라이선스 위반 | `licenses/`에 고지·출처, 별도 프로세스 호출 |
+| 첫 실행 다운로드 실패 | 사용 불가 | 재시도, 오프라인 확장판(D17) |
 | Python 보안 업데이트 | 취약점 | 분기별 또는 CVE 시 런타임 재빌드 |
-| `cd`로 CLI 상대 경로 깨짐 | CLI 회귀 | 인자 없을 때만 `cd` (D10) |
-| QuickEdit로 화면 정지 | 앱 멈춘 것처럼 보임 | README 안내, Windows Terminal 권장 |
+| `cd`로 CLI 상대 경로 깨짐 | CLI 회귀 | 인자 없을 때만 `cd`(D10) |
+| QuickEdit로 화면 정지 | 멈춘 것처럼 보임 | README 안내, WT 권장 |
 | MAX_PATH 초과 | 파일 작업 실패 | 범위 밖, 별도 이슈 |
-| 컨텍스트 유실 | 방향 이탈 | 이 문서 + 상태 표 + `CLAUDE.md` 포인터 |
+| 한글 `.lnk` 저장 실패 | 바로가기 없음 | ASCII 임시 이름 + `Move-Item` |
 
 ---
 
@@ -627,14 +381,10 @@ if errorlevel 1 pause
 
 | # | 질문 | 기본값 | 상태 |
 |---|---|---|---|
-| Q1 | 바로가기 표시 이름 | `nalmeok` (ASCII) | 확정 |
-| Q2 | 제거 프로그램(`uninstaller.cmd`) 포함 | 미포함, 수동 삭제 안내 | 보류 |
-| Q3 | ffmpeg 번들 vs 온디맨드 | 번들 유지 (D5). 실측 ZIP 164.7MiB | 확정, 용량 민감 시 재검토 |
-| Q4 | Windows 10 최소 빌드 | 22H2 (D6) | 확정. 실기 검증은 보류 (D13) |
-| Q5 | Windows 알림 | 후순위, 터미널 벨 유지 | 보류 |
-| Q6 | line-mode TUI | 범위 밖 (D9) | 보류 |
-| Q7 | 실기 검증 담당 | Windows 11은 사용자 직접, Windows 10은 보류 | 확정 |
-| Q8 | 한 줄 `install.ps1`을 주 경로로 할지 | 채택. `installer.cmd`(ASCII)가 `app\install.ps1`(UTF-8 BOM)을 호출 | 확정 (D18/D19) |
+| Q1 | 제거 프로그램(`uninstaller.cmd`) | 미포함, 수동 삭제 안내 | 보류 |
+| Q2 | Windows 알림 | 후순위, 터미널 벨 유지 | 보류 |
+| Q3 | Windows Terminal TUI 체크리스트 | 사용자 직접 확인 | 진행 중 |
+| Q4 | 코드서명 도입 | 하지 않음(D4). 필요하면 배포 편의로 재검토 | 확정 |
 
 ---
 
@@ -643,20 +393,9 @@ if errorlevel 1 pause
 | 날짜 | 변경 | 작성 |
 |---|---|---|
 | 2026-10-30 | 최초 작성. 이슈 #1 분석, 배포/호환성 결정, PR 분해 | Claude Code |
-| 2026-10-30 | PR1 입력/터미널 계층 구현. Windows 11 SSH/ConPTY에서 TUI 렌더링·키 입력 검증 | Claude Code |
-| 2026-10-30 | PR2 인코딩·도구·잠금·클립보드·doctor 구현. Windows 11에서 108 tests pass | Claude Code |
-| 2026-10-30 | PR3 런타임 ZIP·cmd 설치 스크립트·CI·README 추가. Windows 11에서 빌드/설치/번들 실행 E2E 검증 (ZIP 164.7MiB) | Claude Code |
-| 2026-10-30 | Windows 10 22H2 실기 검증 보류(D13). Windows 11 Windows Terminal은 사용자 직접 진행으로 상태 정리 | Claude Code |
-| 2026-10-30 | 후속: Windows 타이틀/바로가기 ASCII `nalmeok`, 폴더 스캔 제한(D14). Windows 111 tests pass, 대시보드 0.013s | Claude Code |
-| 2026-10-30 | Windows 11 conhost 환경 검증(VT/ANSI·isatty). Windows Terminal은 WT_SESSION 부재로 재실행 필요 | Claude Code |
-| 2026-10-30 | Windows 11 Windows Terminal 환경 검증(WT_SESSION/WT_PROFILE_ID·VT/ANSI). TUI 체크리스트 대기 | Claude Code |
-| 2026-10-30 | 후속: 메뉴/홈 화면 diff 렌더링으로 방향키 깜빡임 제거(D15). Windows 115 tests pass | Claude Code |
+| 2026-10-30 | PR1 입력/터미널 계층, PR2 정합성, PR3 런타임 ZIP·설치 스크립트 구현 | Claude Code |
+| 2026-10-30 | Windows 폴더 스캔 제한(D14), 메뉴/홈 diff 렌더링(D15), 드롭 기능 | Claude Code |
 | 2026-10-30 | v0.6.0 릴리스(macOS notarized DMG + Windows ZIP) | Claude Code |
-| 2026-10-30 | Windows thin 배포 결정(D16/D17). thin ZIP 표준, 165MB는 `-offline` 확장판 | Claude Code |
-| 2026-10-30 | v0.6.1 릴리스. Windows thin ZIP(193KB)·bootstrap, macOS 0.6.1 notarized DMG. live manifest·update·ffmpeg 온디맨드 검증 | Claude Code |
-| 2026-10-30 | **v0.6.2**: 설치 중 `'더의' is not recognized` 수정. `.cmd` 순수 ASCII + 한국어는 UTF-8 BOM PowerShell(D19), ZIP 루트는 `installer.cmd`만·나머지 `app\`(D18). Windows 11 실기 검증 | Claude Code |
-| 2026-10-30 | 후속: 긴 메뉴 뷰포트 추가. 40개 폴더 탐색 clear_screen 11→1, Windows 115 tests pass | Claude Code |
-| 2026-10-30 | `feature/windows-support` PR #3 CI 전체 통과 후 `master`에 머지. v0.4.0 릴리스 기준 확정 | Claude Code |
-| 2026-10-30 | 후속: 드래그앤드롭 전사(`nalmeok drop`, `nalmeok-drop.cmd`, 두 번째 바로가기). v0.5.0. macOS 124 tests pass | Claude Code |
-| 2026-10-30 | Windows 11에서 드롭 기능 검증: 126 tests pass(3 skip), 바로가기 2개·한글/공백 인자·NTFS 하드링크·드롭 요약 확인. OneDrive 문서 폴더 해석 추가 | Claude Code |
-| 2026-10-30 | 터미널 드롭: 브래킷 붙여넣기(`ESC[200~`) 감지로 macOS에서 `d` 없이 바로 전사. 134 tests pass(Win 4 skip/macOS 8 skip) | Claude Code |
+| 2026-10-30 | thin 배포 결정(D16/D17). v0.6.1 릴리스(thin ZIP 193KB, bootstrap·update 검증) | Claude Code |
+| 2026-10-30 | **v0.6.2**: `'더의' is not recognized` 수정. `.cmd` 순수 ASCII(D19), ZIP 루트 `installer.cmd`만(D18). Windows 11 실기 검증 | Claude Code |
+| 2026-10-30 | 문서 정리: 오래된 기준선·중복 제거, 기준선 0.6.2/157 tests로 갱신, 코드서명·의존성 금지·단일 파일 제약 폐기 | Claude Code |

@@ -33,8 +33,8 @@ Write-Host 'nalmeok 설치를 시작합니다.'
 Write-Host "  원본: $src"
 Write-Host "  설치: $dest"
 Write-Host ''
-Write-Host '설치 파일은 약 1MB입니다. 첫 실행 때 Python과 SDK를 자동으로'
-Write-Host '준비하고(약 45MB), MP4 변환을 처음 할 때 ffmpeg를 받습니다.'
+Write-Host '설치 파일은 약 200KB입니다. 첫 실행 때 Python과 SDK를 자동으로'
+Write-Host '준비하고(약 65MB), MP4 변환을 처음 할 때 ffmpeg를 받습니다.'
 Write-Host ''
 
 try {
