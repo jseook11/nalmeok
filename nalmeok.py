@@ -40,6 +40,7 @@ import getpass
 import json
 import math
 import os
+import platform
 import re
 import select
 import shlex
@@ -108,7 +109,7 @@ MIXED_RESULT_PREFIX = ".gemini_mixed.result"
 ARCHIVE_DIR = ".nalmeok-archive"
 
 COMMANDS = ("convert", "estimate", "upload", "status", "wait", "download", "stats",
-            "live", "auto")
+            "live", "auto", "doctor")
 
 # USD / 1M tokens: (텍스트 입력, 오디오 입력, 출력). 2026-10 공식 가격표 기준.
 MODELS = {
@@ -187,6 +188,15 @@ def _print_logger(message=""):
         return
     print("\n".join(f"  {line}" if line else "" for line in text.splitlines()),
           flush=True)
+    if os.getenv("NALMEOK_DEBUG"):
+        try:
+            path = debug_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"[{stamp}] {text}\n")
+        except OSError:
+            pass
 
 
 _logger = _print_logger
@@ -407,8 +417,21 @@ def atomic_write_text(path, text, mode=None):
             file.write(text)
             file.flush()
             os.fsync(file.fileno())
-        os.chmod(temp_name, _default_file_mode() if mode is None else mode)
-        os.replace(temp_name, path)
+        try:
+            os.chmod(temp_name, _default_file_mode() if mode is None else mode)
+        except OSError:
+            pass
+        # Windows는 AV/인덱서가 대상 파일을 잠시 잡고 있으면 교체가 실패할 수 있습니다.
+        last_error = None
+        for attempt in range(5):
+            try:
+                os.replace(temp_name, path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(0.05 * (attempt + 1))
+        assert last_error is not None
+        raise last_error
     except BaseException:
         try:
             os.unlink(temp_name)
@@ -438,11 +461,40 @@ def load_config():
     return data if isinstance(data, dict) else {}
 
 
+def debug_log_path():
+    return config_path().with_name("nalmeok.log")
+
+
 def save_config(data):
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     # API 키가 들어가므로 소유자만 읽도록 0600 으로 씁니다.
     atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2), mode=0o600)
+
+
+def _lock_file(handle, blocking=True):
+    """파일 잠금을 잡습니다. 잠금 수단이 없는 플랫폼이면 False."""
+    if fcntl is not None:
+        mode = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        fcntl.flock(handle.fileno(), mode)
+        return True
+    if os.name == "nt" and msvcrt is not None:
+        handle.seek(0)
+        mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+        msvcrt.locking(handle.fileno(), mode, 1)
+        return True
+    return False
+
+
+def _unlock_file(handle):
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        elif os.name == "nt" and msvcrt is not None:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 
 @contextlib.contextmanager
@@ -451,13 +503,13 @@ def config_lock():
     path = config_path().with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        locked = False
         try:
+            locked = _lock_file(handle, blocking=True)
             yield
         finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            if locked:
+                _unlock_file(handle)
 
 
 def env_key():
@@ -754,7 +806,8 @@ def current_key(key=None):
 
 def short_path(path):
     try:
-        return "~/" + str(Path(path).relative_to(Path.home()))
+        relative = Path(path).relative_to(Path.home())
+        return str(Path("~") / relative)
     except ValueError:
         return str(path)
 
@@ -851,6 +904,8 @@ def start_watcher(folder, key=None, allow_unknown=False):
     env = dict(os.environ)
     if key:
         env["GEMINI_API_KEY"] = key
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     log_path = folder / WATCH_LOG
     command = [sys.executable, str(Path(__file__).resolve()),
                "_wait", str(folder), "--retry", "none"]
@@ -914,20 +969,15 @@ def job_lock(folder, purpose):
     with open(path, "a+", encoding="utf-8") as handle:
         locked = False
         try:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    locked = True
-                except OSError:
-                    fail(f"다른 작업이 이 폴더를 쓰고 있습니다 ({purpose}). "
-                         "백그라운드 대기가 끝난 뒤 다시 시도하세요.")
+            try:
+                locked = _lock_file(handle, blocking=False)
+            except OSError:
+                fail(f"다른 작업이 이 폴더를 쓰고 있습니다 ({purpose}). "
+                     "백그라운드 대기가 끝난 뒤 다시 시도하세요.")
             yield
         finally:
             if locked:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
+                _unlock_file(handle)
 
 
 def natural_key(filename):
@@ -1012,14 +1062,38 @@ def price_lines(prompt_audio, prompt_text, low_output, high_output, model):
             f"{pad('일반 비용', LABEL_WIDTH)}  {money(standard)}"]
 
 
+def find_tool(name):
+    """ffmpeg/ffprobe 실행 파일. NALMEOK_FFMPEG → 앱 폴더(번들) → PATH 순."""
+    exe = name + ".exe" if os.name == "nt" else name
+    override = os.getenv("NALMEOK_FFMPEG")
+    if override:
+        path = Path(override).expanduser()
+        if path.is_dir():
+            candidate = path / exe
+            if candidate.exists():
+                return str(candidate)
+        elif path.exists():
+            if path.name.lower() == exe.lower():
+                return str(path)
+            sibling = path.with_name(exe)
+            if sibling.exists():
+                return str(sibling)
+    app = Path(__file__).resolve().parent
+    candidate = app / exe
+    if candidate.exists():
+        return str(candidate)
+    return shutil.which(name)
+
+
 def probe_duration(path):
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = find_tool("ffprobe")
     if not ffprobe:
         return None
     result = subprocess.run(
         [ffprobe, "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", str(path)],
-        check=False, capture_output=True, text=True)
+        check=False, capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
     try:
         return float(result.stdout.strip())
     except ValueError:
@@ -1263,9 +1337,10 @@ def convert(folder):
     if not videos:
         log("변환할 MP4 파일이 없습니다.")
         return
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
-        fail("ffmpeg가 필요합니다. macOS 설치: brew install ffmpeg")
+        fail("ffmpeg가 필요합니다. Windows는 설치 폴더의 ffmpeg.exe를 확인하거나 "
+             "NALMEOK_FFMPEG를 지정하세요. macOS: brew install ffmpeg")
     converted = skipped = 0
     failures = []
     live = _progress_enabled()
@@ -1286,7 +1361,8 @@ def convert(folder):
                 "-i", str(source), "-map", "0:a:0", "-vn",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
                 str(pending),
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+               encoding="utf-8", errors="replace")
             started = time.monotonic()
             assert process.stdout is not None
             for line in process.stdout:
@@ -1988,7 +2064,7 @@ def allocate_mixed_entries(entries, free_keys, paid_keys,
 
 def split_audio_ranges(path, duration, cuts, segment_dir):
     """파일을 cuts(로컬 초)에서 여러 조각으로 나눕니다. copy 실패 시 재인코딩합니다."""
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
         fail("긴 파일 분할에는 ffmpeg가 필요합니다.")
     segment_dir.mkdir(parents=True, exist_ok=True)
@@ -2006,12 +2082,13 @@ def split_audio_ranges(path, duration, cuts, segment_dir):
                 "-map", "0:a:0", "-avoid_negative_ts", "make_zero"]
         copy_command = base + ["-c", "copy", str(output)]
         result = subprocess.run(copy_command, check=False, capture_output=True,
-                                text=True)
+                                text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
             encode_command = base + ["-c:a", "aac", "-b:a", "128k",
                                      "-movflags", "+faststart", str(output)]
             result = subprocess.run(encode_command, check=False,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace")
         if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
             fail(f"오디오 분할 실패: {path.name} ({start:.0f}s 부근)\n"
                  f"{(result.stderr or '').strip()}")
@@ -2996,6 +3073,7 @@ def parse_args(argv=None):
         ("live", "무료 등급용 live 전사 (130분 그룹 · Batch 없이)"),
         ("auto", "무료 키 먼저 → 남는 오디오는 유료 Batch"),
         ("stats", "지금까지 쓴 금액 합계와 평균"),
+        ("doctor", "환경 진단 정보 출력 (문제 보고용)"),
     ):
         command = commands.add_parser(name, help=help_text)
         if name == "stats":
@@ -3735,8 +3813,8 @@ def capabilities(refresh=False):
     """환경 상태. 무거운 확인은 한 번만 하고 키 정보는 매번 새로 읽습니다."""
     if refresh or not _CAP_CACHE:
         _CAP_CACHE.update(
-            ffmpeg=shutil.which("ffmpeg"),
-            ffprobe=shutil.which("ffprobe"),
+            ffmpeg=find_tool("ffmpeg"),
+            ffprobe=find_tool("ffprobe"),
             sdk=sdk_importable(),
         )
     entries = key_entries()
@@ -3759,9 +3837,54 @@ def caps_line(caps=None):
             f"SDK {mark(caps['sdk'])} · 키 {caps['key_source'] or warn('없음')}")
 
 
+def terminal_name():
+    if os.getenv("WT_SESSION"):
+        return "Windows Terminal"
+    if os.name == "nt":
+        return "Windows console (conhost)"
+    return os.getenv("TERM_PROGRAM") or os.getenv("TERM") or "unknown"
+
+
+def doctor_lines():
+    """문제 보고에 붙일 수 있는 환경 진단 정보. 키/SDK 없이 동작합니다."""
+    caps = capabilities(refresh=True)
+    try:
+        cwd = short_path(Path.cwd())
+    except OSError:
+        cwd = "?"
+    return [
+        f"nalmeok {__version__}",
+        f"{pad('OS', 12)}  {platform.platform()}",
+        f"{pad('터미널', 12)}  {terminal_name()}",
+        f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
+        f"encoding={getattr(sys.stdout, 'encoding', '?')}",
+        f"{pad('Python', 12)}  {sys.version.split()[0]}",
+        f"{pad('실행 파일', 12)}  {short_path(Path(sys.executable))}",
+        f"{pad('앱 폴더', 12)}  {short_path(Path(__file__).resolve().parent)}",
+        f"{pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
+        f"{pad('ffprobe', 12)}  {caps['ffprobe'] or '없음'}",
+        f"{pad('SDK', 12)}  {'설치됨' if caps['sdk'] else '없음'}",
+        f"{pad('API 키', 12)}  {caps['key_summary']}",
+        f"{pad('설정 파일', 12)}  {short_path(config_path())}",
+        f"{pad('로그', 12)}  {short_path(debug_log_path())}",
+        f"{pad('작업 폴더', 12)}  {cwd}",
+    ]
+
+
+def show_doctor():
+    configure_stdio()
+    print("\n".join(doctor_lines()))
+
+
 def diagnostics_lines():
     caps = capabilities()
     return [
+        f"{pad('OS', 12)}  {platform.platform()}",
+        f"{pad('터미널', 12)}  {terminal_name()}",
+        f"{pad('VT/ANSI', 12)}  {'가능' if vt_supported() else '불가'}",
+        f"{pad('stdout', 12)}  isatty={sys.stdout.isatty()} "
+        f"encoding={getattr(sys.stdout, 'encoding', '?')}",
         f"{pad('Python', 12)}  {sys.version.split()[0]}",
         f"{pad('실행 파일', 12)}  {short_path(Path(sys.executable))}",
         f"{pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
@@ -4376,11 +4499,54 @@ def merge_flow(folder, key):
     return key
 
 
+def _copy_windows_clipboard(text):
+    """ctypes로 유니코드 클립보드에 넣습니다. clip.exe의 코드페이지 문제를 피합니다."""
+    try:
+        import ctypes
+
+        cf_unicode = 13
+        gmem_moveable = 0x0002
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+        if not user32.OpenClipboard(None):
+            return False
+        try:
+            user32.EmptyClipboard()
+            data = text.encode("utf-16-le") + b"\x00\x00"
+            handle = kernel32.GlobalAlloc(gmem_moveable, len(data))
+            if not handle:
+                return False
+            pointer = kernel32.GlobalLock(handle)
+            if not pointer:
+                kernel32.GlobalFree(handle)
+                return False
+            try:
+                ctypes.memmove(pointer, data, len(data))
+            finally:
+                kernel32.GlobalUnlock(handle)
+            if not user32.SetClipboardData(cf_unicode, handle):
+                kernel32.GlobalFree(handle)
+                return False
+            return True
+        finally:
+            user32.CloseClipboard()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def copy_to_clipboard(text):
+    if os.name == "nt":
+        return _copy_windows_clipboard(text)
     if sys.platform == "darwin":
         commands = [["pbcopy"]]
-    elif os.name == "nt":
-        commands = [["clip"]]
     else:
         commands = []
         if shutil.which("wl-copy"):
@@ -4392,6 +4558,7 @@ def copy_to_clipboard(text):
     for command in commands:
         try:
             subprocess.run(command, input=text, text=True, check=True,
+                           encoding="utf-8", errors="replace",
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         except (OSError, subprocess.CalledProcessError):
@@ -4405,7 +4572,10 @@ def open_result(folder):
         fail(f"결과 파일이 없습니다: {path}")
     editor = os.getenv("VISUAL") or os.getenv("EDITOR")
     if editor:
-        subprocess.call(shlex.split(editor) + [str(path)])
+        parts = shlex.split(editor, posix=os.name != "nt")
+        if os.name == "nt":
+            parts = [part.strip('"') for part in parts]
+        subprocess.call(parts + [str(path)])
     elif sys.platform == "darwin":
         subprocess.run(["open", str(path)], check=False)
     elif os.name == "nt":
@@ -5776,6 +5946,9 @@ def main():
     args = parse_args()
     if args.command is None:
         interactive()
+        return
+    if args.command == "doctor":
+        show_doctor()
         return
     folder = Path(args.folder).expanduser().resolve()
     if not folder.is_dir():

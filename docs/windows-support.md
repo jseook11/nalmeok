@@ -22,12 +22,12 @@
 | 작업 | 상태 | PR | 검증 |
 |---|---|---|---|
 | PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
-| PR 2 · Windows 정합성(인코딩·도구·잠금) | 미착수 | - | - |
-| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 진행 중 | - | 패키징 스캐폴드 작성 중 |
+| PR 2 · Windows 정합성(인코딩·도구·잠금) | 완료 | - | Windows 11에서 108 tests pass. 한글 클립보드 왕복, 프로세스 간 job_lock 차단, doctor·debug 로그 확인 |
+| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 진행 중 | - | 스캐폴드·체크섬 확정. Windows 빌드/설치 E2E 검증 대기 |
 | 수동 검증 · Windows 10 22H2 conhost | 미착수 | - | - |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 미착수 | - | - |
 | 수동 검증 · Windows 11 Windows Terminal | 미착수 | - | - |
-| README Windows 설치 안내 | 미착수 | - | - |
+| README Windows 설치 안내 | 진행 중 | - | 초안 추가, PR3 E2E 후 확정 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -42,6 +42,7 @@
   - 테스트: **104개 통과, 3개 skip** (Windows)
   - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
   - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
+  - PR2: 한글 클립보드 왕복, 프로세스 간 `job_lock` 차단, `doctor`, `NALMEOK_DEBUG` 로그 확인
   - 남은 검증: 실제 conhost/Windows Terminal, Windows 10, 폴더 선택·전사 전체 흐름
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
@@ -345,15 +346,15 @@ ASCII 폴백 대상(최소): 스피너 `⠋...` → `|/-\`, 커서 표시 `❯` 
 
 **작업**
 
-- [ ] `subprocess` 텍스트 모드 4곳 + 신규 호출에 `encoding="utf-8", errors="replace"`
-- [ ] `find_tool()` 도입, `probe_duration`/`convert`/분할/`capabilities` 교체
-- [ ] `file_lock()` 도입, `job_lock`/`config_lock` 교체 (Windows `msvcrt.locking`)
-- [ ] `atomic_write_text`의 `os.replace` 재시도
-- [ ] `copy_to_clipboard` Windows를 ctypes `CF_UNICODETEXT`로 교체
-- [ ] `clean_path` Windows 분기, `shlex.split(posix=...)`, `short_path` 표시 수정
-- [ ] 백그라운드 `_wait` env에 UTF-8 설정 추가
-- [ ] `doctor` 서브커맨드 + `NALMEOK_DEBUG` 로그
-- [ ] 테스트: `find_tool` 우선순위, `clean_path` Windows/ POSIX 케이스, 원자적 쓰기 재시도, doctor 출력 형식
+- [x] `subprocess` 텍스트 모드 4곳 + 신규 호출에 `encoding="utf-8", errors="replace"`
+- [x] `find_tool()` 도입, `probe_duration`/`convert`/분할/`capabilities` 교체
+- [x] `file_lock()` 도입, `job_lock`/`config_lock` 교체 (Windows `msvcrt.locking`)
+- [x] `atomic_write_text`의 `os.replace` 재시도
+- [x] `copy_to_clipboard` Windows를 ctypes `CF_UNICODETEXT`로 교체
+- [x] `clean_path` Windows 분기, `shlex.split(posix=...)`, `short_path` 표시 수정
+- [x] 백그라운드 `_wait` env에 UTF-8 설정 추가
+- [x] `doctor` 서브커맨드 + `NALMEOK_DEBUG` 로그
+- [x] 테스트: `find_tool` 우선순위, `clean_path` Windows/ POSIX 케이스, 원자적 쓰기 재시도, doctor 출력 형식
 
 **수용 기준**
 

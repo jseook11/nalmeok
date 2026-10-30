@@ -333,6 +333,25 @@ class AtomicWriteTests(unittest.TestCase):
             leftovers = [p for p in Path(temp).iterdir() if p != path]
             self.assertEqual(leftovers, [])
 
+    def test_write_retries_permission_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "file.json"
+            real_replace = os.replace
+            calls = {"count": 0}
+
+            def flaky_replace(source, target):
+                calls["count"] += 1
+                if calls["count"] < 3:
+                    raise PermissionError("locked")
+                return real_replace(source, target)
+
+            with mock.patch.object(app.os, "replace", side_effect=flaky_replace):
+                app.atomic_write_text(path, "ok")
+            self.assertEqual(path.read_text(encoding="utf-8"), "ok")
+            self.assertEqual(calls["count"], 3)
+            leftovers = [p for p in Path(temp).iterdir() if p != path]
+            self.assertEqual(leftovers, [])
+
 
 class StateTests(unittest.TestCase):
     def test_empty_ready_and_invalid(self):
@@ -1186,6 +1205,24 @@ class PlatformTests(unittest.TestCase):
         with mock.patch.object(app, "can_raw_input", return_value=False):
             with self.assertRaises(RuntimeError):
                 app.require_tui()
+
+    def test_find_tool_prefers_override_directory(self):
+        name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / name
+            path.write_bytes(b"")
+            with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": temp},
+                                 clear=False):
+                self.assertEqual(app.find_tool("ffmpeg"), str(path))
+
+    def test_find_tool_missing_returns_none(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": ""}, clear=False):
+            self.assertIsNone(app.find_tool("nalmeok-no-such-tool"))
+
+    def test_doctor_lines_include_environment(self):
+        text = "\n".join(app.doctor_lines())
+        for label in ("OS", "터미널", "VT/ANSI", "Python", "ffmpeg", "설정 파일"):
+            self.assertIn(label, text)
 
 
 if __name__ == "__main__":
