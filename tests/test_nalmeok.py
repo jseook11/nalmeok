@@ -1303,5 +1303,100 @@ class PlatformTests(unittest.TestCase):
             self.assertIn(label, text)
 
 
+class DropTests(unittest.TestCase):
+    def make_temp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        return Path(temp.name)
+
+    def test_normalize_keeps_folders(self):
+        root = self.make_temp()
+        folder = root / "lecture"
+        folder.mkdir()
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, skipped = app.normalize_drop_paths([str(folder)])
+        self.assertEqual(folders, [folder])
+        self.assertEqual(skipped, [])
+
+    def test_normalize_links_media_file_into_own_job_folder(self):
+        root = self.make_temp()
+        source = root / "week1.mp4"
+        source.write_bytes(b"video")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, skipped = app.normalize_drop_paths([str(source)])
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(folders), 1)
+        job = folders[0]
+        self.assertEqual(job, root / "jobs" / "week1")
+        self.assertEqual((job / "week1.mp4").read_bytes(), b"video")
+
+    def test_normalize_copies_when_hardlink_fails(self):
+        root = self.make_temp()
+        source = root / "week1.m4a"
+        source.write_bytes(b"audio")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            with mock.patch.object(app.os, "link", side_effect=OSError("no link")):
+                folders, _ = app.normalize_drop_paths([str(source)])
+        self.assertEqual((folders[0] / "week1.m4a").read_bytes(), b"audio")
+        self.assertTrue(source.is_file())
+
+    def test_normalize_skips_unsupported_and_missing(self):
+        root = self.make_temp()
+        notes = root / "notes.txt"
+        notes.write_text("hello", encoding="utf-8")
+        missing = root / "missing.mp4"
+        folders, skipped = app.normalize_drop_paths([str(notes), str(missing)])
+        self.assertEqual(folders, [])
+        self.assertEqual([name for name, _ in skipped], [str(notes), str(missing)])
+        self.assertIn("지원하지 않는", skipped[0][1])
+        self.assertIn("찾을 수 없", skipped[1][1])
+
+    def test_normalize_ignores_duplicate_arguments(self):
+        root = self.make_temp()
+        source = root / "week1.mp4"
+        source.write_bytes(b"video")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(source), str(source)])
+        self.assertEqual(len(folders), 1)
+
+    def test_job_folder_for_same_stem_gets_suffix(self):
+        root = self.make_temp()
+        first = root / "a" / "week1.mp4"
+        second = root / "b" / "week1.mp4"
+        first.parent.mkdir()
+        second.parent.mkdir()
+        first.write_bytes(b"one")
+        second.write_bytes(b"two")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(first), str(second)])
+        self.assertEqual([folder.name for folder in folders], ["week1", "week1-2"])
+
+    def test_copy_result_adds_suffix_to_documents_folder(self):
+        root = self.make_temp()
+        folder = root / "lecture"
+        folder.mkdir()
+        (folder / "lecture.md").write_text("first", encoding="utf-8")
+        documents = root / "docs"
+        first, error = app.copy_result_to_documents(folder, documents)
+        self.assertEqual(error, "")
+        self.assertEqual(first, documents / "lecture.md")
+        second, _ = app.copy_result_to_documents(folder, documents)
+        self.assertEqual(second, documents / "lecture (2).md")
+        self.assertEqual((documents / "lecture (2).md").read_text(encoding="utf-8"),
+                         "first")
+
+    def test_copy_result_without_output_is_not_an_error(self):
+        root = self.make_temp()
+        folder = root / "empty"
+        folder.mkdir()
+        self.assertEqual(app.copy_result_to_documents(folder, root / "docs"),
+                         (None, ""))
+
+    def test_parse_args_drop_takes_multiple_paths(self):
+        args = app.parse_args(["drop", "./lecture", "./week1.mp4"])
+        self.assertEqual(args.command, "drop")
+        self.assertEqual(args.paths, ["./lecture", "./week1.mp4"])
+
+
 if __name__ == "__main__":
     unittest.main()

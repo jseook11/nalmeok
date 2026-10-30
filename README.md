@@ -79,7 +79,7 @@ Python·uv·Git을 설치할 필요가 없습니다. ZIP에 실행에 필요한 
 2. SmartScreen 경고가 나오면 **추가 정보** → **실행**을 누릅니다. 코드서명을 하지 않아 경고가 정상적으로 표시됩니다.
 3. "설치가 끝났습니다"가 나오면 창을 닫습니다.
 
-설치 위치는 `%LOCALAPPDATA%\Programs\nalmeok`이고, 바탕화면과 시작 메뉴에 **nalmeok** 바로가기가 생깁니다. 레지스트리와 PATH는 건드리지 않습니다.
+설치 위치는 `%LOCALAPPDATA%\Programs\nalmeok`이고, 바탕화면과 시작 메뉴에 **nalmeok**와 **nalmeok에 끌어놓기** 바로가기가 생깁니다. 레지스트리와 PATH는 건드리지 않습니다.
 
 ### 4. 첫 실행
 
@@ -90,6 +90,20 @@ Python·uv·Git을 설치할 필요가 없습니다. ZIP에 실행에 필요한 
 
 MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴더의 `ffmpeg.exe`와 `ffprobe.exe`는 지우지 마세요.
 
+### 5. 드래그앤드롭으로 전사하기
+
+터미널 메뉴를 거치지 않고 바로 전사할 수 있습니다.
+
+1. 탐색기에서 전사할 폴더나 MP4/M4A 파일을 선택합니다.
+2. 바탕화면의 **nalmeok에 끌어놓기** 바로가기 위에 끌어다 놓습니다.
+3. 예상 분량과 비용을 확인하고 Enter를 누릅니다.
+4. 끝나면 결과 `.md`가 `문서\nalmeok`(경로: `%USERPROFILE%\Documents\nalmeok`)에 복사됩니다.
+
+- **폴더**는 그 자리에서 전사하고 결과만 문서 폴더로 복사합니다. 폴더 안의 상태 파일과 원본은 그대로 둡니다.
+- **MP4/M4A 파일 하나**는 `%LOCALAPPDATA%\nalmeok\jobs\<파일명>`에 별도 작업 폴더를 만들어 처리합니다. 같은 폴더의 다른 강의와 섞이지 않으며, 원본 파일은 하드링크로 연결하고 안 되면 복사합니다.
+- 여러 항목을 한 번에 떨어뜨려도 순서대로 처리하고 마지막에 성공·실패를 요약합니다.
+- 이름이 겹치면 `강의 (2).md`처럼 번호를 붙여 저장합니다.
+
 ### Windows 문제 해결
 
 - **SmartScreen이 실행을 막습니다.** ZIP을 풀기 전에 속성에서 **차단 해제**를 했는지 확인하세요. 그래도 막히면 **추가 정보 → 실행**을 선택합니다.
@@ -98,7 +112,7 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 - **오류 창이 금방 닫힙니다.** `nalmeok.cmd`는 종료 코드가 0이 아니면 `pause`로 창을 유지합니다. 그래도 닫히면 설치 폴더에서 `nalmeok.cmd`를 직접 실행하세요.
 - **Ctrl+C로 종료하면 "일괄 작업을 끝내시겠습니까?(Y/N)"가 뜹니다.** 배치 런처 특성입니다. TUI의 `q` 또는 종료 메뉴를 사용하면 나오지 않습니다. 프롬프트가 뜨면 `Y`를 누르면 됩니다.
 - **진단 정보가 필요합니다.** `nalmeok doctor`를 실행하면 Windows 버전, 터미널, VT 지원, 인코딩, ffmpeg/ffprobe, SDK, 설정 경로를 한 번에 확인할 수 있습니다. 이슈에는 이 출력과 `winver`, 실행 방법, 스크린샷을 붙여 주세요.
-- **제거하려면** `%LOCALAPPDATA%\Programs\nalmeok` 폴더와 바탕화면·시작 메뉴의 `nalmeok` 바로가기를 삭제합니다. `%APPDATA%\nalmeok`의 설정과 키는 별도이므로 필요하면 함께 삭제하세요.
+- **제거하려면** `%LOCALAPPDATA%\Programs\nalmeok` 폴더와 바탕화면·시작 메뉴의 `nalmeok`, `nalmeok에 끌어놓기` 바로가기를 삭제합니다. `%APPDATA%\nalmeok`의 설정과 키, `%LOCALAPPDATA%\nalmeok\jobs`의 작업 폴더는 별도이므로 필요하면 함께 삭제하세요.
 - **다운로드 무결성 확인(선택).** PowerShell에서 `Get-FileHash .\nalmeok-<버전>-win64.zip -Algorithm SHA256`을 실행해 `SHA256SUMS.txt`의 값과 비교합니다.
 
 ---
@@ -439,6 +453,9 @@ export GEMINI_API_KEY="your-api-key"
 
 # 8. 무료 등급 live 전사 (Batch 없이, 130분 그룹 · 자동 간격 · 이어서 가능)
 ./app.py live ./lecture_folder
+
+# 9. 드롭한 폴더·파일을 차례로 전사하고 결과를 문서 폴더에 모으기
+./app.py drop ./lecture_folder ./week1.mp4
 
 # 그룹 길이/간격/모델 조정
 ./app.py live ./lecture_folder --chunk-minutes 120 --gap 12 \

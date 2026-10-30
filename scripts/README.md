@@ -19,7 +19,7 @@ python scripts\build_windows.py
 결과:
 
 ```text
-dist\nalmeok-<version>-win64.zip   # ZIP 루트에 nalmeok.cmd, installer.cmd, runtime\ ...
+dist\nalmeok-<version>-win64.zip   # ZIP 루트에 nalmeok.cmd, nalmeok-drop.cmd, installer.cmd, runtime\ ...
 dist\SHA256SUMS.txt                # ZIP의 SHA-256
 build\nalmeok\                     # ZIP에 들어갈 중간 파일
 build\cache\                       # 내려받은 런타임/ffmpeg 캐시 (SHA-256 검증됨)
@@ -43,7 +43,8 @@ build\cache\                       # 내려받은 런타임/ffmpeg 캐시 (SHA-2
 ## ZIP 내용
 
 ```text
-nalmeok.cmd          installer.cmd
+nalmeok.cmd          nalmeok-drop.cmd   installer.cmd
+shortcuts.ps1        (바로가기 2개 생성: nalmeok, nalmeok에 끌어놓기)
 nalmeok.py           app.py             pyproject.toml
 README.md            LICENSE
 nalmeok.ico          (있을 때만. 없으면 installer.cmd가 기본 아이콘 사용)

@@ -476,7 +476,7 @@ def write_source_notices(licenses_dir: Path) -> None:
 
 
 def verify_cmd_files(stage_dir: Path) -> None:
-    for name in ("nalmeok.cmd", "installer.cmd"):
+    for name in ("nalmeok.cmd", "nalmeok-drop.cmd", "installer.cmd"):
         path = stage_dir / name
         if not path.is_file():
             raise BuildError(f"{name} is missing from the staging directory")
@@ -568,7 +568,10 @@ def build() -> None:
     copy_file(ROOT / "README.md", STAGE_DIR / "README.md")
     copy_file(ROOT / "LICENSE", STAGE_DIR / "LICENSE")
     copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok.cmd", STAGE_DIR / "nalmeok.cmd")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok-drop.cmd",
+                     STAGE_DIR / "nalmeok-drop.cmd")
     copy_cmd_as_crlf(SCRIPTS_DIR / "installer.cmd", STAGE_DIR / "installer.cmd")
+    copy_file(SCRIPTS_DIR / "shortcuts.ps1", STAGE_DIR / "shortcuts.ps1")
 
     icon = ROOT / "assets" / "nalmeok.ico"
     if not icon.is_file():

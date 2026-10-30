@@ -16,6 +16,7 @@
   nalmeok wait ./lecture --download # 완료까지 대기 후 자동 다운로드
   nalmeok download ./lecture        # 결과 병합 후 실제 비용 보고
   nalmeok stats                     # 지금까지 쓴 금액 합계와 평균
+  nalmeok drop ./lecture ./week1.mp4 # 드롭한 폴더·파일 전사 후 Documents\nalmeok
 
 인자 없이 실행하면 키 → 작업 → 진행 3화면으로 이어집니다. 키가 없을 때만 첫 화면에서
 물어보고, Enter 를 누르면 과금 없이 확인한 뒤 저장해 다음 실행부터는 묻지 않습니다
@@ -77,7 +78,7 @@ WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
 # 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
 RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 SDK = "google-genai"
 DEFAULT_MODEL = "gemini-3.8-flash"
@@ -126,7 +127,7 @@ SKIP_SCAN_NAMES = {
 }
 
 COMMANDS = ("convert", "estimate", "upload", "status", "wait", "download", "stats",
-            "live", "auto", "doctor")
+            "live", "auto", "doctor", "drop")
 
 # USD / 1M tokens: (텍스트 입력, 오디오 입력, 출력). 2026-10 공식 가격표 기준.
 MODELS = {
@@ -1004,6 +1005,106 @@ def natural_key(filename):
 
 def output_path(folder):
     return folder / (folder.name + ".md")
+
+
+DROP_FILE_SUFFIXES = (".mp4", ".m4a")
+
+
+def documents_dir():
+    """드래그앤드롭으로 만든 결과를 모아 두는 사용자 문서 폴더."""
+    return Path.home() / "Documents" / "nalmeok"
+
+
+def drop_jobs_dir():
+    """드롭한 단일 파일을 전사할 별도 작업 폴더의 상위 경로."""
+    if IS_WINDOWS:
+        base = os.environ.get("LOCALAPPDATA")
+        if base:
+            return Path(base) / "nalmeok" / "jobs"
+    base = os.environ.get("XDG_DATA_HOME")
+    if base:
+        return Path(base) / "nalmeok" / "jobs"
+    return Path.home() / ".local" / "share" / "nalmeok" / "jobs"
+
+
+def _available_job_dir(stem):
+    base = drop_jobs_dir()
+    candidate = base / stem
+    index = 2
+    while candidate.exists():
+        candidate = base / f"{stem}-{index}"
+        index += 1
+    return candidate
+
+
+def file_job_folder(source):
+    """드롭한 미디어 파일 하나를 자기만의 작업 폴더로 가져옵니다.
+
+    같은 폴더의 다른 강의와 섞이지 않도록 별도 폴더를 만들고, 원본은 하드링크로
+    연결합니다(다른 볼륨이거나 링크가 안 되면 복사). 원본 파일은 그대로 둡니다.
+    """
+    folder = _available_job_dir(source.stem)
+    folder.mkdir(parents=True)
+    target = folder / source.name
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+    return folder
+
+
+def normalize_drop_paths(raw_paths):
+    """드롭 인자를 작업 폴더 목록과 건너뛴 항목으로 나눕니다."""
+    folders = []
+    skipped = []
+    seen = set()
+    for raw in raw_paths:
+        text = str(raw).strip().strip('"')
+        if not text:
+            continue
+        path = Path(text).expanduser()
+        try:
+            marker = path.resolve()
+        except OSError:
+            marker = path.absolute()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        if path.is_dir():
+            folders.append(path)
+            continue
+        if path.is_file() and path.suffix.lower() in DROP_FILE_SUFFIXES:
+            folders.append(file_job_folder(path))
+            continue
+        reason = "지원하지 않는 형식" if path.is_file() else "경로를 찾을 수 없음"
+        skipped.append((text, reason))
+    return folders, skipped
+
+
+def result_copy_path(directory, name):
+    """문서 폴더에서 겹치지 않는 결과 파일 경로를 고릅니다."""
+    directory = Path(directory)
+    candidate = directory / f"{name}.md"
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{name} ({index}).md"
+        index += 1
+    return candidate
+
+
+def copy_result_to_documents(folder, directory=None):
+    """완료된 결과를 문서 폴더로 복사합니다. (복사본, 오류)를 돌려줍니다."""
+    source = output_path(folder)
+    if not source.is_file():
+        return None, ""
+    target_dir = Path(directory) if directory else documents_dir()
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = result_copy_path(target_dir, folder.name)
+        shutil.copy2(source, target)
+    except OSError as exc:
+        return None, str(exc)
+    return target, ""
 
 
 def state_path(folder):
@@ -3113,8 +3214,13 @@ def parse_args(argv=None):
         ("auto", "무료 키 먼저 → 남는 오디오는 유료 Batch"),
         ("stats", "지금까지 쓴 금액 합계와 평균"),
         ("doctor", "환경 진단 정보 출력 (문제 보고용)"),
+        ("drop", "폴더·MP4·M4A를 받아 전사하고 문서 폴더에 모음"),
     ):
         command = commands.add_parser(name, help=help_text)
+        if name == "drop":
+            command.add_argument("paths", nargs="+",
+                                 help="폴더 또는 MP4/M4A 파일 (여러 개 가능)")
+            continue
         if name == "stats":
             command.add_argument("folder", nargs="?", default=".",
                                  help="집계할 상위 폴더 (기본값: 현재 폴더)")
@@ -6049,6 +6155,58 @@ def session_screen(folder, key):
     return folder_session(folder, key)
 
 
+def show_drop_summary(results):
+    """드롭한 항목별 결과와 문서 폴더 위치를 보여줍니다."""
+    header("드롭 결과", f"{len(results)}개 항목")
+    copied = 0
+    for folder, target, error in results:
+        name = folder.name if folder is not None else "건너뜀"
+        if target:
+            copied += 1
+            print(f"  완료  {name}  →  {short_path(target)}")
+        elif error:
+            print(f"  실패  {name}  {error}")
+        else:
+            print(f"  대기  {name}  결과가 아직 없습니다.")
+    print()
+    if copied:
+        print(f"  결과 폴더  {short_path(documents_dir())}")
+        print()
+    wait("Enter 닫기")
+
+
+def drop_flow(raw_paths):
+    """바로가기에 떨어뜨린 폴더·파일을 차례로 전사하고 결과를 모읍니다."""
+    if not sys.stdin.isatty():
+        fail("드롭 실행은 실제 터미널에서 해야 합니다.")
+    require_tui()
+    folders, skipped = normalize_drop_paths(raw_paths)
+    if not folders:
+        details = "".join(f"\n  · {name}: {reason}" for name, reason in skipped)
+        fail("전사할 폴더나 MP4/M4A 파일이 없습니다." + details)
+    with fullscreen():
+        key = current_key()
+        if not key:
+            key = key_screen()
+        if not current_key(key):
+            fail("API 키가 없어 전사를 시작할 수 없습니다.")
+        results = []
+        for folder in folders:
+            remember_folder(folder)
+            try:
+                key = session_screen(folder, key)
+                target, error = copy_result_to_documents(folder)
+                results.append((folder, target, error))
+            except KeyboardInterrupt:
+                results.append((folder, None, "중단됨"))
+                break
+            except (RuntimeError, OSError, ValueError) as exc:
+                results.append((folder, None, str(exc)))
+        for name, reason in skipped:
+            results.append((None, None, f"{name}: {reason}"))
+        show_drop_summary(results)
+
+
 def interactive():
     if not sys.stdin.isatty():
         fail("터미널 메뉴는 터미널에서 실행하세요. 명령어 사용법: nalmeok --help")
@@ -6140,6 +6298,9 @@ def main():
         return
     if args.command == "doctor":
         show_doctor()
+        return
+    if args.command == "drop":
+        drop_flow(args.paths)
         return
     folder = Path(args.folder).expanduser().resolve()
     if not folder.is_dir():
