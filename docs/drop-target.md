@@ -115,9 +115,18 @@
 ## 8. 검증 메모
 
 - 단위 테스트: `DropTests` 9개 (정규화, 하드링크 폴백, 작업 폴더 suffix, 문서 복사 suffix, CLI 파싱).
-- Windows 실기 확인 필요:
-  1. 탐색기에서 폴더 1개를 `nalmeok에 끌어놓기.lnk`에 드롭.
-  2. MP4/M4A 파일 1개, 여러 개 드롭.
-  3. 공백·한글 경로.
-  4. 바로가기가 `.cmd`에 경로를 인자로 넘기는지(특히 여러 개) 확인. 안 되면 `.cmd`를 바탕화면에 직접 두는 폴백.
+- macOS: 124 tests pass (8 skip).
+- Windows 11 (2026-10-30, SSH/ConPTY, 설치본 0.5.0):
+  - 124 tests pass (3 skip).
+  - `nalmeok-drop.cmd --help` → `drop --help` 인자 전달 확인.
+  - `.lnk` → `.cmd` 경유 `--help` 전달, 종료 코드 0 확인.
+  - `shortcuts.ps1`로 바탕화면·시작 메뉴에 `nalmeok`, `nalmeok에 끌어놓기` 2개 생성,
+    한글 이름·대상 경로 확인.
+  - 공백·한글 경로(`Drop Test\강의 1.txt`)가 인용을 거쳐 파이썬까지 전달되고
+    "지원하지 않는 형식" 진단에 그대로 표시됨.
+  - 실제 `week1.m4a` 드롭: `%LOCALAPPDATA%\nalmeok\jobs\week1` 생성, 원본과
+    하드링크(`fsutil hardlink list`로 두 경로 확인), Esc 후 "드롭 결과" 요약·정상 종료.
+- 남은 수동 확인: 탐색기에서 마우스로 실제 드래그(폴더 1개, 여러 파일) 1회.
+  셸 경유 인자 전달은 위에서 확인했으므로 실패 시 `.cmd`를 바탕화면에 직접 두는 폴백만 검토.
+
 
