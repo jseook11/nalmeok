@@ -16,8 +16,8 @@
 | 드롭 화면 흐름 | `nalmeok.py` `drop_paths_screen`, `drop_session`, `run_drop_folders`, `drop_flow`, `show_drop_summary` |
 | 홈 진입점 | `nalmeok.py` `home_screen`의 `d`, `interactive` 분기 |
 | CLI | `nalmeok.py` `parse_args`의 `drop`, `main` 분기 |
-| 런처 | `scripts/nalmeok-drop.cmd` |
-| 바로가기 | `scripts/shortcuts.ps1`, `scripts/installer.cmd` |
+| 런처 | `scripts/nalmeok-drop.cmd` (ASCII), 안내 문구는 `scripts/messages.ps1` |
+| 바로가기 | `scripts/shortcuts.ps1`, `scripts/install.ps1` |
 | 테스트 | `tests/test_nalmeok.py` `DropTests` |
 
 
@@ -85,23 +85,21 @@
 
 - `COMMANDS`에 `drop` 추가. `paths`는 `nargs="+"`.
 - `nalmeok drop ./lecture ./week1.mp4` 형태.
-- `scripts/nalmeok-drop.cmd`:
+- `scripts/nalmeok-drop.cmd` (순수 ASCII):
   ```bat
   @echo off
   title nalmeok drop
   setlocal
-  set "HERE=%~dp0"
-  set "PYTHONUTF8=1"
-  set "PYTHONIOENCODING=utf-8"
-  if "%~1"=="" (
-    echo 폴더나 MP4/M4A 파일을 이 파일 위에 끌어다 놓으세요.
-    pause
-    exit /b 1
-  )
-  "%HERE%runtime\python.exe" "%HERE%nalmeok.py" drop %*
-  if errorlevel 1 pause
+  if not "%~1"=="" goto :run
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0messages.ps1" drop-help
+  pause
+  exit /b 1
+  :run
+  call "%~dp0nalmeok.cmd" drop %*
   ```
-- `installer.cmd`가 두 번째 바로가기 `nalmeok에 끌어놓기.lnk`를 만든다.
+  한국어 안내는 `messages.ps1`(UTF-8 BOM)이 출력한다. `.cmd`에 비ASCII를 넣으면
+  cmd.exe가 줄을 중간부터 실행한다(D19, `docs/windows-support.md`).
+- `install.ps1`이 두 번째 바로가기 `nalmeok에 끌어놓기.lnk`를 만든다.
   - Target: `%DEST%\nalmeok-drop.cmd`
   - WorkingDirectory: `%USERPROFILE%`
   - Icon: `%DEST%\nalmeok.ico`
@@ -147,6 +145,8 @@
   - 홈 화면에 `ESC[200~경로 ESC[201~`를 보내면 `d` 없이 바로 전사 화면으로 이동.
   - Esc → "드롭 결과" 요약 → Enter → 홈 복귀 → q 종료.
   - `d` 경로 입력도 동일하게 동작.
+- Windows 11 (2026-10-30, v0.6.2, ko-KR): 인자 없는 `nalmeok-drop.cmd`가
+  `messages.ps1`의 한국어 안내를 출력하고 `is not recognized` 오류가 없음을 확인.
 - Windows 11 (2026-10-30, SSH/ConPTY, 설치본 0.5.0):
   - 134 tests pass (4 skip).
   - `nalmeok-drop.cmd --help` → `drop --help` 인자 전달 확인.

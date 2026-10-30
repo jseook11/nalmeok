@@ -1252,6 +1252,34 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(match.group(1), app.__version__)
 
 
+class WindowsScriptTests(unittest.TestCase):
+    """cmd.exe는 UTF-8 배치 줄을 중간부터 실행하므로 .cmd는 순수 ASCII여야 한다."""
+
+    def setUp(self):
+        self.scripts = Path(__file__).resolve().parent.parent / "scripts"
+
+    def test_cmd_files_are_pure_ascii(self):
+        for path in sorted(self.scripts.glob("*.cmd")):
+            with self.subTest(path=path.name):
+                path.read_bytes().decode("ascii")
+
+    def test_korean_powershell_scripts_have_bom(self):
+        for name in ("install.ps1", "messages.ps1"):
+            with self.subTest(name=name):
+                data = (self.scripts / name).read_bytes()
+                self.assertTrue(data.startswith(b"\xef\xbb\xbf"))
+                self.assertGreater(len(data), 3)
+
+    def test_installer_delegates_to_app_install_script(self):
+        text = (self.scripts / "installer.cmd").read_text(encoding="ascii")
+        self.assertIn(r"app\install.ps1", text)
+
+    def test_drop_launcher_prints_help_through_messages(self):
+        text = (self.scripts / "nalmeok-drop.cmd").read_text(encoding="ascii")
+        self.assertIn(r"messages.ps1", text)
+        self.assertIn("drop-help", text)
+
+
 class PlatformTests(unittest.TestCase):
     def test_windows_key_mapping(self):
         self.assertEqual(app.map_windows_key("\xe0", "H"), "up")

@@ -87,23 +87,37 @@ jobs:
 
           Push-Location smoke
           try {
+            $extra = Get-ChildItem -Name | Where-Object { $_ -notin @('installer.cmd', 'app') }
+            if ($extra) { throw "unexpected entries in the ZIP root: $($extra -join ', ')" }
+            if (-not (Test-Path 'installer.cmd')) { throw 'installer.cmd is missing from the ZIP root' }
             foreach ($name in @('nalmeok.cmd', 'nalmeok-drop.cmd', 'bootstrap.ps1',
-                                'bootstrap.env', 'installer.cmd', 'shortcuts.ps1',
-                                'nalmeok.py')) {
-              if (-not (Test-Path $name)) { throw "$name is missing from the ZIP" }
+                                'bootstrap.env', 'shortcuts.ps1', 'install.ps1',
+                                'messages.ps1', 'nalmeok.py')) {
+              if (-not (Test-Path (Join-Path 'app' $name))) { throw "app\$name is missing from the ZIP" }
             }
 
-            & python .\nalmeok.py --version
+            & python .\app\nalmeok.py --version
             if ($LASTEXITCODE -ne 0) { throw "nalmeok.py --version failed: $LASTEXITCODE" }
 
             # First run downloads Python into LOCALAPPDATA, then prints the version.
-            & cmd /c '.\nalmeok.cmd --version < NUL'
+            & cmd /c '.\app\nalmeok.cmd --version < NUL'
             if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
             $current = Join-Path $env:LOCALAPPDATA 'nalmeok\runtime\current.txt'
             if (-not (Test-Path $current)) { throw 'bootstrap did not install Python' }
 
-            & cmd /c '.\nalmeok-drop.cmd --help < NUL'
+            & cmd /c '.\app\nalmeok-drop.cmd --help < NUL'
             if ($LASTEXITCODE -ne 0) { throw "nalmeok-drop.cmd --help failed: $LASTEXITCODE" }
+
+            # Regression guard: cmd.exe used to execute fragments of Korean text
+            # after chcp 65001. The .cmd files must stay pure ASCII.
+            $installerOut = (& cmd /c '.\installer.cmd < NUL' 2>&1 | Out-String)
+            $installerCode = $LASTEXITCODE
+            if ($installerCode -ne 0) { throw "installer.cmd failed ($installerCode): $installerOut" }
+            if ($installerOut -match 'is not recognized') {
+              throw "installer.cmd output contains a cmd parsing error: $installerOut"
+            }
+            $installed = Join-Path $env:LOCALAPPDATA 'Programs\nalmeok\nalmeok.cmd'
+            if (-not (Test-Path $installed)) { throw 'installer.cmd did not copy app\ into Programs\nalmeok' }
           } finally {
             Pop-Location
           }

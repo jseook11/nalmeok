@@ -33,6 +33,7 @@
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 | 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows/macOS 134 tests pass. macOS는 터미널에 끌어다 놓으면 `d` 없이 바로 시작(pseudo-terminal 검증), Windows는 바로가기·`d`·한글/공백 경로·하드링크 확인 |
 | **후속 · Windows thin 배포(v0.6.1)** | 완료 | - | thin ZIP 193KB. Windows 11에서 첫 실행 PBS 3.12.16·SHA 검증, 두 번째 실행 즉시 시작, SDK 2.31.0 설치, ffmpeg 160MB 온디맨드, live `update --check`, 0.6.1→0.6.2 apply/restore 확인. CI green |
+| **후속 · 설치 오류 수정·ZIP 구조 단순화(v0.6.2)** | 완료 | - | Windows 11(ko-KR)에서 `'더의' is not recognized` 재현 → `.cmd` ASCII화(D19)·`app\` 구조(D18). 새 thin ZIP 194KB로 설치·바로가기·드롭 안내·`--version` 확인, 오류 없음 |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -68,6 +69,7 @@
 5. **macOS/Linux 동작과 기존 테스트를 깨지 않는다.** 99개 통과 기준선을 유지한다.
 6. **Windows 지원을 실기 검증 없이 "지원됨"으로 표기하지 않는다.**
 7. **지원 하한은 Windows 10 22H2(빌드 19045) / Windows 11, x64.** 그 이하는 best-effort.
+8. **`.cmd` 파일은 순수 ASCII다.** 한국어를 포함한 비ASCII 문구는 UTF-8 BOM이 있는 `.ps1`이 소유한다(D19). 빌드는 이를 검사하고 위반 시 실패한다.
 
 ### 0.4 하지 말 것 (Do-not list)
 
@@ -80,6 +82,7 @@
 - `os.chmod(0o600)`이 Windows에서 권한을 보호한다고 가정하지 않는다.
 - `os.execv` 재시작 경로를 Windows 배포물에서 타게 하지 않는다. (런타임에 SDK가 이미 있어 `ensure_sdk`가 조기 반환해야 정상)
 - 전체 line-mode TUI를 새로 만들지 않는다. (2장 D9)
+- `.cmd`(배치) 파일에 한국어·비ASCII 문자를 넣지 않는다. cmd.exe가 UTF-8 줄을 중간부터 실행해 `'더의' is not recognized` 같은 오류가 난다. (D19)
 
 ---
 
@@ -114,7 +117,7 @@
 | D5 | ffmpeg/ffprobe를 ZIP에 번들 | 학생 파일 대부분이 MP4. PATH/winget 안내는 비개발자 이탈 지점 | LGPL 정적 빌드 + 고지. 실측 ZIP 164.7MiB, v1은 번들 유지 |
 | D6 | 지원 하한 Windows 10 22H2 / 11, x64 | 남은 Win10 사용자의 사실상 표준. conhost VT 동작을 보장하기 쉬움 | 1809~21H2는 best-effort로 문서화 |
 | D7 | conhost와 Windows Terminal 모두 지원 | Win10은 Windows Terminal이 기본이 아님 | VT 활성화 + conhost 심볼 폴백 |
-| D8 | ZIP은 최상위 폴더 없이 루트에 파일 배치 | Explorer "압축 풀기"가 ZIP 이름 폴더를 만들므로 이중 중첩 방지 | `installer.cmd`가 `%~dp0` 기준으로 복사 |
+| D8 | ZIP은 최상위 폴더 없이 루트에 파일 배치 | Explorer "압축 풀기"가 ZIP 이름 폴더를 만들므로 이중 중첩 방지 | v0.6.2부터 D18로 대체. 압축을 풀면 `installer.cmd` + `app\` |
 | D9 | 전체 line-mode TUI는 범위 밖 | VT 실패는 지원 하한에서 드묾. 화면별 대체 구현 비용이 큼 | VT 실패 시 명확한 오류 + Windows Terminal 안내. 필요 시 후속 이슈 |
 | D10 | `nalmeok.cmd`는 인자가 없을 때만 `cd /d "%USERPROFILE%"` | CLI에서 상대 경로 인자를 깨지 않기 위함 | 더블클릭은 홈에서 시작, `nalmeok.cmd estimate .\x`는 cwd 유지 |
 | D11 | ffmpeg 탐색은 `find_tool()`로 통일 | 번들 파일은 PATH에 없음. `shutil.which` 3곳이 흩어져 있음 | `NALMEOK_FFMPEG` 환경변수 → 앱 폴더 → PATH 순 |
@@ -124,6 +127,8 @@
 | D15 | 메뉴·홈 화면을 diff 렌더링 | 방향키마다 전체 메뉴를 다시 출력해 Windows Terminal에서 깜빡임 | 첫 프레임만 전체 출력. 이후 변경된 줄만 `\033[K`로 갱신하고 나머지는 커서만 이동. 긴 메뉴는 커서 주변 뷰포트만 그려 `(시작-끝/전체)` 표시. 줄바꿈·리사이즈·작은 화면은 전체 재렌더로 폴백 |
 | **D16** | **thin ZIP이 Windows 표준 배포** | 165MB ZIP은 업데이트마다 전체 재다운로드·폴더 복제를 유발. macOS에서 검증한 "얇은 앱 + 첫 실행 다운로드" 모델을 Windows에도 적용 | `nalmeok-<v>-win64.zip` (~1MB): 앱 파일만 포함. 첫 실행에 PBS/SDK, MP4 첫 사용에 ffmpeg 다운로드. 데이터는 `%LOCALAPPDATA%\nalmeok` |
 | **D17** | **오프라인 번들은 선택 확장판** | 인터넷이 없거나 배포를 단일 파일로 고정해야 하는 환경 | `nalmeok-<v>-win64-offline.zip` (~165MB, 기존 번들). 기본 배포/CI 릴리스에는 thin만 올리고 offline은 필요 시 빌드 |
+| **D18** | **ZIP 루트에는 `installer.cmd`만, 나머지는 `app\`** | 일반 사용자는 파일이 많으면 installer를 못 찾는다. 구조를 단순하게 보여 주는 편이 설치 성공률에 직접 기여 | ZIP: `installer.cmd` + `app\`. 설치 결과는 평평한 `%LOCALAPPDATA%\Programs\nalmeok` |
+| **D19** | **`.cmd`는 순수 ASCII, 한국어는 UTF-8 BOM PowerShell로** | cmd.exe는 배치 파일을 실행 중 다시 읽는데, `chcp 65001` 뒤 UTF-8 줄에서 중간부터 파싱해 한글 조각을 명령으로 실행한다(0.6.2에서 재현: `'더의' is not recognized`). PowerShell 5.1은 BOM이 있는 UTF-8을 정확히 읽고 콘솔에 유니코드로 출력한다 | `install.ps1`, `messages.ps1`이 모든 한국어 문구 소유. 빌드가 .cmd의 비ASCII 바이트를 거부 |
 | D5 (역사) | ffmpeg/ffprobe를 ZIP에 번들 | 위 D5는 v0.6.0까지의 결정. v0.6.1부터 D16/D17로 대체 | offline 확장판에서만 번들 |
 
 ---
@@ -176,20 +181,25 @@ interactive() → fullscreen() → key_screen() → add_key_flow()
 
 ```text
 nalmeok-<version>-win64.zip   (~1MB)
-├─ nalmeok.cmd
-├─ nalmeok-drop.cmd
-├─ installer.cmd
-├─ bootstrap.ps1             # PBS 다운로드·SHA-256·압축 해제
-├─ bootstrap.env             # 고정 URL/SHA (PBS, ffmpeg)
-├─ shortcuts.ps1
-├─ nalmeok.py
-├─ app.py
-├─ pyproject.toml
-├─ nalmeok.ico
-├─ README.md
-├─ LICENSE
-└─ licenses/THIRD-PARTY.md
+├─ installer.cmd            # ZIP 루트에서 유일하게 보이는 파일
+└─ app/
+   ├─ nalmeok.cmd
+   ├─ nalmeok-drop.cmd
+   ├─ install.ps1           # 설치 로직·한국어 안내 (UTF-8 BOM)
+   ├─ messages.ps1          # 런처 안내 문구 (UTF-8 BOM)
+   ├─ bootstrap.ps1         # PBS 다운로드·SHA-256·압축 해제
+   ├─ bootstrap.env         # 고정 URL/SHA (PBS, ffmpeg)
+   ├─ shortcuts.ps1
+   ├─ nalmeok.py
+   ├─ app.py
+   ├─ pyproject.toml
+   ├─ nalmeok.ico
+   ├─ README.md
+   ├─ LICENSE
+   └─ licenses/THIRD-PARTY.md
 ```
+
+비개발자가 ZIP을 열었을 때 `installer.cmd` 하나만 보이게 한다(D18). 설치할 때는 `app\*`를 `%LOCALAPPDATA%\Programs\nalmeok`로 복사하므로 **설치된 폴더는 평평한 구조**를 유지한다.
 
 설치 후:
 
@@ -455,25 +465,30 @@ Windows는 `%USERPROFILE%` 아래 AppData/OneDrive가 커서 전체 재귀가 �
 ```bat
 @echo off
 title nalmeok
-setlocal
+setlocal EnableExtensions
 set "HERE=%~dp0"
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
+rem offline: %HERE%runtime\python.exe + %HERE%ffmpeg.exe
+rem thin:    %LOCALAPPDATA%\nalmeok\runtime\<version>\python.exe
 if "%~1"=="" cd /d "%USERPROFILE%"
-"%HERE%runtime\python.exe" "%HERE%nalmeok.py" %*
+"%PY%" "%DATA%\app\nalmeok.py" %*
 if errorlevel 1 pause
 ```
 
+- 순수 ASCII. 런타임 오류 안내는 `messages.ps1 -Id install-failed|python-missing`(D19).
+
 **`installer.cmd` 계약**
 
-- `%~dp0` → `%LOCALAPPDATA%\Programs\nalmeok`로 `robocopy /E` (삭제 없이 덮어쓰기)
-- 바탕화면 + 시작 메뉴에 `nalmeok.lnk`
-  - Target: `%DEST%\nalmeok.cmd`
+- ZIP 루트의 유일한 파일. 순수 ASCII 런처로, 실제 설치는 `app\install.ps1`이 한다.
+- `app\*` → `%LOCALAPPDATA%\Programs\nalmeok`로 복사(삭제 없이 덮어쓰기). 설치 폴더는 평평하다.
+- 바탕화면 + 시작 메뉴에 `nalmeok.lnk`, `nalmeok에 끌어놓기.lnk`
+  - Target: `%DEST%\nalmeok.cmd`, `%DEST%\nalmeok-drop.cmd`
   - WorkingDirectory: `%USERPROFILE%`
   - Icon: `%DEST%\nalmeok.ico`
 - 관리자 권한, 레지스트리, PATH 변경 없음
 - 제거 안내: 폴더와 바로가기 삭제
-- 오류 시 `pause`, 성공 시 "바탕화면의 nalmeok 바로가기로 실행하세요"
+- 오류 시 `pause`와 한국어 안내, 성공 시 "바탕화면의 nalmeok 바로가기로 실행하세요"
 
 **수용 기준**
 
@@ -502,7 +517,7 @@ if errorlevel 1 pause
 ### 6.2 CI
 
 - `ubuntu-latest`, `macos-latest`, `windows-latest` × Python 3.10/3.12: `unittest`
-- `windows-latest`: thin ZIP 빌드, `nalmeok.py --version`, **첫 실행 bootstrap**(PBS 다운로드) 후 `nalmeok.cmd --version`, `nalmeok-drop.cmd --help`
+- `windows-latest`: thin ZIP 빌드, `app\nalmeok.py --version`, **첫 실행 bootstrap**(PBS 다운로드) 후 `app\nalmeok.cmd --version`, `app\nalmeok-drop.cmd --help`, `installer.cmd` 실행 후 설치 폴더·바로가기 확인, 출력에 `is not recognized`가 없는지 검사
 - CI는 대화형 콘솔을 검증하지 못한다. **수동 검증이 최종 게이트**다.
 - offline 확장판은 기본 CI에서 빌드하지 않는다. 필요 시 `python scripts/build_windows.py --offline`.
 
@@ -517,6 +532,7 @@ if errorlevel 1 pause
 |---|---|---|---|
 | ZIP 차단 해제/압축 풀기 | | | |
 | `installer.cmd` + 바로가기 | | | |
+| 설치 콘솔에 `is not recognized` 없음 | | | |
 | 첫 실행 Python 다운로드(~25MB) | | | |
 | SDK 자동 설치(~20MB) | | | |
 | 첫 MP4 변환 시 ffmpeg 다운로드 | | | |
@@ -618,7 +634,7 @@ if errorlevel 1 pause
 | Q5 | Windows 알림 | 후순위, 터미널 벨 유지 | 보류 |
 | Q6 | line-mode TUI | 범위 밖 (D9) | 보류 |
 | Q7 | 실기 검증 담당 | Windows 11은 사용자 직접, Windows 10은 보류 | 확정 |
-| Q8 | 한 줄 `install.ps1`을 주 경로로 할지 | ZIP + `installer.cmd` 유지, `install.ps1`은 보조 후보 | 논의 |
+| Q8 | 한 줄 `install.ps1`을 주 경로로 할지 | 채택. `installer.cmd`(ASCII)가 `app\install.ps1`(UTF-8 BOM)을 호출 | 확정 (D18/D19) |
 
 ---
 
@@ -637,7 +653,8 @@ if errorlevel 1 pause
 | 2026-10-30 | 후속: 메뉴/홈 화면 diff 렌더링으로 방향키 깜빡임 제거(D15). Windows 115 tests pass | Claude Code |
 | 2026-10-30 | v0.6.0 릴리스(macOS notarized DMG + Windows ZIP) | Claude Code |
 | 2026-10-30 | Windows thin 배포 결정(D16/D17). thin ZIP 표준, 165MB는 `-offline` 확장판 | Claude Code |
-| 2026-10-30 | **v0.6.1 릴리스**. Windows thin ZIP(193KB)·bootstrap, macOS 0.6.1 notarized DMG. live manifest·update·ffmpeg 온디맨드 검증 | Claude Code |
+| 2026-10-30 | v0.6.1 릴리스. Windows thin ZIP(193KB)·bootstrap, macOS 0.6.1 notarized DMG. live manifest·update·ffmpeg 온디맨드 검증 | Claude Code |
+| 2026-10-30 | **v0.6.2**: 설치 중 `'더의' is not recognized` 수정. `.cmd` 순수 ASCII + 한국어는 UTF-8 BOM PowerShell(D19), ZIP 루트는 `installer.cmd`만·나머지 `app\`(D18). Windows 11 실기 검증 | Claude Code |
 | 2026-10-30 | 후속: 긴 메뉴 뷰포트 추가. 40개 폴더 탐색 clear_screen 11→1, Windows 115 tests pass | Claude Code |
 | 2026-10-30 | `feature/windows-support` PR #3 CI 전체 통과 후 `master`에 머지. v0.4.0 릴리스 기준 확정 | Claude Code |
 | 2026-10-30 | 후속: 드래그앤드롭 전사(`nalmeok drop`, `nalmeok-drop.cmd`, 두 번째 바로가기). v0.5.0. macOS 124 tests pass | Claude Code |

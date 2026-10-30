@@ -483,15 +483,27 @@ def write_source_notices(licenses_dir: Path) -> None:
 
 
 def verify_cmd_files(stage_dir: Path) -> None:
-    for name in ("nalmeok.cmd", "nalmeok-drop.cmd", "installer.cmd"):
-        path = stage_dir / name
+    """Check the .cmd launchers.
+
+    Batch files must be pure ASCII. cmd.exe re-reads a batch file while it
+    runs, and after ``chcp 65001`` it resumes mid-line on UTF-8 input, which
+    makes it execute fragments of Korean text as commands. Korean messages
+    belong in the UTF-8-BOM PowerShell scripts instead.
+    """
+    for path in (stage_dir / "installer.cmd",
+                 stage_dir / "app" / "nalmeok.cmd",
+                 stage_dir / "app" / "nalmeok-drop.cmd"):
+        name = path.name
         if not path.is_file():
             raise BuildError(f"{name} is missing from the staging directory")
         data = path.read_bytes()
         try:
-            data.decode("utf-8")
+            data.decode("ascii")
         except UnicodeDecodeError as exc:
-            raise BuildError(f"{name} is not valid UTF-8: {exc}") from exc
+            raise BuildError(
+                f"{name} must be pure ASCII; move non-ASCII text into a "
+                f"UTF-8-BOM PowerShell script ({exc})"
+            ) from exc
         without_crlf = data.replace(b"\r\n", b"")
         if b"\n" in without_crlf or b"\r" in without_crlf:
             raise BuildError(f"{name} must use CRLF line endings")
@@ -540,35 +552,61 @@ def bootstrap_env_text() -> str:
     )
 
 
+def copy_ps1(source: Path, destination: Path) -> None:
+    """Copy a PowerShell script byte for byte.
+
+    Scripts with non-ASCII text must start with a UTF-8 BOM, otherwise Windows
+    PowerShell 5.1 decodes them with the ANSI code page and mangles Korean.
+    """
+    if not source.is_file():
+        raise BuildError(f"required file is missing: {source}")
+    data = source.read_bytes()
+    if any(byte > 0x7F for byte in data) and not data.startswith(b"\xef\xbb\xbf"):
+        raise BuildError(f"{source.name} contains non-ASCII text without a UTF-8 BOM")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+
+
 def copy_common_files(stage: Path, thin: bool) -> None:
-    copy_file(ROOT / "nalmeok.py", stage / "nalmeok.py")
-    copy_file(ROOT / "app.py", stage / "app.py")
-    copy_file(ROOT / "pyproject.toml", stage / "pyproject.toml")
-    copy_file(ROOT / "README.md", stage / "README.md")
-    copy_file(ROOT / "LICENSE", stage / "LICENSE")
-    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok.cmd", stage / "nalmeok.cmd")
-    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok-drop.cmd",
-                     stage / "nalmeok-drop.cmd")
+    """Stage the distribution.
+
+    The ZIP root shows a single ``installer.cmd``; everything else lives under
+    ``app/`` so non-developers cannot miss the one file they need. installer.cmd
+    copies ``app\\*`` into ``%LOCALAPPDATA%\\Programs\\nalmeok``, so the installed
+    layout stays flat.
+    """
+    app = stage / "app"
+    app.mkdir(parents=True, exist_ok=True)
     copy_cmd_as_crlf(SCRIPTS_DIR / "installer.cmd", stage / "installer.cmd")
-    copy_file(SCRIPTS_DIR / "shortcuts.ps1", stage / "shortcuts.ps1")
-    copy_file(SCRIPTS_DIR / "bootstrap.ps1", stage / "bootstrap.ps1")
-    write_text(stage / "bootstrap.env", bootstrap_env_text())
+    copy_file(ROOT / "nalmeok.py", app / "nalmeok.py")
+    copy_file(ROOT / "app.py", app / "app.py")
+    copy_file(ROOT / "pyproject.toml", app / "pyproject.toml")
+    copy_file(ROOT / "README.md", app / "README.md")
+    copy_file(ROOT / "LICENSE", app / "LICENSE")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok.cmd", app / "nalmeok.cmd")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok-drop.cmd",
+                     app / "nalmeok-drop.cmd")
+    copy_ps1(SCRIPTS_DIR / "install.ps1", app / "install.ps1")
+    copy_ps1(SCRIPTS_DIR / "messages.ps1", app / "messages.ps1")
+    copy_ps1(SCRIPTS_DIR / "shortcuts.ps1", app / "shortcuts.ps1")
+    copy_ps1(SCRIPTS_DIR / "bootstrap.ps1", app / "bootstrap.ps1")
+    write_text(app / "bootstrap.env", bootstrap_env_text())
 
     icon = ROOT / "assets" / "nalmeok.ico"
     if not icon.is_file():
         icon = ROOT / "nalmeok.ico"
     if icon.is_file():
-        copy_file(icon, stage / "nalmeok.ico")
+        copy_file(icon, app / "nalmeok.ico")
         log("copied nalmeok.ico")
     else:
         log(
             "WARNING: nalmeok.ico is missing; the ZIP is built without an icon "
-            "and installer.cmd falls back to the Windows default icon."
+            "and install.ps1 falls back to the Windows default icon."
         )
 
     if thin:
-        licenses = stage / "licenses"
-        licenses.mkdir(parents=True)
+        licenses = app / "licenses"
+        licenses.mkdir(parents=True, exist_ok=True)
         write_text(
             licenses / "THIRD-PARTY.md",
             "This package downloads its runtime dependencies at first use.\n"
@@ -582,12 +620,17 @@ def copy_common_files(stage: Path, thin: bool) -> None:
 
 
 def verify_thin_files(stage: Path) -> None:
+    app = stage / "app"
+    if not (stage / "installer.cmd").is_file():
+        raise BuildError("installer.cmd is missing from the ZIP root")
     for name in ("bootstrap.ps1", "bootstrap.env", "shortcuts.ps1",
-                 "nalmeok-drop.cmd", "installer.cmd"):
-        if not (stage / name).is_file():
-            raise BuildError(f"{name} is missing from the thin staging directory")
+                 "install.ps1", "messages.ps1",
+                 "nalmeok.cmd", "nalmeok-drop.cmd", "nalmeok.py"):
+        if not (app / name).is_file():
+            raise BuildError(
+                f"app/{name} is missing from the thin staging directory")
     values = {}
-    for line in (stage / "bootstrap.env").read_text(encoding="utf-8").splitlines():
+    for line in (app / "bootstrap.env").read_text(encoding="utf-8").splitlines():
         if "=" in line:
             key, value = line.split("=", 1)
             values[key] = value
@@ -684,8 +727,10 @@ def build_offline() -> None:
 
     remove_tree(STAGE_DIR)
     STAGE_DIR.mkdir(parents=True)
-    runtime_dir = STAGE_DIR / "runtime"
-    licenses_dir = STAGE_DIR / "licenses"
+    app_dir = STAGE_DIR / "app"
+    app_dir.mkdir()
+    runtime_dir = app_dir / "runtime"
+    licenses_dir = app_dir / "licenses"
     licenses_dir.mkdir(parents=True)
 
     extract_python(python_archive, runtime_dir)
@@ -697,7 +742,7 @@ def build_offline() -> None:
     install_packages(runtime_dir)
     packages = installed_packages(runtime_dir)
 
-    extract_ffmpeg(ffmpeg_archive, STAGE_DIR, licenses_dir)
+    extract_ffmpeg(ffmpeg_archive, app_dir, licenses_dir)
     write_source_notices(licenses_dir)
 
     copy_common_files(STAGE_DIR, thin=False)
@@ -708,8 +753,8 @@ def build_offline() -> None:
     zip_path = DIST_DIR / f"nalmeok-{version}-win64-offline.zip"
     create_zip(STAGE_DIR, zip_path)
 
-    log("top-level file hashes:")
-    for path in sorted(STAGE_DIR.iterdir(), key=lambda item: item.name.lower()):
+    log("app/ file hashes:")
+    for path in sorted(app_dir.iterdir(), key=lambda item: item.name.lower()):
         if path.is_file():
             print(
                 f"  {sha256_file(path)}  {human_size(path.stat().st_size):>10}  "

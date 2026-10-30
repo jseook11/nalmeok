@@ -29,15 +29,14 @@ call :find_python
 if not defined PY (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%bootstrap.ps1"
   if errorlevel 1 (
-    echo.
-    echo Python 설치에 실패했습니다. 네트워크를 확인하고 다시 실행해 주세요.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%messages.ps1" install-failed
     pause
     exit /b 1
   )
   call :find_python
 )
 if not defined PY (
-  echo Python 실행 파일을 찾지 못했습니다.
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%messages.ps1" python-missing
   pause
   exit /b 1
 )
