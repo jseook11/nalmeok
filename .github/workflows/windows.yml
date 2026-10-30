@@ -63,46 +63,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Cache build downloads
-        uses: actions/cache@v4
-        with:
-          path: build/cache
-          key: nalmeok-win-build-${{ hashFiles('scripts/build_windows.py') }}
       - name: Build the distribution
         env:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: "utf-8"
         run: python scripts/build_windows.py
-      - name: Smoke test the extracted ZIP
+      - name: Smoke test the extracted thin ZIP
         shell: pwsh
         env:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: "utf-8"
         run: |
           $ErrorActionPreference = 'Stop'
-          $zip = Get-ChildItem -Path dist -Filter '*.zip' | Select-Object -First 1
-          if (-not $zip) { throw 'No ZIP found in dist/' }
+          $zip = Get-ChildItem -Path dist -Filter 'nalmeok-*-win64.zip' |
+            Where-Object { $_.Name -notlike '*offline*' } |
+            Select-Object -First 1
+          if (-not $zip) { throw 'No thin ZIP found in dist/' }
 
           Remove-Item -Recurse -Force smoke -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path smoke | Out-Null
           tar -xf $zip.FullName -C smoke
           if ($LASTEXITCODE -ne 0) { throw "ZIP extraction failed: $LASTEXITCODE" }
 
-          Copy-Item -Path tests -Destination smoke -Recurse -Force
           Push-Location smoke
           try {
-            & .\runtime\python.exe -m unittest discover -s tests -v
-            if ($LASTEXITCODE -ne 0) { throw "Bundled runtime tests failed: $LASTEXITCODE" }
-
-            # `< NUL` keeps the launcher's error-path `pause` from hanging CI.
-            & cmd /c '.\nalmeok.cmd --version < NUL'
-            if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
-
-            foreach ($name in @('nalmeok-drop.cmd', 'shortcuts.ps1')) {
+            foreach ($name in @('nalmeok.cmd', 'nalmeok-drop.cmd', 'bootstrap.ps1',
+                                'bootstrap.env', 'installer.cmd', 'shortcuts.ps1',
+                                'nalmeok.py')) {
               if (-not (Test-Path $name)) { throw "$name is missing from the ZIP" }
             }
-            & .\runtime\python.exe .\nalmeok.py drop --help | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "drop --help failed: $LASTEXITCODE" }
+
+            & python .\nalmeok.py --version
+            if ($LASTEXITCODE -ne 0) { throw "nalmeok.py --version failed: $LASTEXITCODE" }
+
+            # First run downloads Python into LOCALAPPDATA, then prints the version.
+            & cmd /c '.\nalmeok.cmd --version < NUL'
+            if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
+            $current = Join-Path $env:LOCALAPPDATA 'nalmeok\runtime\current.txt'
+            if (-not (Test-Path $current)) { throw 'bootstrap did not install Python' }
+
+            & cmd /c '.\nalmeok-drop.cmd --help < NUL'
+            if ($LASTEXITCODE -ne 0) { throw "nalmeok-drop.cmd --help failed: $LASTEXITCODE" }
           } finally {
             Pop-Location
           }
@@ -112,6 +113,8 @@ jobs:
           name: nalmeok-windows-${{ github.sha }}
           path: |
             dist/*.zip
+            dist/nalmeok.py
+            dist/windows-manifest.json
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

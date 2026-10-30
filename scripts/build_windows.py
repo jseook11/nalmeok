@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """Build the Windows ZIP distribution for nalmeok.
 
-The ZIP contains a standalone CPython runtime, google-genai, ffmpeg/ffprobe,
-the application sources, and the two .cmd entry points. It is built without
-PyInstaller or code signing, matching docs/windows-support.md.
-
-Run on Windows 10/11 x64 or GitHub Actions windows-latest:
+The default (thin) ZIP contains only the application, scripts, and
+bootstrap.ps1. On first run it downloads Python and google-genai; ffmpeg is
+downloaded when MP4 conversion is first needed. This matches the macOS
+distribution model and keeps updates small.
 
     python scripts/build_windows.py
 
+The optional offline variant bundles CPython, google-genai, and ffmpeg:
+
+    python scripts/build_windows.py --offline
+
 Outputs:
     dist/nalmeok-<version>-win64.zip
+    dist/nalmeok-<version>-win64-offline.zip   (with --offline)
     dist/SHA256SUMS.txt
 
-The script itself uses only the Python standard library. ``uv`` is used when
-it is on PATH; otherwise the bundled runtime's pip is used. All downloads are
-cached under build/cache/ and verified against the pinned SHA-256 values below.
+The script itself uses only the Python standard library. The offline build
+needs Windows; the thin build can run anywhere. All downloads are cached under
+build/cache/ and verified against the pinned SHA-256 values below.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -36,7 +41,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = ROOT / "scripts"
 BUILD_DIR = ROOT / "build"
 CACHE_DIR = BUILD_DIR / "cache"
-STAGE_DIR = BUILD_DIR / "nalmeok"
+STAGE_DIR = BUILD_DIR / "nalmeok-offline"
+THIN_STAGE_DIR = BUILD_DIR / "nalmeok-thin"
 DIST_DIR = ROOT / "dist"
 
 # --- Pinned inputs -----------------------------------------------------------
@@ -61,6 +67,7 @@ PYTHON_BUILD_STANDALONE_LICENSE_SHA256 = (
 )
 
 FFMPEG_RELEASE_TAG = "autobuild-2026-10-29-19-17"
+FFMPEG_VERSION = "8.1.3"
 FFMPEG_ASSET = "ffmpeg-n8.1.3-25-g611cec792a-win64-lgpl-8.1.zip"
 FFMPEG_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
@@ -522,7 +529,138 @@ def create_zip(stage_dir: Path, zip_path: Path) -> None:
     os.replace(temporary, zip_path)
 
 
-def build() -> None:
+def bootstrap_env_text() -> str:
+    return (
+        f"PBS_VERSION={PYTHON_VERSION}\n"
+        f"PBS_URL={PYTHON_URL}\n"
+        f"PBS_SHA256={PYTHON_SHA256}\n"
+        f"FFMPEG_VERSION={FFMPEG_VERSION}\n"
+        f"FFMPEG_URL={FFMPEG_URL}\n"
+        f"FFMPEG_SHA256={FFMPEG_SHA256}\n"
+    )
+
+
+def copy_common_files(stage: Path, thin: bool) -> None:
+    copy_file(ROOT / "nalmeok.py", stage / "nalmeok.py")
+    copy_file(ROOT / "app.py", stage / "app.py")
+    copy_file(ROOT / "pyproject.toml", stage / "pyproject.toml")
+    copy_file(ROOT / "README.md", stage / "README.md")
+    copy_file(ROOT / "LICENSE", stage / "LICENSE")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok.cmd", stage / "nalmeok.cmd")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok-drop.cmd",
+                     stage / "nalmeok-drop.cmd")
+    copy_cmd_as_crlf(SCRIPTS_DIR / "installer.cmd", stage / "installer.cmd")
+    copy_file(SCRIPTS_DIR / "shortcuts.ps1", stage / "shortcuts.ps1")
+    copy_file(SCRIPTS_DIR / "bootstrap.ps1", stage / "bootstrap.ps1")
+    write_text(stage / "bootstrap.env", bootstrap_env_text())
+
+    icon = ROOT / "assets" / "nalmeok.ico"
+    if not icon.is_file():
+        icon = ROOT / "nalmeok.ico"
+    if icon.is_file():
+        copy_file(icon, stage / "nalmeok.ico")
+        log("copied nalmeok.ico")
+    else:
+        log(
+            "WARNING: nalmeok.ico is missing; the ZIP is built without an icon "
+            "and installer.cmd falls back to the Windows default icon."
+        )
+
+    if thin:
+        licenses = stage / "licenses"
+        licenses.mkdir(parents=True)
+        write_text(
+            licenses / "THIRD-PARTY.md",
+            "This package downloads its runtime dependencies at first use.\n"
+            "\n"
+            f"- Python {PYTHON_VERSION} (MPL-2.0): "
+            "https://github.com/astral-sh/python-build-standalone\n"
+            f"- google-genai {GOOGLE_GENAI_REQUIREMENT}: PyPI\n"
+            f"- FFmpeg {FFMPEG_VERSION} (LGPL): "
+            "https://github.com/BtbN/FFmpeg-Builds\n",
+        )
+
+
+def verify_thin_files(stage: Path) -> None:
+    for name in ("bootstrap.ps1", "bootstrap.env", "shortcuts.ps1",
+                 "nalmeok-drop.cmd", "installer.cmd"):
+        if not (stage / name).is_file():
+            raise BuildError(f"{name} is missing from the thin staging directory")
+    values = {}
+    for line in (stage / "bootstrap.env").read_text(encoding="utf-8").splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+    for key in ("PBS_VERSION", "PBS_URL", "PBS_SHA256",
+                "FFMPEG_URL", "FFMPEG_SHA256"):
+        if not values.get(key):
+            raise BuildError(f"bootstrap.env is missing {key}")
+
+
+def write_sums(version: str) -> None:
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    zips = sorted(DIST_DIR.glob(f"nalmeok-{version}-win64*.zip"))
+    if not zips:
+        raise BuildError("no Windows ZIP found for SHA256SUMS")
+    write_text(
+        DIST_DIR / "SHA256SUMS.txt",
+        "".join(f"{sha256_file(path)}  {path.name}\n" for path in zips),
+    )
+
+
+def write_manifest(version: str) -> None:
+    source = ROOT / "nalmeok.py"
+    copy_file(source, DIST_DIR / "nalmeok.py")
+    sdk_version = GOOGLE_GENAI_REQUIREMENT.split("==", 1)[-1]
+    manifest = {
+        "app_version": version,
+        "nalmeok": {
+            "version": version,
+            "url": (
+                "https://github.com/jseook11/nalmeok/releases/download/"
+                f"v{version}/nalmeok.py"
+            ),
+            "sha256": sha256_file(source),
+        },
+        "sdk": {"name": "google-genai", "version": sdk_version},
+        "python": {
+            "version": PYTHON_VERSION,
+            "url": PYTHON_URL,
+            "sha256": PYTHON_SHA256,
+        },
+        "ffmpeg": {
+            "version": FFMPEG_VERSION,
+            "url": FFMPEG_URL,
+            "sha256": FFMPEG_SHA256,
+        },
+    }
+    write_text(
+        DIST_DIR / "windows-manifest.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def build_thin() -> None:
+    version = read_app_version()
+    log(f"nalmeok thin Windows build {version}")
+    remove_tree(THIN_STAGE_DIR)
+    THIN_STAGE_DIR.mkdir(parents=True)
+    copy_common_files(THIN_STAGE_DIR, thin=True)
+    verify_cmd_files(THIN_STAGE_DIR)
+    verify_thin_files(THIN_STAGE_DIR)
+
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = DIST_DIR / f"nalmeok-{version}-win64.zip"
+    create_zip(THIN_STAGE_DIR, zip_path)
+    write_sums(version)
+    write_manifest(version)
+    zip_size = zip_path.stat().st_size
+    log(f"ZIP: {zip_path.relative_to(ROOT)}  {human_size(zip_size)}")
+    log(f"SHA-256: {sha256_file(zip_path)}")
+    log(f"wrote {(DIST_DIR / 'SHA256SUMS.txt').relative_to(ROOT)}")
+
+
+def build_offline() -> None:
     if os.name != "nt":
         raise BuildError(
             "build_windows.py builds a Windows ZIP and must run on Windows "
@@ -562,34 +700,12 @@ def build() -> None:
     extract_ffmpeg(ffmpeg_archive, STAGE_DIR, licenses_dir)
     write_source_notices(licenses_dir)
 
-    copy_file(ROOT / "nalmeok.py", STAGE_DIR / "nalmeok.py")
-    copy_file(ROOT / "app.py", STAGE_DIR / "app.py")
-    copy_file(ROOT / "pyproject.toml", STAGE_DIR / "pyproject.toml")
-    copy_file(ROOT / "README.md", STAGE_DIR / "README.md")
-    copy_file(ROOT / "LICENSE", STAGE_DIR / "LICENSE")
-    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok.cmd", STAGE_DIR / "nalmeok.cmd")
-    copy_cmd_as_crlf(SCRIPTS_DIR / "nalmeok-drop.cmd",
-                     STAGE_DIR / "nalmeok-drop.cmd")
-    copy_cmd_as_crlf(SCRIPTS_DIR / "installer.cmd", STAGE_DIR / "installer.cmd")
-    copy_file(SCRIPTS_DIR / "shortcuts.ps1", STAGE_DIR / "shortcuts.ps1")
-
-    icon = ROOT / "assets" / "nalmeok.ico"
-    if not icon.is_file():
-        icon = ROOT / "nalmeok.ico"
-    if icon.is_file():
-        copy_file(icon, STAGE_DIR / "nalmeok.ico")
-        log("copied nalmeok.ico")
-    else:
-        log(
-            "WARNING: nalmeok.ico is missing; the ZIP is built without an icon "
-            "and installer.cmd falls back to the Windows default icon."
-        )
-
+    copy_common_files(STAGE_DIR, thin=False)
     write_third_party_notices(licenses_dir, packages)
     verify_cmd_files(STAGE_DIR)
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = DIST_DIR / f"nalmeok-{version}-win64.zip"
+    zip_path = DIST_DIR / f"nalmeok-{version}-win64-offline.zip"
     create_zip(STAGE_DIR, zip_path)
 
     log("top-level file hashes:")
@@ -602,8 +718,9 @@ def build() -> None:
             )
 
     zip_hash = sha256_file(zip_path)
+    write_sums(version)
+    write_manifest(version)
     sums_path = DIST_DIR / "SHA256SUMS.txt"
-    write_text(sums_path, f"{zip_hash}  {zip_path.name}\n")
 
     stage_size = sum(
         path.stat().st_size
@@ -624,8 +741,16 @@ def build() -> None:
 
 def main() -> int:
     configure_output()
+    parser = argparse.ArgumentParser(description="Build the nalmeok Windows ZIP")
+    parser.add_argument("--offline", action="store_true",
+                        help="bundle Python and ffmpeg (~165MB) instead of "
+                             "downloading them on first use")
+    args = parser.parse_args()
     try:
-        build()
+        if args.offline:
+            build_offline()
+        else:
+            build_thin()
     except BuildError as exc:
         print(f"\n[build] ERROR: {exc}", file=sys.stderr, flush=True)
         return 1

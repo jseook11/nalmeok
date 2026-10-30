@@ -32,6 +32,7 @@
 | 수동 검증 · Windows 11 Windows Terminal | 진행 중 | - | WT_SESSION/WT_PROFILE_ID, VT/ANSI 가능, attached/isatty 확인(2026-10-30 20:27). TUI 체크리스트·스크린샷 대기 |
 | README Windows 설치 안내 | 완료 | - | Windows 11 1차 검증 기준으로 작성 |
 | 후속 · 드래그앤드롭 전사(`drop`) | 완료 | - | `docs/drop-target.md`. Windows/macOS 134 tests pass. macOS는 터미널에 끌어다 놓으면 `d` 없이 바로 시작(pseudo-terminal 검증), Windows는 바로가기·`d`·한글/공백 경로·하드링크 확인 |
+| **후속 · Windows thin 배포(v0.6.1)** | 진행 중 | - | D16/D17. thin ZIP·bootstrap.ps1·데이터 폴더·Windows manifest |
 
 상태 값: `미착수` / `진행 중` / `완료` / `보류`
 
@@ -121,6 +122,9 @@
 | D13 | Windows 10 22H2 실기 검증 보류 | Hyper-V 활성화·재부팅·Win10 설치 비용 대비, 사용 API는 22H2에서 안정적. 2026-10-30 사용자 결정 | README/문서에 best-effort로 표기. 필요 시 `nalmeok-verify` 키트로 재개 |
 | D14 | Windows 폴더 스캔에 깊이·개수 제한 | `%USERPROFILE%` 아래 AppData/OneDrive 전체 재귀로 메인 화면이 수 분 걸림 | `job_folders` depth 2/dirs 2000(대시보드), `scan_descendant_media` 0.03s/depth 3/dirs 150, 탐색 상세 100/하위 20. 무거운 폴더 이름은 건너뜀 |
 | D15 | 메뉴·홈 화면을 diff 렌더링 | 방향키마다 전체 메뉴를 다시 출력해 Windows Terminal에서 깜빡임 | 첫 프레임만 전체 출력. 이후 변경된 줄만 `\033[K`로 갱신하고 나머지는 커서만 이동. 긴 메뉴는 커서 주변 뷰포트만 그려 `(시작-끝/전체)` 표시. 줄바꿈·리사이즈·작은 화면은 전체 재렌더로 폴백 |
+| **D16** | **thin ZIP이 Windows 표준 배포** | 165MB ZIP은 업데이트마다 전체 재다운로드·폴더 복제를 유발. macOS에서 검증한 "얇은 앱 + 첫 실행 다운로드" 모델을 Windows에도 적용 | `nalmeok-<v>-win64.zip` (~1MB): 앱 파일만 포함. 첫 실행에 PBS/SDK, MP4 첫 사용에 ffmpeg 다운로드. 데이터는 `%LOCALAPPDATA%\nalmeok` |
+| **D17** | **오프라인 번들은 선택 확장판** | 인터넷이 없거나 배포를 단일 파일로 고정해야 하는 환경 | `nalmeok-<v>-win64-offline.zip` (~165MB, 기존 번들). 기본 배포/CI 릴리스에는 thin만 올리고 offline은 필요 시 빌드 |
+| D5 (역사) | ffmpeg/ffprobe를 ZIP에 번들 | 위 D5는 v0.6.0까지의 결정. v0.6.1부터 D16/D17로 대체 | offline 확장판에서만 번들 |
 
 ---
 
@@ -168,42 +172,55 @@ interactive() → fullscreen() → key_screen() → add_key_flow()
 
 ### 4.1 배포물 구조
 
-ZIP 루트에 파일을 둔다. 압축을 풀면 ZIP 이름의 폴더가 생긴다.
+**표준은 thin ZIP**이다 (D16). 앱 파일만 들어 있고, 런타임은 첫 실행에 받는다.
 
 ```text
-nalmeok-0.4.0-win64.zip
+nalmeok-<version>-win64.zip   (~1MB)
 ├─ nalmeok.cmd
+├─ nalmeok-drop.cmd
 ├─ installer.cmd
+├─ bootstrap.ps1             # PBS 다운로드·SHA-256·압축 해제
+├─ bootstrap.env             # 고정 URL/SHA (PBS, ffmpeg)
+├─ shortcuts.ps1
 ├─ nalmeok.py
 ├─ app.py
 ├─ pyproject.toml
-├─ runtime/                  # python-build-standalone + site-packages
-│  ├─ python.exe
-│  └─ Lib/site-packages/google/...
-├─ ffmpeg.exe
-├─ ffprobe.exe
-├─ nalmeok.ico            # 선택. 없으면 installer.cmd가 기본 아이콘 사용
+├─ nalmeok.ico
 ├─ README.md
 ├─ LICENSE
-└─ licenses/
-   ├─ Python-LICENSE.txt
-   ├─ ffmpeg-LGPL.txt
-   └─ THIRD-PARTY.md
+└─ licenses/THIRD-PARTY.md
 ```
 
-설치 위치(권장): `%LOCALAPPDATA%\Programs\nalmeok`
-바로가기: 바탕화면 + 시작 메뉴 `nalmeok`
+설치 후:
+
+```text
+%LOCALAPPDATA%\Programs\nalmeok\     # 앱 (~1MB)
+%LOCALAPPDATA%\nalmeok\
+  app\nalmeok.py                     # 실행/업데이트 대상
+  app\.venv\                         # google-genai
+  runtime\<version>\python.exe       # PBS
+  runtime\current.txt                # 현재 버전
+  bin\ffmpeg.exe, ffprobe.exe        # MP4 첫 사용 시
+```
+
+**오프라인 확장판**(D17)은 `nalmeok-<version>-win64-offline.zip`(~165MB)이며, 기존처럼 `runtime/`과 `ffmpeg.exe`를 포함한다. `nalmeok.cmd`가 `%HERE%runtime\python.exe`를 발견하면 offline 모드로 동작한다. 기본 릴리스에는 thin만 올린다.
 
 ### 4.2 실행 흐름
 
 ```text
 바로가기 → nalmeok.cmd
-  → PYTHONUTF8=1, PYTHONIOENCODING=utf-8
-  → (인자 없음) cd /d %USERPROFILE%
-  → runtime\python.exe nalmeok.py %*
+  → 오프라인 번들이면 %HERE%runtime\python.exe 사용
+  → thin이면:
+     → %LOCALAPPDATA%\nalmeok\app\nalmeok.py seed
+     → runtime\current.txt 확인
+       → 없으면 bootstrap.ps1 (PBS ~25MB, SHA-256, tar)
+     → NALMEOK_PACKAGED=1, NALMEOK_YES=1, NALMEOK_FFMPEG=%DATA%\bin
+  → python nalmeok.py %*
   → cli()
-     → bootstrap_platform()       # Windows: VT 활성화, stdio 재설정, 도구 탐색, 모드 결정
-     → main() → interactive() → 기존 TUI
+     → bootstrap_platform()
+     → main() → ensure_sdk()가 .venv에 google-genai 설치
+     → MP4 변환이 필요하면 ensure_ffmpeg()가 windows-manifest로 ffmpeg 다운로드
+     → interactive() → 기존 TUI
   → 종료 코드 != 0 이면 pause
 ```
 
@@ -330,6 +347,21 @@ Windows는 `%USERPROFILE%` 아래 AppData/OneDrive가 커서 전체 재귀가 �
 - 폴더 탐색: 상세 계산 100개, 하위 재귀 20개까지만. 나머지는 스캔 없이 "폴더"로 표시.
 - `AppData`, `OneDrive`, `node_modules`, `.git`, `.venv`, `Program Files` 등은 하위 스캔에서 건너뜀.
 - 깊은 곳의 작업은 "최근 작업" 목록이나 해당 폴더에서 직접 실행해 찾습니다.
+
+### 4.13 업데이트와 manifest (v0.6.1)
+
+- thin `nalmeok.cmd`는 `NALMEOK_PACKAGED=1`, `NALMEOK_HOME=%LOCALAPPDATA%\nalmeok`,
+  `NALMEOK_FFMPEG=%NALMEOK_HOME%\bin`을 설정한다.
+- `nalmeok update`는 `releases/latest/download/windows-manifest.json`을 읽는다.
+  - `nalmeok.py` SHA-256 검증 후 원자적 교체 (다음 실행부터 적용)
+  - SDK 버전이 manifest보다 낮을 때만 `.venv` pip 갱신
+- ffmpeg/ffprobe가 없고 MP4 변환이 필요하면 manifest의 고정 URL·SHA로
+  `%NALMEOK_HOME%\bin`에 내려받는다. (`NALMEOK_FFMPEG_YES=1`은 자동화용)
+- `scripts/build_windows.py`가 thin ZIP과 `windows-manifest.json`을 생성한다.
+- offline 확장판은 `%HERE%runtime`을 사용하고, update는 설치 폴더의
+  `nalmeok.py`를 교체한다.
+- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`,
+  `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`.
 
 ---
 
@@ -470,8 +502,9 @@ if errorlevel 1 pause
 ### 6.2 CI
 
 - `ubuntu-latest`, `macos-latest`, `windows-latest` × Python 3.10/3.12: `unittest`
-- `windows-latest`: ZIP 빌드, `runtime\python.exe -m unittest`, `nalmeok.cmd --version` smoke
+- `windows-latest`: thin ZIP 빌드, `nalmeok.py --version`, **첫 실행 bootstrap**(PBS 다운로드) 후 `nalmeok.cmd --version`, `nalmeok-drop.cmd --help`
 - CI는 대화형 콘솔을 검증하지 못한다. **수동 검증이 최종 게이트**다.
+- offline 확장판은 기본 CI에서 빌드하지 않는다. 필요 시 `python scripts/build_windows.py --offline`.
 
 ### 6.3 수동 검증 매트릭스
 
@@ -484,6 +517,11 @@ if errorlevel 1 pause
 |---|---|---|---|
 | ZIP 차단 해제/압축 풀기 | | | |
 | `installer.cmd` + 바로가기 | | | |
+| 첫 실행 Python 다운로드(~25MB) | | | |
+| SDK 자동 설치(~20MB) | | | |
+| 첫 MP4 변환 시 ffmpeg 다운로드 | | | |
+| `nalmeok update --check` | | | |
+| 오프라인 ZIP 첫 실행 | | | |
 | 첫 실행 키 등록 | | | |
 | ↑↓/Enter/Esc/Backspace/Ctrl+C | | | |
 | 한글 경로 붙여넣기 | | | |
@@ -512,12 +550,13 @@ if errorlevel 1 pause
 ## 7. 릴리스 절차
 
 1. `__version__`과 `pyproject.toml` 버전을 올린다.
-2. Windows CI 빌드를 실행한다.
-3. ZIP을 풀어 **깨끗한 Windows 10 22H2**에서 수동 매트릭스를 통과시킨다.
-4. `SHA256SUMS.txt`를 생성한다.
-5. GitHub Release에 ZIP, SHA256, 변경 사항, "차단 해제" 안내를 올린다.
-6. README의 Windows 절과 다운로드 링크를 갱신한다.
-7. 이 문서의 상태 표와 변경 이력을 갱신한다.
+2. 테스트를 통과시킨다.
+3. `python scripts/build_windows.py`로 **thin ZIP**을 만든다. 필요하면 `--offline`으로 확장판도 만든다.
+4. ZIP을 풀어 **깨끗한 Windows 11**에서 thin 첫 실행(Python/SDK/ffmpeg 다운로드)과 업데이트를 확인한다.
+5. `SHA256SUMS.txt`와 `windows-manifest.json`을 확인한다.
+6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok.py`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
+7. README의 Windows 절과 다운로드 링크를 갱신한다.
+8. 이 문서의 상태 표와 변경 이력을 갱신한다.
 
 ---
 
@@ -596,6 +635,8 @@ if errorlevel 1 pause
 | 2026-10-30 | Windows 11 conhost 환경 검증(VT/ANSI·isatty). Windows Terminal은 WT_SESSION 부재로 재실행 필요 | Claude Code |
 | 2026-10-30 | Windows 11 Windows Terminal 환경 검증(WT_SESSION/WT_PROFILE_ID·VT/ANSI). TUI 체크리스트 대기 | Claude Code |
 | 2026-10-30 | 후속: 메뉴/홈 화면 diff 렌더링으로 방향키 깜빡임 제거(D15). Windows 115 tests pass | Claude Code |
+| 2026-10-30 | v0.6.0 릴리스(macOS notarized DMG + Windows ZIP) | Claude Code |
+| 2026-10-30 | Windows thin 배포 결정(D16/D17). thin ZIP 표준, 165MB는 `-offline` 확장판 | Claude Code |
 | 2026-10-30 | 후속: 긴 메뉴 뷰포트 추가. 40개 폴더 탐색 clear_screen 11→1, Windows 115 tests pass | Claude Code |
 | 2026-10-30 | `feature/windows-support` PR #3 CI 전체 통과 후 `master`에 머지. v0.4.0 릴리스 기준 확정 | Claude Code |
 | 2026-10-30 | 후속: 드래그앤드롭 전사(`nalmeok drop`, `nalmeok-drop.cmd`, 두 번째 바로가기). v0.5.0. macOS 124 tests pass | Claude Code |

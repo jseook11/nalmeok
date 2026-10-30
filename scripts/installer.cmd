@@ -8,13 +8,16 @@ set "DEST=%LOCALAPPDATA%\Programs\nalmeok"
 
 if not defined LOCALAPPDATA goto :env_error
 if not exist "%SRC%nalmeok.cmd" goto :missing
-if not exist "%SRC%runtime\python.exe" goto :missing
+if not exist "%SRC%bootstrap.ps1" goto :missing
+if not exist "%SRC%bootstrap.env" goto :missing
 
 echo.
 echo nalmeok 설치를 시작합니다.
 echo   원본: "%SRC%"
 echo   설치: "%DEST%"
 echo.
+echo 설치 파일은 약 1MB입니다. 첫 실행 때 Python과 SDK를 자동으로
+echo 준비하고(약 45MB), MP4 변환을 처음 할 때 ffmpeg를 받습니다.
 
 if not exist "%LOCALAPPDATA%\Programs" mkdir "%LOCALAPPDATA%\Programs" >nul 2>&1
 robocopy "%SRC%." "%DEST%" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NP
@@ -35,6 +38,7 @@ if errorlevel 1 goto :shortcut_error
 echo.
 echo 설치가 끝났습니다.
 echo 바탕화면의 nalmeok 바로가기로 실행하세요.
+echo 첫 실행에서 Python과 SDK를 내려받으므로 인터넷이 필요합니다.
 echo 폴더나 MP4/M4A 파일을 'nalmeok에 끌어놓기' 바로가기 위에 떨어뜨리면
 echo 전사 결과가 문서 폴더의 nalmeok 안에 모입니다.
 echo.
@@ -52,7 +56,7 @@ exit /b 0
 :missing
 echo.
 echo 오류: ZIP 압축을 먼저 풀어 주세요.
-echo installer.cmd는 nalmeok.cmd와 runtime 폴더가 있는 곳에서 실행해야 합니다.
+echo installer.cmd는 nalmeok.cmd, bootstrap.ps1, nalmeok.py가 있는 곳에서 실행해야 합니다.
 echo.
 pause
 exit /b 1

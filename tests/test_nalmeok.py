@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -1643,6 +1644,92 @@ class UpdateTests(unittest.TestCase):
         args = app.parse_args(["update", "--check"])
         self.assertEqual(args.command, "update")
         self.assertTrue(args.check)
+
+
+class FFmpegTests(unittest.TestCase):
+    def test_manifest_url_follows_platform(self):
+        with mock.patch.object(app, "IS_WINDOWS", True):
+            self.assertTrue(app.manifest_url().endswith("windows-manifest.json"))
+        with mock.patch.object(app, "IS_WINDOWS", False):
+            self.assertTrue(app.manifest_url().endswith("macos-manifest.json"))
+
+    def test_ensure_ffmpeg_noop_when_installed(self):
+        with mock.patch.object(app, "find_tool", return_value="/x/ffmpeg"):
+            self.assertTrue(app.ensure_ffmpeg())
+
+    def test_ensure_ffmpeg_source_mode_skips(self):
+        with mock.patch.object(app, "find_tool", return_value=None), \
+                mock.patch.object(app, "packaged_mode", return_value=False):
+            self.assertFalse(app.ensure_ffmpeg())
+
+    def make_archive(self, root):
+        archive = root / "ffmpeg.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("ffmpeg-bin/bin/ffmpeg.exe", b"ffmpeg")
+            bundle.writestr("ffmpeg-bin/bin/ffprobe.exe", b"ffprobe")
+        return archive
+
+    def test_ensure_ffmpeg_downloads_and_extracts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "home"
+            bin_dir = home / "bin"
+            archive = self.make_archive(root)
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+            def fake_find(name):
+                target = bin_dir / (name + ".exe")
+                return str(target) if target.exists() else None
+
+            with mock.patch.object(app, "IS_WINDOWS", True), \
+                    mock.patch.object(app, "find_tool", side_effect=fake_find), \
+                    mock.patch.object(app, "packaged_mode", return_value=True), \
+                    mock.patch.object(app, "fetch_manifest",
+                                      return_value={"ffmpeg": {
+                                          "url": "x", "sha256": digest}}), \
+                    mock.patch.object(app, "download_file",
+                                      side_effect=lambda url, dest:
+                                      Path(dest).write_bytes(archive.read_bytes())), \
+                    mock.patch("builtins.input", return_value="y"), \
+                    mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
+                    mock.patch.dict(os.environ, {"NALMEOK_HOME": str(home)}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(app.ensure_ffmpeg())
+            self.assertEqual((bin_dir / "ffmpeg.exe").read_bytes(), b"ffmpeg")
+            self.assertEqual((bin_dir / "ffprobe.exe").read_bytes(), b"ffprobe")
+            self.assertFalse((bin_dir / "ffmpeg-download.zip").exists())
+
+    def test_ensure_ffmpeg_rejects_bad_checksum(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "home"
+            archive = self.make_archive(root)
+            with mock.patch.object(app, "IS_WINDOWS", True), \
+                    mock.patch.object(app, "find_tool", return_value=None), \
+                    mock.patch.object(app, "packaged_mode", return_value=True), \
+                    mock.patch.object(app, "fetch_manifest",
+                                      return_value={"ffmpeg": {
+                                          "url": "x", "sha256": "0" * 64}}), \
+                    mock.patch.object(app, "download_file",
+                                      side_effect=lambda url, dest:
+                                      Path(dest).write_bytes(archive.read_bytes())), \
+                    mock.patch("builtins.input", return_value="y"), \
+                    mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
+                    mock.patch.dict(os.environ, {"NALMEOK_HOME": str(home)}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(RuntimeError):
+                    app.ensure_ffmpeg()
+
+    def test_ensure_ffmpeg_respects_decline(self):
+        with mock.patch.object(app, "find_tool", return_value=None), \
+                mock.patch.object(app, "packaged_mode", return_value=True), \
+                mock.patch.object(app, "fetch_manifest",
+                                  return_value={"ffmpeg": {
+                                      "url": "x", "sha256": "0" * 64}}), \
+                mock.patch("builtins.input", return_value="n"), \
+                mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(app.ensure_ffmpeg())
 
 
 if __name__ == "__main__":
