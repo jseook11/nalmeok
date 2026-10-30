@@ -8,7 +8,8 @@ if "%LABEL%"=="" set "LABEL=conhost"
 set "REPORT=%HERE%verify-report-%LABEL%.txt"
 
 echo === console doctor (VT/ANSI is the value to read) ===
-"%HERE%runtime\python.exe" "%HERE%nalmeok.py" doctor
+set "PYTHONPATH=%HERE%"
+"%HERE%runtime\python.exe" -m nalmeok doctor
 echo.
 if "%WT_SESSION%"=="" (
   echo [info] WT_SESSION is empty: this is not Windows Terminal.
@@ -29,7 +30,8 @@ echo.
   echo note=report stdout is redirected; use the console doctor output for VT/ANSI
   ver
   chcp
-  "%HERE%runtime\python.exe" "%HERE%nalmeok.py" doctor
+  set "PYTHONPATH=%HERE%"
+  "%HERE%runtime\python.exe" -m nalmeok doctor
 ) > "%REPORT%" 2>&1
 type "%REPORT%"
 echo.

@@ -92,12 +92,14 @@ jobs:
             if (-not (Test-Path 'installer.cmd')) { throw 'installer.cmd is missing from the ZIP root' }
             foreach ($name in @('nalmeok.cmd', 'nalmeok-drop.cmd', 'bootstrap.ps1',
                                 'bootstrap.env', 'shortcuts.ps1', 'install.ps1',
-                                'messages.ps1', 'nalmeok.py')) {
+                                'messages.ps1', 'nalmeok\__init__.py',
+                                'nalmeok\__main__.py')) {
               if (-not (Test-Path (Join-Path 'app' $name))) { throw "app\$name is missing from the ZIP" }
             }
 
-            & python .\app\nalmeok.py --version
-            if ($LASTEXITCODE -ne 0) { throw "nalmeok.py --version failed: $LASTEXITCODE" }
+            $env:PYTHONPATH = (Resolve-Path 'app').Path
+            & python -m nalmeok --version
+            if ($LASTEXITCODE -ne 0) { throw "nalmeok --version failed: $LASTEXITCODE" }
 
             # First run downloads Python into LOCALAPPDATA, then prints the version.
             & cmd /c '.\app\nalmeok.cmd --version < NUL'
@@ -127,7 +129,7 @@ jobs:
           name: nalmeok-windows-${{ github.sha }}
           path: |
             dist/*.zip
-            dist/nalmeok.py
+            dist/nalmeok-app-*.zip
             dist/windows-manifest.json
             dist/SHA256SUMS.txt
           if-no-files-found: error

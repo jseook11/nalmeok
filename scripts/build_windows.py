@@ -194,10 +194,10 @@ def remove_tree(path: Path) -> None:
 
 
 def read_app_version() -> str:
-    source = (ROOT / "nalmeok.py").read_text(encoding="utf-8")
+    source = (ROOT / "nalmeok" / "constants.py").read_text(encoding="utf-8")
     match = re.search(r'^__version__\s*=\s*"([^"]+)"', source, re.MULTILINE)
     if not match:
-        raise BuildError("could not find __version__ in nalmeok.py")
+        raise BuildError("could not find __version__ in nalmeok/constants.py")
     version = match.group(1)
     if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._+-]*", version):
         raise BuildError(f"unexpected version string: {version!r}")
@@ -257,6 +257,14 @@ def copy_file(source: Path, destination: Path) -> None:
         raise BuildError(f"required file is missing: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
+
+
+def copy_package(source: Path, destination: Path) -> None:
+    """Copy the nalmeok package (Python files only) into the staging area."""
+    if not (source / "__init__.py").is_file():
+        raise BuildError("nalmeok/__init__.py is missing")
+    for path in sorted(source.glob("*.py")):
+        copy_file(path, destination / path.name)
 
 
 def copy_cmd_as_crlf(source: Path, destination: Path) -> None:
@@ -578,7 +586,7 @@ def copy_common_files(stage: Path, thin: bool) -> None:
     app = stage / "app"
     app.mkdir(parents=True, exist_ok=True)
     copy_cmd_as_crlf(SCRIPTS_DIR / "installer.cmd", stage / "installer.cmd")
-    copy_file(ROOT / "nalmeok.py", app / "nalmeok.py")
+    copy_package(ROOT / "nalmeok", app / "nalmeok")
     copy_file(ROOT / "app.py", app / "app.py")
     copy_file(ROOT / "pyproject.toml", app / "pyproject.toml")
     copy_file(ROOT / "README.md", app / "README.md")
@@ -625,7 +633,8 @@ def verify_thin_files(stage: Path) -> None:
         raise BuildError("installer.cmd is missing from the ZIP root")
     for name in ("bootstrap.ps1", "bootstrap.env", "shortcuts.ps1",
                  "install.ps1", "messages.ps1",
-                 "nalmeok.cmd", "nalmeok-drop.cmd", "nalmeok.py"):
+                 "nalmeok.cmd", "nalmeok-drop.cmd",
+                 "nalmeok/__init__.py", "nalmeok/__main__.py"):
         if not (app / name).is_file():
             raise BuildError(
                 f"app/{name} is missing from the thin staging directory")
@@ -652,8 +661,11 @@ def write_sums(version: str) -> None:
 
 
 def write_manifest(version: str) -> None:
-    source = ROOT / "nalmeok.py"
-    copy_file(source, DIST_DIR / "nalmeok.py")
+    payload = DIST_DIR / "nalmeok-app-win64.zip"
+    stage = BUILD_DIR / "app-payload"
+    remove_tree(stage)
+    copy_package(ROOT / "nalmeok", stage / "nalmeok")
+    create_zip(stage, payload)
     sdk_version = GOOGLE_GENAI_REQUIREMENT.split("==", 1)[-1]
     manifest = {
         "app_version": version,
@@ -661,9 +673,9 @@ def write_manifest(version: str) -> None:
             "version": version,
             "url": (
                 "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok.py"
+                f"v{version}/nalmeok-app-win64.zip"
             ),
-            "sha256": sha256_file(source),
+            "sha256": sha256_file(payload),
         },
         "sdk": {"name": "google-genai", "version": sdk_version},
         "python": {

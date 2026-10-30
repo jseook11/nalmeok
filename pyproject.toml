@@ -23,7 +23,7 @@ dev = [
 nalmeok = "nalmeok:cli"
 
 [tool.setuptools]
-py-modules = ["nalmeok"]
+packages = ["nalmeok"]
 
 [tool.ruff]
 target-version = "py310"

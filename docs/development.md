@@ -17,7 +17,16 @@
 
 ```text
 app.py                     # 실행 진입점 (./app.py)
-nalmeok.py                 # 앱 본체 (TUI, Batch·live 파이프라인, 설정)
+nalmeok/                   # 앱 패키지
+  constants.py             # 버전·상수·공통 설정값
+  runtime.py               # 로깅, 경로·설정 파일, 잠금, 원자적 쓰기
+  keys.py                  # API 키 레지스트리
+  update.py                # venv/SDK, manifest, 앱 패키지 업데이트, ffmpeg 설치
+  term.py                  # 터미널 입력·렌더링·메뉴 (프롬프트 포함)
+  media.py                 # ffmpeg/변환, 길이·비용 추정, 사용량·상태 표시
+  engine.py                # Batch·live·혼합 파이프라인, 감시 프로세스
+  screens.py               # 대시보드·폴더·세션 화면
+  cli.py                   # 인자 파싱, 진입점
 tests/test_nalmeok.py      # 순수 로직·상태 전이 테스트
 tests/test_free_key_rotation.py  # 무료 키 429 순환 테스트
 scripts/                   # 배포 빌드
@@ -28,6 +37,8 @@ macos/                     # Swift 런처, Info.plist, run.command, bootstrap.co
 docs/                      # 플랫폼·사용·개발 문서
 pyproject.toml             # 패키지 정의와 nalmeok 콘솔 스크립트
 ```
+
+모듈 사이의 호출은 `import nalmeok as app` 후 `app.<name>`으로 합니다. 이렇게 하면 테스트의 `mock.patch.object(app, ...)`가 그대로 동작하고, 모듈을 나눠도 패치 지점이 바뀌지 않습니다. 상수는 `from .constants import *`로 직접 가져옵니다.
 
 ## 테스트
 

@@ -44,7 +44,7 @@ jobs:
           tmp=$(mktemp -d)
           NALMEOK_DRY_RUN=1 NALMEOK_HOME="$tmp" \
             build/macos/app/nalmeok.app/Contents/MacOS/nalmeok
-          test -f "$tmp/app/nalmeok.py"
+          test -f "$tmp/app/nalmeok/__init__.py"
           NALMEOK_HOME="$tmp" \
             build/macos/app/nalmeok.app/Contents/Resources/bootstrap.command --version
       - name: Mark unsigned artifact
@@ -58,6 +58,6 @@ jobs:
           path: |
             dist/UNSIGNED.txt
             dist/*.dmg
-            dist/nalmeok.py
+            dist/nalmeok-app-*.zip
             dist/macos-manifest.json
             dist/SHA256SUMS.txt

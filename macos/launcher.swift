@@ -35,10 +35,12 @@ if let override = env["NALMEOK_HOME"], !override.isEmpty {
 let appDir = dataRoot.appendingPathComponent("app", isDirectory: true)
 do {
     try fm.createDirectory(at: appDir, withIntermediateDirectories: true)
-    let target = appDir.appendingPathComponent("nalmeok.py")
+    let target = appDir.appendingPathComponent("nalmeok/__init__.py")
     if !fm.fileExists(atPath: target.path) {
-        let seed = resources.appendingPathComponent("nalmeok.py")
-        try fm.copyItem(at: seed, to: target)
+        let seed = resources.appendingPathComponent("nalmeok", isDirectory: true)
+        let dest = appDir.appendingPathComponent("nalmeok", isDirectory: true)
+        try? fm.removeItem(at: dest)
+        try fm.copyItem(at: seed, to: dest)
     }
 } catch {
     fail("앱 데이터를 준비하지 못했습니다: \(error.localizedDescription)")

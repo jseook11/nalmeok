@@ -16,8 +16,9 @@ mkdir -p "$DATA/app" "$DATA/runtime" "$DATA/bin" \
   || fail "앱 데이터 폴더를 만들지 못했습니다."
 printf '\033]0;nalmeok\007'
 
-if [ ! -f "$DATA/app/nalmeok.py" ]; then
-  cp "$HERE/nalmeok.py" "$DATA/app/nalmeok.py" \
+if [ ! -f "$DATA/app/nalmeok/__init__.py" ]; then
+  rm -rf "$DATA/app/nalmeok"
+  cp -R "$HERE/nalmeok" "$DATA/app/nalmeok" \
     || fail "앱 코드를 복사하지 못했습니다."
 fi
 

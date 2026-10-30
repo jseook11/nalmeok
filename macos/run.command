@@ -19,8 +19,9 @@ export NALMEOK_HOME="$DATA"
 export NALMEOK_PACKAGED=1
 export NALMEOK_YES=1
 export NALMEOK_FFMPEG="$DATA/bin"
+export PYTHONPATH="$DATA/app"
 
-"$PY" "$DATA/app/nalmeok.py" "$@"
+"$PY" -m nalmeok "$@"
 status=$?
 if [ "$status" -ne 0 ]; then
   printf '\nnalmeok이 오류로 종료되었습니다. (종료 코드 %s)\n' "$status"

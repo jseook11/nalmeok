@@ -24,6 +24,7 @@ import platform
 import plistlib
 import re
 import shutil
+import zipfile
 import subprocess
 import sys
 from pathlib import Path
@@ -63,18 +64,18 @@ def run(command: list[str], log_command: bool = True, **kwargs) -> None:
 
 
 def app_version() -> str:
-    text = (ROOT / "nalmeok.py").read_text(encoding="utf-8")
+    text = (ROOT / "nalmeok" / "constants.py").read_text(encoding="utf-8")
     match = re.search(r'^__version__ = "([^"]+)"', text, re.MULTILINE)
     if not match:
-        raise BuildError("nalmeok.py에서 __version__을 찾지 못했습니다")
+        raise BuildError("nalmeok/constants.py에서 __version__을 찾지 못했습니다")
     return match.group(1)
 
 
 def sdk_version() -> str:
-    text = (ROOT / "nalmeok.py").read_text(encoding="utf-8")
+    text = (ROOT / "nalmeok" / "constants.py").read_text(encoding="utf-8")
     match = re.search(r'^SDK_VERSION = "([^"]+)"', text, re.MULTILINE)
     if not match:
-        raise BuildError("nalmeok.py에서 SDK_VERSION을 찾지 못했습니다")
+        raise BuildError("nalmeok/constants.py에서 SDK_VERSION을 찾지 못했습니다")
     return match.group(1)
 
 
@@ -146,7 +147,10 @@ def build_app(version: str) -> Path:
     (contents / "Info.plist").write_text(
         info.replace("__VERSION__", version), encoding="utf-8")
 
-    shutil.copy2(ROOT / "nalmeok.py", resources / "nalmeok.py")
+    package = resources / "nalmeok"
+    package.mkdir()
+    for path in sorted((ROOT / "nalmeok").glob("*.py")):
+        shutil.copy2(path, package / path.name)
     for name in ("run.command", "bootstrap.command"):
         target = resources / name
         shutil.copy2(MACOS_DIR / name, target)
@@ -237,19 +241,21 @@ def create_dmg(app: Path, version: str) -> Path:
 
 
 def write_manifest(version: str) -> Path:
-    """릴리스에 올릴 macos-manifest.json과 nalmeok.py를 준비합니다."""
+    """릴리스에 올릴 macos-manifest.json과 앱 패키지 ZIP을 준비합니다."""
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    source = ROOT / "nalmeok.py"
-    shutil.copy2(source, DIST_DIR / "nalmeok.py")
+    payload = DIST_DIR / "nalmeok-app-macos-arm64.zip"
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted((ROOT / "nalmeok").glob("*.py")):
+            archive.write(path, f"nalmeok/{path.name}")
     manifest = {
         "app_version": version,
         "nalmeok": {
             "version": version,
             "url": (
                 "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok.py"
+                f"v{version}/nalmeok-app-macos-arm64.zip"
             ),
-            "sha256": sha256(source),
+            "sha256": sha256(payload),
         },
         "sdk": {"name": SDK_NAME, "version": sdk_version()},
         "python": {"version": PBS_VERSION},
@@ -291,7 +297,7 @@ def main() -> int:
     log(f"sha256: {digest}")
     log(f"sums: {sums}")
     log(f"manifest: {manifest}")
-    log("release assets: dmg, nalmeok.py, macos-manifest.json, SHA256SUMS.txt")
+    log("release assets: dmg, nalmeok-app-macos-arm64.zip, macos-manifest.json, SHA256SUMS.txt")
     return 0
 
 

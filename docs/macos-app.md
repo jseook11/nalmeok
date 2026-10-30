@@ -27,8 +27,8 @@
 
 ### 0.2 기준선
 
-- 앱 버전: **0.6.2** (`nalmeok.py`, `pyproject.toml`)
-- 테스트: **157개 통과, 8개 skip** (macOS)
+- 앱 버전: **0.6.2** (`nalmeok/constants.py`, `pyproject.toml`)
+- 테스트: **158개 통과, 8개 skip** (macOS)
 - 릴리스: https://github.com/jseook11/nalmeok/releases/tag/v0.6.1
 - 대상: macOS 12 Monterey 이상, **Apple Silicon(arm64)**. Intel은 미지원
 - 번들 ID `com.jseook11.nalmeok`, 최소 버전은 `Info.plist`의 `LSMinimumSystemVersion`
@@ -46,7 +46,7 @@
 6. 릴리스에 서명·공증을 **요구하지 않는다.** 자격이 있으면 서명·공증하고, 없으면 unsigned DMG로 배포하되 README에 첫 실행 방법(Gatekeeper 우회)을 적는다. 2026-10-30 사용자 결정.
 7. 사용자 인터페이스는 터미널(TUI)이다. 별도 GUI를 만들지 않는다. 런처의 오류 `NSAlert`는 예외.
 
-> 2026-10-30 폐기: "앱 코드는 계속 단일 `nalmeok.py`". 패키지 분리를 진행한다(`CLAUDE.md` 제약 조정).
+> 2026-10-30 폐기: "앱 코드는 계속 단일 `nalmeok.py`". 2026-10-31 `nalmeok/` 패키지로 분리했다(`CLAUDE.md` 제약 조정).
 
 ### 0.4 하지 말 것
 
@@ -123,7 +123,7 @@ nalmeok.app/
     Info.plist
     MacOS/nalmeok              # Swift 런처 (arm64, ~104KB)
     Resources/
-      nalmeok.py               # seed (app/nalmeok.py가 없을 때만 복사)
+      nalmeok/                 # seed 패키지 (app/nalmeok/가 없을 때만 복사)
       run.command
       bootstrap.command
       bootstrap.env            # 빌드가 생성하는 PBS 버전/URL/SHA
@@ -137,7 +137,7 @@ DMG에는 `nalmeok.app`과 `/Applications` 심볼릭 링크가 들어간다.
 
 ```text
 ~/Library/Application Support/nalmeok/
-  app/nalmeok.py               # 실제 실행·업데이트 대상
+  app/nalmeok/                 # 실제 실행·업데이트 대상 패키지
   app/.venv/                   # google-genai
   runtime/3.12.16/             # PBS 설치본
   runtime/current -> 3.12.16
@@ -151,14 +151,14 @@ DMG에는 `nalmeok.app`과 `/Applications` 심볼릭 링크가 들어간다.
 ### 4.3 첫 실행 흐름
 
 1. 사용자가 앱을 더블클릭한다.
-2. Swift 런처가 `~/Library/Application Support/nalmeok/app/`를 만들고, `nalmeok.py`가 **없을 때만** 번들 seed를 복사한다.
+2. Swift 런처가 `~/Library/Application Support/nalmeok/app/`를 만들고, `nalmeok/__init__.py`가 **없을 때만** 번들 seed 패키지를 복사한다.
 3. 런처가 `bootstrap.command`를 `NSWorkspace`로 연다(LaunchServices가 Terminal 선택).
 4. `bootstrap.command`가 Python을 찾는다.
    - `runtime/current/bin/python3` → 버전·`-m venv` 가능 여부 확인
    - python.org 프레임워크, pyenv, `/opt/homebrew`, `/usr/local`, `PATH` 순
    - `/usr/bin/python3`는 확인하지 않는다
 5. 없으면 PBS를 내려받아 `runtime/<version>`에 설치하고 `current`를 전환한다.
-6. `run.command`가 `python app/nalmeok.py`를 실행한다.
+6. `run.command`가 `PYTHONPATH=$DATA/app`으로 `python -m nalmeok`을 실행한다.
 7. 첫 전사에서 `get_client()` → `ensure_sdk()`가 `app/.venv`를 만들고 `google-genai`를 설치한 뒤 `.venv` 인터프리터로 재시작한다.
 8. TUI가 열리고 API 키를 등록한다.
 
@@ -194,8 +194,8 @@ macOS manifest(`dist/macos-manifest.json` → 릴리스에서 `macos-manifest.js
 동작:
 
 1. `update`/홈 화면 `v`가 manifest를 받는다. `NALMEOK_MANIFEST_URL`로 대체 가능.
-2. manifest 버전이 현재 `__version__`보다 **클 때만** 앱 코드(`nalmeok.py`)를 내려받는다. 같은 버전의 수정 빌드는 받지 않는다.
-3. SHA-256 → UTF-8 디코드 → `__version__ = "<버전>"` 문자열 포함 → `compile()` 순으로 검증한 뒤 `os.replace`로 교체한다. **백업·롤백은 없다.** 검증 실패 시 기존 파일이 그대로 남는다(교체 전에 실패).
+2. manifest 버전이 현재 `__version__`보다 **클 때만** 앱 패키지 ZIP(`nalmeok-app-macos-arm64.zip`)을 내려받는다. 같은 버전의 수정 빌드는 받지 않는다.
+3. SHA-256 → ZIP 확인 → `.nalmeok-next`에 풀고 `nalmeok/__init__.py`의 버전 문자열과 모든 `.py`의 `compile()`을 검증한 뒤 디렉터리를 교체한다. 실패하면 기존 패키지가 그대로 남는다(교체 전에 실패). 백업은 교체 직후 삭제한다.
 4. SDK는 **이미 설치돼 있고** manifest 버전보다 낮을 때만 `.venv` pip로 갱신한다.
 5. Python·ffmpeg는 `update`가 교체하지 않는다. Python은 첫 실행 부트스트랩이, ffmpeg는 온디맨드가 맡는다(후자는 미구현).
 
@@ -204,7 +204,7 @@ macOS manifest(`dist/macos-manifest.json` → 릴리스에서 `macos-manifest.js
 - `NALMEOK_PACKAGED=1`이 아니면(소스 실행) 업데이트를 거부한다: "git pull로 업데이트하세요".
 - DMG 사용자에게는 `nalmeok` CLI가 PATH에 없다. **홈 화면 `v`** 가 업데이트 입구다.
 - 실행 중인 프로세스는 이전 코드로 계속 동작하고, 다음 실행부터 새 코드가 적용된다.
-- **DMG를 다시 설치해도 앱 코드는 갱신되지 않는다.** 런처가 seed를 `app/nalmeok.py`가 없을 때만 복사하기 때문이다. 새 버전은 업데이트로 받거나 `app/nalmeok.py`를 지운 뒤 앱을 다시 실행한다.
+- **DMG를 다시 설치해도 앱 코드는 갱신되지 않는다.** 런처가 seed를 `app/nalmeok/`이 없을 때만 복사하기 때문이다. 새 버전은 업데이트로 받거나 `app/nalmeok/`을 지운 뒤 앱을 다시 실행한다.
 
 ### 4.6 Python 선택
 
@@ -294,7 +294,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | pyenv/Homebrew Python 3.10+ | 검증 후 사용 또는 폴백 |
 | 네트워크 없음 | 명확한 오류, 재시도 |
 | 한글·공백 경로 드롭 | 전사 시작 |
-| 코드만 바뀐 업데이트 | `nalmeok.py`만 교체 |
+| 코드만 바뀐 업데이트 | `nalmeok-app-macos-arm64.zip`으로 패키지만 교체 |
 | 해시 불일치 | 교체 없이 기존 파일 유지 |
 | 공증된 DMG, 새 Mac | Gatekeeper 경고 없음 |
 
@@ -311,7 +311,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 2. 테스트를 통과시킨다.
 3. `NALMEOK_SIGN_IDENTITY`, `NALMEOK_NOTARY_PROFILE`을 지정하면 서명·공증까지 수행한다(선택). 없으면 unsigned DMG가 나온다.
 4. `spctl`, `stapler validate`, 마운트한 DMG 실행을 확인한다.
-5. GitHub Release에 **DMG, `nalmeok.py`, `macos-manifest.json`, `SHA256SUMS.txt`** 를 올린다. 태그는 `v<version>`.
+5. GitHub Release에 **DMG, `nalmeok-app-macos-arm64.zip`, `macos-manifest.json`, `SHA256SUMS.txt`** 를 올린다. 태그는 `v<version>`.
 6. 새 Mac에서 설치·업데이트를 확인한다.
 7. 이 문서의 상태 표와 변경 이력을 갱신한다.
 
@@ -354,3 +354,4 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | 2026-10-30 | M3. `nalmeok update`로 앱 코드·SDK 갱신, manifest 생성 | Claude Code |
 | 2026-10-30 | v0.6.0 → v0.6.1 릴리스, 파일명 `macos-arm64`로 통일 | Claude Code |
 | 2026-10-30 | 문서 정리: 코드와 어긋난 설명 수정(런처가 bootstrap을 연다, macOS manifest에는 ffmpeg/python URL이 없다, update는 앱 코드만 교체·백업 없음, ffmpeg 온디맨드 미구현), 폐기된 단일 파일 제약 제거, **서명·공증 필수 요건 폐기**(선택 사항으로) | Claude Code |
+| 2026-10-31 | 패키지 분리 반영: 번들 Resources/`nalmeok/`, seed는 패키지 복사, 실행은 `-m nalmeok`, 업데이트는 `nalmeok-app-macos-arm64.zip` 교체 | Claude Code |

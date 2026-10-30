@@ -21,7 +21,7 @@ if (-not $env:LOCALAPPDATA) {
 }
 
 $required = @('nalmeok.cmd', 'nalmeok-drop.cmd', 'bootstrap.ps1',
-              'bootstrap.env', 'nalmeok.py', 'shortcuts.ps1')
+              'bootstrap.env', 'shortcuts.ps1', 'nalmeok\__init__.py')
 foreach ($name in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $src $name))) {
         Stop-Install 'ZIP 압축을 먼저 풀어 주세요. installer.cmd와 app 폴더가 함께 있어야 합니다.'
