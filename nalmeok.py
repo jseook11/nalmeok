@@ -62,10 +62,19 @@ except ImportError:  # Windows
 try:
     import termios
     import tty
+except ImportError:  # Windows
+    termios = None
+    tty = None
 
-    RAW_KEYS = True
+try:
+    import msvcrt  # Windows 전용
 except ImportError:
-    RAW_KEYS = False
+    msvcrt = None
+
+POSIX_TERMINAL = termios is not None and tty is not None
+WINDOWS_TERMINAL = os.name == "nt" and msvcrt is not None
+# 예전 이름. 화면 코드는 can_raw_input() 을 사용합니다.
+RAW_KEYS = POSIX_TERMINAL or WINDOWS_TERMINAL
 
 __version__ = "0.3.0"
 
@@ -200,13 +209,110 @@ def capture_logs(render):
         _logger = previous
 
 
+_VT_READY = None
+
+
+def configure_stdio():
+    """리다이렉트·SSH 환경에서도 한글이 깨지지 않도록 표준 스트림을 UTF-8로 맞춥니다."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def bootstrap_platform():
+    """실행 시작 시 플랫폼 기능을 한 번 준비합니다."""
+    configure_stdio()
+    vt_supported()
+
+
+def _enable_windows_vt():
+    """Windows 콘솔에서 ANSI 시퀀스를 쓸 수 있게 VT 처리를 켭니다."""
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        enable_vt = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        kernel32.GetConsoleMode.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel32.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        enabled = False
+        for stream_id in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+            handle = kernel32.GetStdHandle(stream_id)
+            mode = ctypes.c_uint32()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                continue
+            if kernel32.SetConsoleMode(handle, mode.value | enable_vt):
+                if stream_id == -11:
+                    enabled = True
+            elif stream_id == -11:
+                enabled = False
+        return enabled
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def vt_supported():
+    """ANSI 화면 제어를 쓸 수 있는 터미널인지. Windows는 VT 처리를 한 번 켜봅니다."""
+    if os.name != "nt":
+        return sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    global _VT_READY
+    if _VT_READY is None:
+        _VT_READY = _enable_windows_vt()
+    return _VT_READY
+
+
+def can_raw_input():
+    """Enter 없이 키를 읽을 수 있는 터미널인지."""
+    if not sys.stdin.isatty():
+        return False
+    if os.name == "nt":
+        return WINDOWS_TERMINAL
+    return POSIX_TERMINAL
+
+
+def require_tui():
+    """TUI를 그릴 수 없는 환경이면 실행 전에 이해하기 쉬운 오류로 멈춥니다."""
+    if not can_raw_input():
+        fail("터미널 메뉴를 사용할 수 없습니다. Windows Terminal이나 실제 터미널에서 "
+             "실행하거나 `nalmeok --help`의 서브커맨드를 사용하세요.")
+    if not vt_supported():
+        fail("이 터미널은 화면 제어(ANSI)를 지원하지 않습니다. "
+             "Windows Terminal에서 실행해 주세요.")
+
+
+def unicode_ok():
+    """터미널 글꼴이 스피너·화살표 같은 기호를 안정적으로 그릴 수 있는지."""
+    if os.getenv("NALMEOK_ASCII"):
+        return False
+    if os.getenv("NALMEOK_UNICODE"):
+        return True
+    if os.name != "nt":
+        return True
+    # Windows Terminal은 기호 렌더링이 안정적입니다. conhost는 ASCII로 폴백합니다.
+    return bool(os.getenv("WT_SESSION"))
+
+
+def pointer():
+    return "❯" if unicode_ok() else ">"
+
+
+def spinner_frames():
+    return "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" if unicode_ok() else "|/-\\"
+
+
 def live_status(message):
     """진행 중인 마지막 로그 한 줄을 현재 줄에 덮어씁니다."""
     text = str(message).strip()
     if not text:
         return
     last = text.splitlines()[-1]
-    sys.stdout.write("\r\033[K  " + dim(clip(last, WIDTH - 4)))
+    if vt_supported():
+        sys.stdout.write("\r\033[K  " + dim(clip(last, WIDTH - 4)))
+    else:
+        sys.stdout.write("  " + dim(clip(last, WIDTH - 4)) + "\n")
     sys.stdout.flush()
 
 
@@ -1136,7 +1242,7 @@ def clock_text(seconds):
 
 
 def _progress_enabled():
-    return sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    return vt_supported()
 
 
 def convert_progress_line(index, total, name, seconds, duration):
@@ -2188,14 +2294,14 @@ def live_generation_config():
 @contextlib.contextmanager
 def live_progress(label, started=None):
     """TUI 상태 줄에 경과 시간을 계속 갱신합니다. CLI 로그에는 영향이 없습니다."""
-    if _logger is not live_status or not sys.stdout.isatty():
+    if _logger is not live_status or not vt_supported():
         yield
         return
     stop = threading.Event()
     base = started if started is not None else time.monotonic()
 
     def run():
-        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        frames = spinner_frames()
         index = 0
         while not stop.wait(0.4):
             elapsed = max(0, int(time.monotonic() - base))
@@ -2720,8 +2826,12 @@ def notify(title, message):
 @contextlib.contextmanager
 def cbreak_keys():
     """대기 화면에서 Enter 없이 키 하나를 읽을 수 있게 합니다."""
-    if not (RAW_KEYS and sys.stdin.isatty()):
+    if not can_raw_input():
         yield False
+        return
+    if os.name == "nt":
+        # msvcrt.getwch() 는 에코 없이 한 키씩 읽으므로 모드 변경이 필요 없습니다.
+        yield True
         return
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
@@ -2730,6 +2840,23 @@ def cbreak_keys():
         yield True
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _key_ready(window):
+    """window 초 동안 키 입력을 기다립니다. 입력이 준비되면 True."""
+    if not can_raw_input():
+        time.sleep(window)
+        return False
+    if os.name == "nt":
+        deadline = time.monotonic() + window
+        while True:
+            if msvcrt.kbhit():
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.03, remaining))
+    return bool(select.select([sys.stdin], [], [], window)[0])
 
 
 def _wait_for_key(interval, allow_detach, tick=None, step=0.12):
@@ -2743,7 +2870,7 @@ def _wait_for_key(interval, allow_detach, tick=None, step=0.12):
             tick()
         window = min(step, remaining)
         if allow_detach:
-            if select.select([sys.stdin], [], [], window)[0]:
+            if _key_ready(window):
                 return read_key()
         else:
             time.sleep(window)
@@ -2760,10 +2887,11 @@ def wait_for_completion(folder, job, client, interval=POLL_SECONDS,
     target = wait_target(folder, job)
     if not target:
         fail("아직 Batch가 제출되지 않았습니다. upload를 다시 실행하세요.")
-    live = sys.stdout.isatty() and os.getenv("TERM") != "dumb"
+    live = vt_supported()
     started = time.monotonic()
     started_wall = time.time()
     last = None
+    frames = spinner_frames()
     if track:
         write_watch_status(folder, reset=True, state="STARTING", label="대기 시작",
                            started=started_wall)
@@ -2774,7 +2902,7 @@ def wait_for_completion(folder, job, client, interval=POLL_SECONDS,
             if not live:
                 return
             view["frame"] += 1
-            frame = SPINNER[view["frame"] % len(SPINNER)]
+            frame = frames[view["frame"] % len(frames)]
             hint = "b 백그라운드" if (keys and allow_detach) else "Ctrl+C 중단"
             sys.stdout.write(
                 f"\r\033[K  {accent(frame)} {format_state(view['state'])}"
@@ -2956,8 +3084,7 @@ def run_command(command, folder, client, model=DEFAULT_MODEL, retry="none",
 
 
 def _color_enabled():
-    return (sys.stdout.isatty() and os.getenv("TERM") != "dumb"
-            and not os.getenv("NO_COLOR"))
+    return vt_supported() and not os.getenv("NO_COLOR")
 
 
 def _paint(*codes):
@@ -2977,15 +3104,15 @@ BACK = object()
 UP = object()
 ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left",
           "OA": "up", "OB": "down", "OC": "right", "OD": "left"}
+WIN_ARROWS = {"H": "up", "P": "down", "K": "left", "M": "right"}
 
 
 def clear_screen():
     """보이는 화면만 지우고 커서를 맨 위로 올립니다. 스크롤백은 남깁니다."""
-    if sys.stdout.isatty() and os.getenv("TERM") != "dumb":
+    if vt_supported():
         print("\033[2J\033[H", end="", flush=True)
 
 
-SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 MIN_WIDTH = 46
 MAX_WIDTH = 84
 
@@ -3003,8 +3130,7 @@ def refresh_layout():
 @contextlib.contextmanager
 def fullscreen():
     """전체 화면 버퍼를 쓰고 나올 때 스크롤백을 원래대로 돌려놓습니다."""
-    live = sys.stdout.isatty() and os.getenv("TERM") != "dumb"
-    if not live:
+    if not vt_supported():
         yield
         return
     sys.stdout.write("\033[?1049h\033[?25l")
@@ -3061,10 +3187,11 @@ def status_bar(key=None, extra=""):
 def pulse_bar(width, step, size=3):
     """진행률을 모르는 대기용 막대. 밝은 칸이 왼쪽에서 오른쪽으로 흐릅니다."""
     width = max(size, width)
-    cells = ["░"] * width
+    filled, empty = ("█", "░") if unicode_ok() else ("#", "-")
+    cells = [empty] * width
     for offset in range(size):
-        cells[(step + offset) % width] = "█"
-    return "".join(accent(cell) if cell == "█" else dim(cell) for cell in cells)
+        cells[(step + offset) % width] = filled
+    return "".join(accent(cell) if cell == filled else dim(cell) for cell in cells)
 
 
 def banner():
@@ -3116,8 +3243,8 @@ def prompt_box(label, hidden=False):
     print()
     try:
         if hidden:
-            return getpass.getpass(f"  {accent('❯')} {label}  ").strip()
-        return input(f"  {accent('❯')} {label}  ").strip()
+            return getpass.getpass(f"  {accent(pointer())} {label}  ").strip()
+        return input(f"  {accent(pointer())} {label}  ").strip()
     finally:
         print()
 
@@ -3163,7 +3290,7 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
         tail = dim(clip(desc, room)) if desc else ""
         if row == cursor:
             name = dim(text) if faded else bold(text)
-            rendered.append(f"  {accent('❯')} {name}   {tail}")
+            rendered.append(f"  {accent(pointer())} {name}   {tail}")
         elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
         else:
@@ -3178,8 +3305,41 @@ def draw_menu(entries, rows, cursor, footer=None, allow_back=False):
     return sum(_line_count(line) for line in rendered)
 
 
+def map_windows_key(char, next_char=None):
+    """Windows 콘솔 키 코드를 공통 키 이름으로 바꿉니다."""
+    if char in ("\x00", "\xe0"):
+        return WIN_ARROWS.get(next_char, "other")
+    if char in ("\r", "\n"):
+        return "enter"
+    if char == "\x03":
+        raise KeyboardInterrupt
+    if char == "\x04":
+        raise EOFError
+    return char
+
+
+def _read_key_windows():
+    char = msvcrt.getwch()
+    if char in ("\x00", "\xe0"):
+        return map_windows_key(char, msvcrt.getwch())
+    if char == "\x1b":
+        rest = ""
+        deadline = time.monotonic() + 0.05
+        while len(rest) < 2 and time.monotonic() < deadline:
+            if msvcrt.kbhit():
+                rest += msvcrt.getwch()
+            else:
+                time.sleep(0.005)
+        if not rest:
+            return "esc"
+        return ARROWS.get(rest, "other")
+    return map_windows_key(char)
+
+
 def read_key():
     """raw 모드로 키 하나를 읽습니다. 방향키는 up/down/left/right 로 돌려줍니다."""
+    if os.name == "nt":
+        return _read_key_windows()
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     try:
@@ -3201,6 +3361,20 @@ def read_key():
         return ARROWS.get(rest, "other")
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def wait_key():
+    """Enter 한 번을 기다립니다. raw 입력이 없으면 input()으로 대체합니다."""
+    if can_raw_input():
+        try:
+            read_key()
+        except (KeyboardInterrupt, EOFError):
+            pass
+        return
+    try:
+        input()
+    except (KeyboardInterrupt, EOFError):
+        pass
 
 
 def _menu_entries(options):
@@ -3243,8 +3417,7 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
 
     left_up 이면 왼쪽 화살표가 BACK 대신 UP 을 돌려줍니다.
     """
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
@@ -3300,7 +3473,7 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
         check = accent('●') if row in selected else dim('○')
         if row == cursor:
             name = dim(text) if faded else bold(text)
-            rendered.append(f"  {accent('❯')} {check} {name}   {tail}")
+            rendered.append(f"  {accent(pointer())} {check} {name}   {tail}")
         elif faded:
             rendered.append(f"    {dim(text)}   {tail}")
         else:
@@ -3315,8 +3488,7 @@ def draw_multi(entries, rows, cursor, selected, footer=None):
 
 def select_many(title, options, info=(), heading=None, subtitle=""):
     """여러 항목을 Space 로 표시하고 Enter 로 확정합니다. BACK 을 돌려줄 수 있습니다."""
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. 서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     entries, rows = _menu_entries(options)
     if not entries:
         fail("선택할 항목이 없습니다.")
@@ -3649,7 +3821,9 @@ def clean_path(text):
     text = text.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
         text = text[1:-1]
-    return Path(text.replace("\\ ", " ")).expanduser()
+    if os.name != "nt":
+        text = text.replace("\\ ", " ")
+    return Path(text).expanduser()
 
 
 def path_target(text):
@@ -3844,9 +4018,52 @@ def log_tail(path, limit=6):
         log(clip(line, WIDTH + 16))
 
 
+def _read_secret_windows(label):
+    """Windows 콘솔에서 가려진 입력을 한 글자씩 읽습니다."""
+    buffer = []
+    mask = "•" if unicode_ok() else "*"
+    sys.stdout.write(f"  {accent(pointer())} {pad(label, 15)} ")
+    sys.stdout.flush()
+    try:
+        while True:
+            char = msvcrt.getwch()
+            if char in ("\r", "\n"):
+                break
+            if char in ("\x00", "\xe0"):
+                if msvcrt.kbhit():
+                    msvcrt.getwch()
+                continue
+            if char == "\x1b":
+                if not msvcrt.kbhit():
+                    return None
+                while msvcrt.kbhit():
+                    msvcrt.getwch()
+                continue
+            if char == "\x03":
+                raise KeyboardInterrupt
+            if char == "\x04":
+                break
+            if char in ("\x7f", "\b"):
+                if buffer:
+                    buffer.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if char and char.isprintable() and char != "\t":
+                buffer.append(char)
+                sys.stdout.write(mask)
+                sys.stdout.flush()
+    finally:
+        print()
+    text = "".join(buffer).strip()
+    return text or None
+
+
 def read_secret(label):
     """가려진 입력 한 줄. Enter 확정, Esc 취소(None), 백스페이스 지원."""
-    if not (RAW_KEYS and sys.stdin.isatty()):
+    if os.name == "nt" and can_raw_input():
+        return _read_secret_windows(label)
+    if not (POSIX_TERMINAL and sys.stdin.isatty()):
         try:
             return getpass.getpass(f"  {label}: ").strip() or None
         except (EOFError, KeyboardInterrupt):
@@ -3854,7 +4071,7 @@ def read_secret(label):
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     buffer = []
-    sys.stdout.write(f"  {accent('❯')} {pad(label, 15)} ")
+    sys.stdout.write(f"  {accent(pointer())} {pad(label, 15)} ")
     sys.stdout.flush()
     try:
         tty.setraw(fd)
@@ -4547,7 +4764,7 @@ def draw_home(entries, cursor, key, folder_count):
         if faded:
             print(f"    {dim(text)}   {tail}")
         elif index == cursor:
-            print(f"  {accent('❯')} {bold(text)}   {tail}")
+            print(f"  {accent(pointer())} {bold(text)}   {tail}")
         else:
             print(f"    {text}   {tail}")
     print()
@@ -4578,9 +4795,7 @@ def help_screen():
 
 def home_screen(key):
     """화면 2. 최근 작업과 새 전사. 선택 키 또는 BACK 을 돌려줍니다."""
-    if not RAW_KEYS:
-        fail("방향키 메뉴는 macOS·Linux 에서만 동작합니다. "
-             "서브커맨드를 사용하세요: nalmeok --help")
+    require_tui()
     cursor = 0
 
     def movable(entries, index):
@@ -5013,10 +5228,7 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
     for line in lines:
         print(f"  {line}")
     footer(hint)
-    try:
-        read_key()
-    except (KeyboardInterrupt, EOFError):
-        pass
+    wait_key()
 
 
 def start_screen(folder, facts, key):
@@ -5479,6 +5691,7 @@ def session_screen(folder, key):
 def interactive():
     if not sys.stdin.isatty():
         fail("터미널 메뉴는 터미널에서 실행하세요. 명령어 사용법: nalmeok --help")
+    require_tui()
     with fullscreen():
         key = current_key()
         if not key:
@@ -5660,6 +5873,7 @@ def _api_error_class():
 
 def cli():
     """콘솔 스크립트와 __main__ 진입점. 사용자 오류를 traceback 없이 보여줍니다."""
+    bootstrap_platform()
     try:
         main()
     except (KeyboardInterrupt, EOFError):

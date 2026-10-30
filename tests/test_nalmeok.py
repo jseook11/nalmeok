@@ -79,8 +79,9 @@ class DisplayTests(unittest.TestCase):
     def test_pulse_bar_fits_width(self):
         bar = app.pulse_bar(14, 3)
         self.assertEqual(app.display_width(bar), 14)
-        self.assertIn("█", bar)
-        self.assertIn("░", bar)
+        filled, empty = ("█", "░") if app.unicode_ok() else ("#", "-")
+        self.assertIn(filled, bar)
+        self.assertIn(empty, bar)
 
     def test_refresh_layout_clamps_to_terminal(self):
         with mock.patch.object(app, "term_size",
@@ -101,7 +102,7 @@ class DisplayTests(unittest.TestCase):
         text = captured.getvalue()
         self.assertNotIn("╭", text)
         self.assertNotIn("│", text)
-        self.assertIn("❯", text)
+        self.assertIn(app.pointer(), text)
         self.assertIn("Enter 선택", text)
 
     def test_multi_menu_marks_selection(self):
@@ -118,7 +119,7 @@ class DisplayTests(unittest.TestCase):
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
             app.draw_menu(entries, [0], 0, "Enter 선택")
-        self.assertIn("❯", captured.getvalue())
+        self.assertIn(app.pointer(), captured.getvalue())
 
     def test_display_width_normalizes_decomposed_hangul(self):
         nfd = unicodedata.normalize("NFD", "강의녹음/")
@@ -128,6 +129,12 @@ class DisplayTests(unittest.TestCase):
 
 class PathTests(unittest.TestCase):
     def test_clean_path_unquotes_and_unescapes(self):
+        if os.name == "nt":
+            self.assertEqual(str(app.clean_path('"C:\\Users\\me\\my lecture"')),
+                             "C:\\Users\\me\\my lecture")
+            self.assertEqual(str(app.clean_path("'C:\\Users\\me\\my lecture'")),
+                             "C:\\Users\\me\\my lecture")
+            return
         self.assertEqual(str(app.clean_path('"/tmp/my lecture"')),
                          "/tmp/my lecture")
         self.assertEqual(str(app.clean_path("'/tmp/my\\ lecture'")),
@@ -232,9 +239,11 @@ class FolderBrowseTests(unittest.TestCase):
         self.assertFalse(facts["job"])
         self.assertEqual(facts["stage"], "empty")
 
-    @unittest.skipUnless(app.RAW_KEYS, "방향키 메뉴는 macOS·Linux 에서만 동작합니다")
+    @unittest.skipUnless(app.RAW_KEYS, "터미널 입력을 지원하는 플랫폼에서만 동작합니다")
     def test_menu_left_returns_up_when_left_up(self):
-        with mock.patch.object(app, "read_key", return_value="left"), \
+        with mock.patch.object(app, "can_raw_input", return_value=True), \
+                mock.patch.object(app, "vt_supported", return_value=True), \
+                mock.patch.object(app, "read_key", return_value="left"), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertIs(
                 app.select_menu("폴더", [("a", "A")], allow_back=True,
@@ -319,7 +328,8 @@ class AtomicWriteTests(unittest.TestCase):
             path = Path(temp) / "file.json"
             app.atomic_write_text(path, '{"a": 1}', mode=0o600)
             self.assertEqual(path.read_text(encoding="utf-8"), '{"a": 1}')
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
             leftovers = [p for p in Path(temp).iterdir() if p != path]
             self.assertEqual(leftovers, [])
 
@@ -1141,6 +1151,41 @@ class PackagingTests(unittest.TestCase):
         match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), app.__version__)
+
+
+class PlatformTests(unittest.TestCase):
+    def test_windows_key_mapping(self):
+        self.assertEqual(app.map_windows_key("\xe0", "H"), "up")
+        self.assertEqual(app.map_windows_key("\xe0", "P"), "down")
+        self.assertEqual(app.map_windows_key("\xe0", "K"), "left")
+        self.assertEqual(app.map_windows_key("\xe0", "M"), "right")
+        self.assertEqual(app.map_windows_key("\x00", "H"), "up")
+        self.assertEqual(app.map_windows_key("\xe0", "Z"), "other")
+        self.assertEqual(app.map_windows_key("\r"), "enter")
+        with self.assertRaises(KeyboardInterrupt):
+            app.map_windows_key("\x03")
+        with self.assertRaises(EOFError):
+            app.map_windows_key("\x04")
+
+    def test_ascii_symbol_fallback(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_ASCII": "1"}, clear=False):
+            self.assertFalse(app.unicode_ok())
+            self.assertEqual(app.pointer(), ">")
+            self.assertEqual(app.spinner_frames(), "|/-\\")
+
+    def test_unicode_symbol_override(self):
+        with mock.patch.dict(os.environ, {"NALMEOK_UNICODE": "1"}, clear=False):
+            self.assertTrue(app.unicode_ok())
+            self.assertEqual(app.pointer(), "❯")
+
+    def test_can_raw_input_requires_tty(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=False):
+            self.assertFalse(app.can_raw_input())
+
+    def test_require_tui_rejects_non_tty(self):
+        with mock.patch.object(app, "can_raw_input", return_value=False):
+            with self.assertRaises(RuntimeError):
+                app.require_tui()
 
 
 if __name__ == "__main__":

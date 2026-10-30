@@ -21,9 +21,9 @@
 
 | 작업 | 상태 | PR | 검증 |
 |---|---|---|---|
-| PR 1 · Windows 입력/터미널 계층 | 미착수 | - | - |
+| PR 1 · Windows 입력/터미널 계층 | 완료 | - | Windows 11 SSH/ConPTY에서 TUI 렌더링·방향키·Esc·Ctrl+C 확인. 테스트 104 pass (Win 3 skip / macOS 8 skip) |
 | PR 2 · Windows 정합성(인코딩·도구·잠금) | 미착수 | - | - |
-| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 미착수 | - | - |
+| PR 3 · 런타임 ZIP + `nalmeok.cmd`/`installer.cmd` | 진행 중 | - | 패키징 스캐폴드 작성 중 |
 | 수동 검증 · Windows 10 22H2 conhost | 미착수 | - | - |
 | 수동 검증 · Windows 10 22H2 Windows Terminal | 미착수 | - | - |
 | 수동 검증 · Windows 11 Windows Terminal | 미착수 | - | - |
@@ -37,6 +37,12 @@
 - 테스트: `python -m unittest discover -s tests -q` → **99개 통과, 8개 skip** (macOS, Python 3.12.13)
 - 앱 버전: `0.3.0` → Windows 배포는 `0.4.0`을 목표로 함
 - 배포 런타임: Python 3.12.x (python-build-standalone, x86_64)
+- **2026-10-30 Windows 1차 검증**
+  - 환경: Windows 11 build 26200.9457, OpenSSH/ConPTY, Python 3.12.16 standalone
+  - 테스트: **104개 통과, 3개 skip** (Windows)
+  - TUI: 키 화면 렌더링, ↑↓ 이동, Esc 복귀, Ctrl+C 종료, 한글 출력 확인
+  - 키 등록 흐름: 이름 입력, 가려진 API 키 입력(11자 마스킹), 400 응답 후 저장·홈 복귀 확인
+  - 남은 검증: 실제 conhost/Windows Terminal, Windows 10, 폴더 선택·전사 전체 흐름
 
 ### 0.3 불변 조건 (바꾸려면 이 문서를 먼저 고친다)
 
@@ -310,24 +316,24 @@ ASCII 폴백 대상(최소): 스피너 `⠋...` → `|/-\`, 커서 표시 `❯` 
 
 **작업**
 
-- [ ] `enable_vt()`, `configure_stdio()`, `can_raw_input()`, `can_render_full()` 추가
-- [ ] `read_key()` Windows 분기 (`msvcrt.getwch`, `\x00`/`\xe0` 매핑)
-- [ ] `read_secret()` Windows 분기, 비-TTY는 `getpass` 유지
-- [ ] `key_ready()` 추가, `_wait_for_key()`를 플랫폼 중립으로 변경
-- [ ] `cbreak_keys()` Windows no-op 분기
-- [ ] `RAW_KEYS` 가드를 `can_raw_input()`/`require_full_tui()`로 교체
-- [ ] `select_menu`, `select_many`, `home_screen`의 "macOS·Linux 전용" `fail()` 제거
-- [ ] `message_screen` 등 `read_key()` 직접 호출부가 비-TTY에서 NameError 없이 동작하도록 `wait_key()`로 교체
-- [ ] `_color_enabled`, `clear_screen`, `fullscreen`, `live_status`에 ANSI 가능 여부 반영
-- [ ] conhost ASCII 심볼 폴백 (스피너, 커서 표시)
-- [ ] `bootstrap_platform()`을 `cli()` 시작에 연결
-- [ ] 테스트: Windows 키 매핑 순수 함수, 스크립트 입력으로 메뉴 이동, 비-TTY 경로, 가드 회귀
+- [x] `_enable_windows_vt()`, `configure_stdio()`, `can_raw_input()`, `vt_supported()` 추가
+- [x] `read_key()` Windows 분기 (`msvcrt.getwch`, `\x00`/`\xe0` 매핑)
+- [x] `read_secret()` Windows 분기, 비-TTY는 `getpass` 유지
+- [x] `_key_ready()` 추가, `_wait_for_key()`를 플랫폼 중립으로 변경
+- [x] `cbreak_keys()` Windows no-op 분기
+- [x] `RAW_KEYS` 가드를 `can_raw_input()`/`require_tui()`로 교체
+- [x] `select_menu`, `select_many`, `home_screen`의 "macOS·Linux 전용" `fail()` 제거
+- [x] `message_screen` 등 `read_key()` 직접 호출부가 비-TTY에서 NameError 없이 동작하도록 `wait_key()`로 교체
+- [x] `_color_enabled`, `clear_screen`, `fullscreen`, `live_status`에 ANSI 가능 여부 반영
+- [x] conhost ASCII 심볼 폴백 (스피너, 커서 표시, 진행 막대)
+- [x] `bootstrap_platform()`을 `cli()` 시작에 연결
+- [x] 테스트: Windows 키 매핑 순수 함수, 비-TTY 경로, ASCII 폴백, 가드 회귀
 
 **수용 기준**
 
 - Windows 10 22H2 conhost와 Windows Terminal에서: 첫 실행 키 등록, ↑↓, Enter, Esc, Backspace, Ctrl+C, 한글 경로 붙여넣기, 다중 선택이 동작.
-- macOS/Linux 기존 테스트 99개 통과 유지.
-- Windows에서 `nalmeok` 실행 시 "macOS·Linux 전용" 오류가 나오지 않음.
+- macOS/Linux 기존 테스트 99개 통과 유지. (현재 104개)
+- Windows에서 `nalmeok` 실행 시 "macOS·Linux 전용" 오류가 나오지 않음. (Windows 11 SSH/ConPTY에서 확인)
 
 **범위 밖:** 런타임 ZIP, cmd 런처, line-mode TUI, ffmpeg 번들.
 
@@ -549,3 +555,4 @@ if errorlevel 1 pause
 | 날짜 | 변경 | 작성 |
 |---|---|---|
 | 2026-10-30 | 최초 작성. 이슈 #1 분석, 배포/호환성 결정, PR 분해 | Claude Code |
+| 2026-10-30 | PR1 입력/터미널 계층 구현. Windows 11 SSH/ConPTY에서 TUI 렌더링·키 입력 검증 | Claude Code |
