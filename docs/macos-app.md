@@ -17,10 +17,10 @@
 | 작업 | 상태 | PR | 검증 |
 |---|---|---|---|
 | M0 · 계획 문서 | 완료 | - | 이 문서 |
-| M1 · 앱 번들·런처·부트스트랩 | 미착수 | - | - |
-| M2 · DMG·서명·공증·staple | 미착수 | - | - |
-| M3 · 컴포넌트 업데이트·ffmpeg 온디맨드 | 미착수 | - | - |
-| M4 · CI·테스트·문서 | 미착수 | - | - |
+| M1 · 앱 번들·런처·부트스트랩 | 완료 | - | 앱 2.1MB. 런처 dry-run, 임시 데이터에서 PBS 3.12.16 다운로드·SHA 검증·venv/SDK 설치 확인. 147 tests pass |
+| M2 · DMG·서명·공증·staple | 완료 | - | Developer ID 서명, notarytool **Accepted**(`2c48e95d`), staple·spctl 통과. DMG 2.45MB |
+| M3 · 컴포넌트 업데이트·ffmpeg 온디맨드 | 진행 중 | - | `nalmeok update`·manifest·앱 코드/SDK 갱신 구현·E2E 확인. ffmpeg 온디맨드는 LGPL 빌드 확보 후 |
+| M4 · CI·테스트·문서 | 진행 중 | - | macOS CI 통과, README macOS 설치 안내 추가. v0.6.0 릴리스 진행 |
 | 후속 · Finder 아이콘 드롭 | 보류 (v1.1) | - | - |
 | 후속 · Intel x86_64 | 보류 | - | - |
 | 후속 · 앱 자동 업데이트(Sparkle 등) | 보류 | - | - |
@@ -30,8 +30,8 @@
 ### 0.2 기준선
 
 - 커밋: `0d6c07a` (v0.5.0, 드래그앤드롭 포함)
-- 테스트: **134개 통과, 8개 skip** (macOS), Windows 134개 통과 (4 skip)
-- 앱 버전: `0.5.0` → 목표 `0.6.0`
+- 테스트: **147개 통과, 8개 skip** (macOS), Windows는 CI에서 확인
+- 앱 버전: `0.6.0`
 - 대상: macOS 12 Monterey 이상, **Apple Silicon(arm64) 우선**
 - 빌드 도구: Xcode Command Line Tools(`swiftc`), `hdiutil`, `codesign`, `notarytool`
 - 배포 계정: Apple Developer Program(Developer ID Application)
@@ -237,6 +237,13 @@ manifest 예:
 - 다운로드 파일은 `.tmp`에 받고 검증 후 교체한다.
 - 앱·폴더를 복제하지 않는다.
 
+구현:
+
+- `nalmeok update`, `nalmeok update --check`, 홈 화면 `v`.
+- 앱 코드는 manifest의 SHA-256을 검증한 뒤 `os.replace`로 교체한다.
+- SDK는 설치 버전이 manifest보다 낮을 때만 `.venv`의 pip로 갱신한다.
+- manifest는 빌드 스크립트가 `dist/macos-manifest.json`으로 생성한다.
+
 ### 4.6 Python 선택 전략
 
 우선순위:
@@ -425,11 +432,11 @@ xcrun stapler validate nalmeok-<v>-arm64.dmg
 
 1. `nalmeok.py` 버전 범프
 2. 테스트 통과
-3. `scripts/build_macos.py`로 앱·DMG 빌드
+3. `scripts/build_macos.py`로 앱·DMG·manifest 빌드
 4. 서명·공증·staple
 5. `SHA256SUMS.txt` 생성
-6. GitHub Release에 DMG·manifest·SHA256SUMS 업로드
-7. manifest의 URL·해시 갱신
+6. GitHub Release에 **DMG, `nalmeok.py`, `macos-manifest.json`, `SHA256SUMS.txt`** 업로드
+7. 태그는 `v<version>` (manifest의 다운로드 URL과 일치)
 8. 새 Mac에서 설치·업데이트 확인
 
 ## 8. 리스크와 대안
@@ -496,3 +503,8 @@ xcrun stapler validate nalmeok-<v>-arm64.dmg
 |---|---|---|
 | 2026-10-30 | 최초 작성. 얇은 앱 + PBS + 기존 SDK 흐름 + 공증 DMG 결정 | Claude Code |
 | 2026-10-30 | 계획 승인. Intel 보류, 업데이트 v1 수동, 나머지 추천안 확정 | Claude Code |
+| 2026-10-30 | M1 구현. Swift 런처·bootstrap/run.command·PBS 3.12.16·ensure_sdk 패키징 경로 수정. 138 tests pass | Claude Code |
+| 2026-10-30 | M2/M4 착수. build_macos.py·unsigned DMG 2.45MB·macOS CI 워크플로 추가 | Claude Code |
+| 2026-10-30 | M3a. `nalmeok update`로 앱 코드(SHA-256·원자적 교체)와 SDK 갱신, manifest 생성. 로컬 E2E 확인. 147 tests pass | Claude Code |
+| 2026-10-30 | M2 완료. Developer ID 서명·공증 Accepted(`2c48e95d`)·staple·spctl 통과. DMG 2.45MB | Claude Code |
+| 2026-10-30 | v0.6.0 릴리스 준비. README macOS 설치 안내, unsigned CI 아티팩트 표시, 릴리스 자산 정리 | Claude Code |

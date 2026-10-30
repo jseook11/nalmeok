@@ -1,0 +1,63 @@
+name: macOS
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (macOS)
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  build:
+    name: Build macOS DMG
+    runs-on: macos-15
+    needs: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build unsigned DMG
+        run: python scripts/build_macos.py
+      - name: Smoke-test launcher and bootstrap
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          NALMEOK_DRY_RUN=1 NALMEOK_HOME="$tmp" \
+            build/macos/app/nalmeok.app/Contents/MacOS/nalmeok
+          test -f "$tmp/app/nalmeok.py"
+          NALMEOK_HOME="$tmp" \
+            build/macos/app/nalmeok.app/Contents/Resources/bootstrap.command --version
+      - name: Mark unsigned artifact
+        run: |
+          echo "UNSIGNED CI BUILD. Do not distribute." > dist/UNSIGNED.txt
+          echo "Use a Developer ID signed and notarized DMG for users." >> dist/UNSIGNED.txt
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: nalmeok-macos-unsigned-${{ github.sha }}
+          path: |
+            dist/UNSIGNED.txt
+            dist/*.dmg
+            dist/nalmeok.py
+            dist/macos-manifest.json
+            dist/SHA256SUMS.txt

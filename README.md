@@ -118,6 +118,48 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 
 ---
 
+## macOS 설치 (비개발자용)
+
+> **지원 범위:** macOS 12 Monterey 이상, **Apple Silicon(arm64)**. Intel Mac은 아직 지원하지 않습니다.
+
+Python·brew·git을 설치할 필요가 없습니다. 앱은 Developer ID로 서명·공증되어 Gatekeeper 경고 없이 실행됩니다.
+
+### 1. 설치
+
+1. [Releases](https://github.com/jseook11/nalmeok/releases)에서 최신 `nalmeok-<버전>-arm64.dmg`를 내려받습니다.
+2. DMG를 열고 **nalmeok.app**을 **Applications** 폴더로 드래그합니다.
+3. Applications에서 **nalmeok**을 더블클릭합니다. Terminal 창이 열리고 첫 실행이 시작됩니다.
+
+### 2. 첫 실행
+
+첫 실행에서 필요한 것만 자동으로 준비합니다.
+
+```text
+Python 3.12 준비 중...       약 25MB
+google-genai 설치 중...      약 20MB
+```
+
+- 관리자 비밀번호를 요구하지 않습니다.
+- 모든 파일은 `~/Library/Application Support/nalmeok/`에만 저장됩니다.
+- API 키를 등록하면 바로 전사할 수 있습니다.
+
+### 3. 사용
+
+- Terminal 창에 **폴더/MP4/M4A를 끌어다 놓으면** 바로 전사합니다.
+- 결과는 `~/Documents/nalmeok/`에 복사됩니다.
+- 업데이트는 홈 화면에서 `v` 또는 `nalmeok update`로 확인합니다. 앱 코드만 바뀐 경우 수십 KB만 내려받습니다.
+- **MP4 변환에는 아직 ffmpeg가 필요합니다.** 현재는 `brew install ffmpeg`로 설치하거나, M4A 파일을 사용하세요. macOS용 자동 설치(온디맨드)는 준비 중입니다.
+
+### 4. 문제 해결
+
+- **"확인되지 않은 개발자" 경고가 뜹니다.** 서명·공증된 DMG인지 확인하세요. GitHub Actions의 `unsigned` 아티팩트는 배포용이 아닙니다.
+- **아무 반응이 없습니다.** 앱은 Dock 아이콘 없이 Terminal 창을 엽니다. Terminal이 뒤에 열려 있지 않은지 확인하세요.
+- **Intel Mac입니다.** 현재 arm64 전용이라 실행되지 않습니다.
+- **제거하려면** `nalmeok.app`, `~/Library/Application Support/nalmeok`, 필요하면 `~/.config/nalmeok`과 `~/Documents/nalmeok`을 삭제합니다.
+- **무결성 확인(선택).** `shasum -a 256 nalmeok-<버전>-arm64.dmg`를 `SHA256SUMS.txt`와 비교합니다.
+
+---
+
 ## 터미널 대시보드
 
 인자 없이 실행하면 **키 → 작업 → 진행** 3화면으로 이어집니다. 메뉴를 찾아 헤맬 필요 없이, 폴더를 고르고 Enter만 누르면 됩니다.
@@ -148,7 +190,7 @@ MP4만 있어도 ZIP에 포함된 ffmpeg가 M4A로 변환합니다. 설치 폴�
 ### 2. 작업
 
 ```text
-  날먹   강의 음성을 Batch·live로 전사   v0.5.0
+  날먹   강의 음성을 Batch·live로 전사   v0.6.0
   ───────────────────────────────────────────
 
   작업
