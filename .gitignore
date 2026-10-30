@@ -29,6 +29,8 @@ wheels/
 # docs/ 같은 폴더에 md를 추가한다면 여기에 예외를 적어주세요.
 *.md
 !README.md
+!CLAUDE.md
+!docs/**/*.md
 
 # Command Code 세션 설정
 .commandcode/
