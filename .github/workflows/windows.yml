@@ -129,8 +129,8 @@ jobs:
           name: nalmeok-windows-${{ github.sha }}
           path: |
             dist/*.zip
-            dist/nalmeok-app-*.zip
-            dist/windows-manifest.json
+            dist/nalmeok-app.zip
+            dist/manifest.json
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

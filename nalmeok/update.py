@@ -155,6 +155,20 @@ def download_bytes(url, timeout=60):
         return response.read()
 
 
+def platform_key():
+    return "windows" if app.IS_WINDOWS else "macos"
+
+
+def platform_section(manifest):
+    """manifest의 플랫폼 섹션. 예전(최상위 python/ffmpeg) 형식도 읽습니다."""
+    platforms = manifest.get("platforms")
+    if isinstance(platforms, dict):
+        section = platforms.get(app.platform_key())
+        if isinstance(section, dict):
+            return section
+    return {key: manifest[key] for key in ("python", "ffmpeg") if key in manifest}
+
+
 def update_target(manifest):
     """manifest에서 (버전, URL, SHA-256)을 꺼냅니다."""
     info = manifest.get("nalmeok")

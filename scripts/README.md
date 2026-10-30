@@ -21,6 +21,8 @@ python scripts\build_windows.py
 dist\nalmeok-<version>-win64.zip   # installer.cmd + app\ (thin, ~200KB)
 dist\nalmeok-<version>-win64-offline.zip   # app\ 안에 runtime\, ffmpeg.exe (--offline)
 dist\SHA256SUMS.txt                # ZIP의 SHA-256
+dist\nalmeok-app.zip               # 업데이트 payload (플랫폼 공통)
+dist\manifest.json                 # 업데이트/ffmpeg 핀 (플랫폼 섹션 포함)
 build\nalmeok-thin\                # thin ZIP 중간 파일
 build\nalmeok-offline\             # offline ZIP 중간 파일
 build\cache\                       # 내려받은 런타임/ffmpeg 캐시 (SHA-256 검증됨)

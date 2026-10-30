@@ -37,6 +37,8 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
+import release_common
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = ROOT / "scripts"
 BUILD_DIR = ROOT / "build"
@@ -661,23 +663,20 @@ def write_sums(version: str) -> None:
 
 
 def write_manifest(version: str) -> None:
-    payload = DIST_DIR / "nalmeok-app-win64.zip"
-    stage = BUILD_DIR / "app-payload"
-    remove_tree(stage)
-    copy_package(ROOT / "nalmeok", stage / "nalmeok")
-    create_zip(stage, payload)
+    payload = release_common.write_app_payload(
+        ROOT / "nalmeok", DIST_DIR / release_common.APP_PAYLOAD)
     sdk_version = GOOGLE_GENAI_REQUIREMENT.split("==", 1)[-1]
-    manifest = {
+    common = {
         "app_version": version,
         "nalmeok": {
             "version": version,
-            "url": (
-                "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok-app-win64.zip"
-            ),
-            "sha256": sha256_file(payload),
+            "url": release_common.RELEASE_BASE.format(version=version)
+            + release_common.APP_PAYLOAD,
+            "sha256": release_common.sha256_file(payload),
         },
         "sdk": {"name": "google-genai", "version": sdk_version},
+    }
+    section = {
         "python": {
             "version": PYTHON_VERSION,
             "url": PYTHON_URL,
@@ -689,10 +688,8 @@ def write_manifest(version: str) -> None:
             "sha256": FFMPEG_SHA256,
         },
     }
-    write_text(
-        DIST_DIR / "windows-manifest.json",
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-    )
+    release_common.merge_manifest(
+        DIST_DIR / release_common.MANIFEST, "windows", common, section)
 
 
 def build_thin() -> None:

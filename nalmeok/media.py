@@ -41,7 +41,7 @@ def ensure_ffmpeg():
         return False
     try:
         manifest = app.fetch_manifest()
-        info = manifest.get("ffmpeg") or {}
+        info = app.platform_section(manifest).get("ffmpeg") or {}
         url = str(info.get("url") or "").strip()
         digest = str(info.get("sha256") or "").strip().lower()
     except (OSError, ValueError, RuntimeError):

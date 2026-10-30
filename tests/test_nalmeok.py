@@ -1707,11 +1707,23 @@ class UpdateTests(unittest.TestCase):
 
 
 class FFmpegTests(unittest.TestCase):
-    def test_manifest_url_follows_platform(self):
+    def test_manifest_url_is_shared(self):
+        self.assertTrue(app.manifest_url().endswith("/manifest.json"))
+
+    def test_platform_section_reads_platform_then_legacy(self):
+        manifest = {
+            "nalmeok": {"version": "1.0.0", "url": "x", "sha256": "0" * 64},
+            "platforms": {
+                "windows": {"ffmpeg": {"version": "8"}},
+                "macos": {"python": {"version": "3.12"}},
+            },
+        }
         with mock.patch.object(app, "IS_WINDOWS", True):
-            self.assertTrue(app.manifest_url().endswith("windows-manifest.json"))
+            self.assertEqual(app.platform_section(manifest)["ffmpeg"]["version"], "8")
         with mock.patch.object(app, "IS_WINDOWS", False):
-            self.assertTrue(app.manifest_url().endswith("macos-manifest.json"))
+            self.assertEqual(app.platform_section(manifest)["python"]["version"], "3.12")
+        legacy = {"python": {"version": "3.11"}, "ffmpeg": {"version": "7"}}
+        self.assertEqual(app.platform_section(legacy)["ffmpeg"]["version"], "7")
 
     def test_ensure_ffmpeg_noop_when_installed(self):
         with mock.patch.object(app, "find_tool", return_value="/x/ffmpeg"):

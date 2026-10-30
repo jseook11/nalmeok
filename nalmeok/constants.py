@@ -95,17 +95,12 @@ SDK = "google-genai"
 SDK_VERSION = "2.31.0"
 SDK_SPEC = f"{SDK}=={SDK_VERSION}"
 MANIFEST_URL = (
-    "https://github.com/jseook11/nalmeok/releases/latest/download/"
-    "macos-manifest.json"
-)
-WINDOWS_MANIFEST_URL = (
-    "https://github.com/jseook11/nalmeok/releases/latest/download/"
-    "windows-manifest.json"
+    "https://github.com/jseook11/nalmeok/releases/latest/download/manifest.json"
 )
 
 
 def manifest_url():
-    return app.WINDOWS_MANIFEST_URL if app.IS_WINDOWS else app.MANIFEST_URL
+    return app.MANIFEST_URL
 DEFAULT_MODEL = "gemini-3.8-flash"
 MAX_FILES = 10
 RECENT_LIMIT = 8

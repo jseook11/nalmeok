@@ -58,6 +58,6 @@ jobs:
           path: |
             dist/UNSIGNED.txt
             dist/*.dmg
-            dist/nalmeok-app-*.zip
-            dist/macos-manifest.json
+            dist/nalmeok-app.zip
+            dist/manifest.json
             dist/SHA256SUMS.txt

@@ -29,6 +29,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import release_common
+
 ROOT = Path(__file__).resolve().parent.parent
 MACOS_DIR = ROOT / "macos"
 BUILD_DIR = ROOT / "build" / "macos"
@@ -241,29 +243,23 @@ def create_dmg(app: Path, version: str) -> Path:
 
 
 def write_manifest(version: str) -> Path:
-    """릴리스에 올릴 macos-manifest.json과 앱 패키지 ZIP을 준비합니다."""
+    """공통 manifest에 macOS 섹션을 병합합니다."""
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    payload = DIST_DIR / "nalmeok-app-macos-arm64.zip"
-    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted((ROOT / "nalmeok").glob("*.py")):
-            archive.write(path, f"nalmeok/{path.name}")
-    manifest = {
+    payload = release_common.write_app_payload(
+        ROOT / "nalmeok", DIST_DIR / release_common.APP_PAYLOAD)
+    common = {
         "app_version": version,
         "nalmeok": {
             "version": version,
-            "url": (
-                "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok-app-macos-arm64.zip"
-            ),
-            "sha256": sha256(payload),
+            "url": release_common.RELEASE_BASE.format(version=version)
+            + release_common.APP_PAYLOAD,
+            "sha256": release_common.sha256_file(payload),
         },
         "sdk": {"name": SDK_NAME, "version": sdk_version()},
-        "python": {"version": PBS_VERSION},
     }
-    path = DIST_DIR / "macos-manifest.json"
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
-    return path
+    section = {"python": {"version": PBS_VERSION}}
+    return release_common.merge_manifest(
+        DIST_DIR / release_common.MANIFEST, "macos", common, section)
 
 
 def main() -> int:
@@ -297,7 +293,7 @@ def main() -> int:
     log(f"sha256: {digest}")
     log(f"sums: {sums}")
     log(f"manifest: {manifest}")
-    log("release assets: dmg, nalmeok-app-macos-arm64.zip, macos-manifest.json, SHA256SUMS.txt")
+    log("release assets: dmg, nalmeok-app.zip, manifest.json, SHA256SUMS.txt")
     return 0
 
 
