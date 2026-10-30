@@ -3565,6 +3565,23 @@ def _menu_move(entries, cursor, step):
     return cursor
 
 
+def _menu_limit(info=()):
+    """헤더·정보·푸터를 제외하고 메뉴에 보여줄 수 있는 줄 수."""
+    rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
+    return max(4, rows - 9 - len(info))
+
+
+def _menu_window(rows, cursor, limit):
+    """커서가 보이도록 rows 의 일부 구간을 돌려줍니다. (구간, 시작, 전체)"""
+    total = len(rows)
+    if total <= limit:
+        return rows, 0, total
+    positions = [index for index, row in enumerate(rows) if row == cursor]
+    position = positions[0] if positions else 0
+    start = max(0, min(position - limit // 2, total - limit))
+    return rows[start:start + limit], start, total
+
+
 def select_menu(title, options, info=(), allow_back=False, heading=None,
                 subtitle="", footer=None, left_up=False):
     """방향키로 고르고 Enter 로 확정합니다. 선택된 항목의 key 를 돌려줍니다.
@@ -3577,10 +3594,22 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
         fail("선택할 항목이 없습니다.")
     cursor = next((index for index, entry in enumerate(entries) if not entry[4]), 0)
 
+    def build_menu():
+        limit = _menu_limit(info)
+        visible, start, total = _menu_window(rows, cursor, limit)
+        line_footer = footer
+        if total > len(visible):
+            base = line_footer or (
+                "↑↓ 이동 · Enter 선택"
+                + (" · Esc 뒤로" if allow_back else " · Ctrl+C 종료"))
+            line_footer = (f"{base}  "
+                           f"({start + 1}-{start + len(visible)}/{total})")
+        return menu_lines(entries, visible, cursor, line_footer, allow_back)
+
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return menu_lines(entries, rows, cursor, footer, allow_back)
+        return build_menu()
 
     lines = render()
     height = draw_lines(lines)
@@ -3601,7 +3630,7 @@ def select_menu(title, options, info=(), allow_back=False, heading=None,
                 cursor = _menu_move(entries, cursor, -1)
         else:
             continue
-        new_lines = menu_lines(entries, rows, cursor, footer, allow_back)
+        new_lines = build_menu()
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
             lines = render()
@@ -3658,10 +3687,20 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
     cursor = 0
     selected = set()
 
+    def build_menu():
+        limit = _menu_limit(info)
+        visible, start, total = _menu_window(rows, cursor, limit)
+        line_footer = None
+        if total > len(visible):
+            line_footer = (
+                "↑↓ 이동 · Space 선택 · Enter 확정 · Esc 뒤로  "
+                f"({start + 1}-{start + len(visible)}/{total})")
+        return multi_lines(entries, visible, cursor, selected, line_footer)
+
     def render():
         screen(heading or title, subtitle)
         _draw_info(info)
-        return multi_lines(entries, rows, cursor, selected)
+        return build_menu()
 
     lines = render()
     height = draw_lines(lines)
@@ -3682,7 +3721,7 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
             return BACK
         else:
             continue
-        new_lines = multi_lines(entries, rows, cursor, selected)
+        new_lines = build_menu()
         terminal_rows = shutil.get_terminal_size((WIDTH + 4, 24)).lines
         if height >= terminal_rows - 1:
             lines = render()

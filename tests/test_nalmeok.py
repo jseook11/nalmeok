@@ -258,6 +258,32 @@ class FolderBrowseTests(unittest.TestCase):
     def test_update_lines_falls_back_on_wrapping(self):
         self.assertFalse(app.update_lines(["a"], ["b"], 2))
 
+    def test_menu_window_keeps_cursor_visible(self):
+        rows = list(range(10))
+        visible, start, total = app._menu_window(rows, 7, 4)
+        self.assertEqual(total, 10)
+        self.assertEqual(len(visible), 4)
+        self.assertIn(7, visible)
+        self.assertGreaterEqual(start, 0)
+
+    def test_long_menu_does_not_clear_on_every_key(self):
+        options = [(str(index), f"item{index}") for index in range(40)]
+        keys = iter(["down"] * 10 + ["esc"])
+
+        def fake_key():
+            return next(keys)
+
+        with mock.patch.object(app, "can_raw_input", return_value=True), \
+                mock.patch.object(app, "vt_supported", return_value=True), \
+                mock.patch.object(app, "read_key", side_effect=fake_key), \
+                mock.patch.object(app.shutil, "get_terminal_size",
+                                  return_value=os.terminal_size((80, 24))):
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                answer = app.select_menu("test", options, allow_back=True)
+        self.assertIs(answer, app.BACK)
+        self.assertEqual(captured.getvalue().count("\033[2J"), 1)
+
     def test_browse_shows_nested_media_counts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
