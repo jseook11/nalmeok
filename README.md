@@ -131,7 +131,7 @@ Python·brew·git을 설치할 필요가 없습니다. 앱은 Developer ID로 �
 
 ### 1. 설치
 
-1. [Releases](https://github.com/jseook11/nalmeok/releases)에서 최신 `nalmeok-<버전>-arm64.dmg`를 내려받습니다.
+1. [Releases](https://github.com/jseook11/nalmeok/releases)에서 최신 `nalmeok-<버전>-macos-arm64.dmg`를 내려받습니다.
 2. DMG를 열고 **nalmeok.app**을 **Applications** 폴더로 드래그합니다.
 3. Applications에서 **nalmeok**을 더블클릭합니다. Terminal 창이 열리고 첫 실행이 시작됩니다.
 
@@ -161,7 +161,7 @@ google-genai 설치 중...      약 20MB
 - **아무 반응이 없습니다.** 앱은 Dock 아이콘 없이 Terminal 창을 엽니다. Terminal이 뒤에 열려 있지 않은지 확인하세요.
 - **Intel Mac입니다.** 현재 arm64 전용이라 실행되지 않습니다.
 - **제거하려면** `nalmeok.app`, `~/Library/Application Support/nalmeok`, 필요하면 `~/.config/nalmeok`과 `~/Documents/nalmeok`을 삭제합니다.
-- **무결성 확인(선택).** `shasum -a 256 nalmeok-<버전>-arm64.dmg`를 `SHA256SUMS.txt`와 비교합니다.
+- **무결성 확인(선택).** `shasum -a 256 nalmeok-<버전>-macos-arm64.dmg`를 `SHA256SUMS.txt`와 비교합니다.
 
 ---
 

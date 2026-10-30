@@ -94,7 +94,7 @@
 | MD7 | **컴포넌트 단위 업데이트** + 원자적 교체 | 코드 변경은 수십 KB, 의존성은 드묾 | manifest 기반 |
 | MD8 | 무결성은 **HTTPS + SHA-256** | pip와 동등한 신뢰 모델, 구현 단순 | manifest에 해시 고정 |
 | MD9 | ffmpeg/ffprobe는 **온디맨드 정적 빌드** | M4A만 쓰는 사용자에게 80MB를 강요하지 않음 | `bin/ffmpeg`, `bin/ffprobe` |
-| MD10 | v1은 **arm64만** | 사용자 대부분, 빌드·검증 단순화 | `nalmeok-<v>-arm64.dmg` |
+| MD10 | v1은 **arm64만** | 사용자 대부분, 빌드·검증 단순화 | `nalmeok-<v>-macos-arm64.dmg` |
 | MD11 | 최소 **macOS 12 Monterey** | Swift 런타임 내장, PBS 지원 | `LSMinimumSystemVersion 12.0` |
 | MD12 | **Developer ID + notarytool + staple** | Gatekeeper 경고 제거 | DMG 공증 |
 | MD13 | 앱 껍데기 업데이트는 **수동 DMG** | 껍데기는 거의 안 바뀜, Sparkle은 후속 | v1.1 검토 |
@@ -313,7 +313,7 @@ Homebrew Python을 쓰더라도 venv가 Homebrew 업그레이드로 깨질 수 �
 2. 앱 번들 구성, `assets/nalmeok.ico` → `.icns` 변환
 3. `codesign --force --options runtime --timestamp --sign "$IDENTITY" nalmeok.app`
 4. `hdiutil create`로 DMG 생성
-5. `codesign --sign "$IDENTITY" nalmeok-<v>-arm64.dmg`
+5. `codesign --sign "$IDENTITY" nalmeok-<v>-macos-arm64.dmg`
 6. `xcrun notarytool submit --wait`
 7. `xcrun stapler staple`
 8. `spctl -a -vv`, `stapler validate`로 확인
@@ -406,7 +406,7 @@ CI에서는 서명 인증서와 공증 자격이 있을 때만 3~8을 수행하�
 ```bash
 codesign --verify --deep --strict --verbose=2 nalmeok.app
 spctl -a -vv --type execute nalmeok.app
-xcrun stapler validate nalmeok-<v>-arm64.dmg
+xcrun stapler validate nalmeok-<v>-macos-arm64.dmg
 ```
 
 ### 6.3 수동 매트릭스
@@ -511,3 +511,4 @@ xcrun stapler validate nalmeok-<v>-arm64.dmg
 | 2026-10-30 | v0.6.0 릴리스 준비. README macOS 설치 안내, unsigned CI 아티팩트 표시, 릴리스 자산 정리 | Claude Code |
 | 2026-10-30 | **v0.6.0 릴리스**. macOS notarized DMG + Windows ZIP, live manifest/update endpoint 검증. 사용 완료 브랜치 정리 | Claude Code |
 | 2026-10-30 | **v0.6.1 릴리스**. macOS DMG 재서명·공증, Windows thin 표준 전환, 양 플랫폼 manifest/update 검증 | Claude Code |
+| 2026-10-30 | macOS 파일명을 `macos-arm64`로 변경(Windows `win64`와 통일). 릴리스 자산 이름 갱신 | Claude Code |

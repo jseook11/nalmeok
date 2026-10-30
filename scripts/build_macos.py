@@ -228,7 +228,7 @@ def create_dmg(app: Path, version: str) -> Path:
     shutil.copytree(app, root / app.name, symlinks=True)
     os.symlink("/Applications", root / "Applications")
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    dmg = DIST_DIR / f"nalmeok-{version}-{ARCH}.dmg"
+    dmg = DIST_DIR / f"nalmeok-{version}-macos-{ARCH}.dmg"
     if dmg.exists():
         dmg.unlink()
     run(["hdiutil", "create", "-volname", APP_NAME, "-srcfolder", str(root),
