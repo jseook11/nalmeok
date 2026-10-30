@@ -661,7 +661,7 @@ def write_sums(version: str) -> None:
 
 
 def write_manifest(version: str) -> None:
-    payload = DIST_DIR / "nalmeok-app.zip"
+    payload = DIST_DIR / "nalmeok-app-win64.zip"
     stage = BUILD_DIR / "app-payload"
     remove_tree(stage)
     copy_package(ROOT / "nalmeok", stage / "nalmeok")
@@ -673,7 +673,7 @@ def write_manifest(version: str) -> None:
             "version": version,
             "url": (
                 "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok-app.zip"
+                f"v{version}/nalmeok-app-win64.zip"
             ),
             "sha256": sha256_file(payload),
         },

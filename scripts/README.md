@@ -104,7 +104,7 @@ offline 확장판은 런타임이 들어 있으므로 `app\runtime\python.exe -c
 - 압축 해제 후 루트 구성(`installer.cmd` + `app\`) 확인
 - `python -m nalmeok --version`(PYTHONPATH=app), `app\nalmeok.cmd --version`(PBS 부트스트랩 포함), `app\nalmeok-drop.cmd --help`
 - `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 확인, `is not recognized` 회귀 검사
-- ZIP·`nalmeok-app.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
+- ZIP·`nalmeok-app-win64.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
 
 CI는 대화형 콘솔을 검증하지 못하므로, 최종 릴리스 전 Windows 실기 수동 검증이 필요합니다.
 

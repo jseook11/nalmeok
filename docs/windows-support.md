@@ -269,13 +269,13 @@ nalmeok-<version>-win64.zip   (~194KB)
 
 - thin 런처는 `NALMEOK_PACKAGED=1`, `NALMEOK_HOME=%LOCALAPPDATA%\nalmeok`, `NALMEOK_FFMPEG=%NALMEOK_HOME%\bin`을 설정한다.
 - `nalmeok update`는 `releases/latest/download/windows-manifest.json`을 읽는다.
-  - `nalmeok-app.zip`(패키지) SHA-256 검증 → `.nalmeok-next`에 풀어 컴파일 검증 → 디렉터리 교체(다음 실행부터 적용, 실패 시 기존 유지)
+  - `nalmeok-app-win64.zip`(패키지) SHA-256 검증 → `.nalmeok-next`에 풀어 컴파일 검증 → 디렉터리 교체(다음 실행부터 적용, 실패 시 기존 유지)
   - SDK 버전이 manifest보다 낮을 때만 `.venv` pip 갱신
   - `NALMEOK_MANIFEST_URL`로 다른 manifest를 지정할 수 있다(테스트·미러용)
 - ffmpeg/ffprobe가 없고 MP4 변환이 필요하면 manifest의 고정 URL·SHA로 `%NALMEOK_HOME%\bin`에 받는다. `NALMEOK_FFMPEG_YES=1`은 자동화용.
 - `scripts/build_windows.py`가 thin ZIP과 `windows-manifest.json`을 생성한다.
 - offline 확장판은 `%HERE%runtime`을 쓰고, update는 설치 폴더의 `nalmeok/` 패키지를 교체한다.
-- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`, `nalmeok-app.zip`, `windows-manifest.json`, `SHA256SUMS.txt`.
+- 릴리스 자산: `nalmeok-<v>-win64.zip`, (선택) `-offline.zip`, `nalmeok-app-win64.zip`, `windows-manifest.json`, `SHA256SUMS.txt`.
 
 ---
 
@@ -319,7 +319,7 @@ nalmeok-<version>-win64.zip   (~194KB)
   - 루트에 `installer.cmd` + `app\`만 있는지, `app\` 필수 파일이 모두 있는지 확인
   - `python -m nalmeok --version`(PYTHONPATH=app), `app\nalmeok.cmd --version`(첫 실행 PBS 부트스트랩), `app\nalmeok-drop.cmd --help`
   - `installer.cmd` 실행 → `Programs\nalmeok\nalmeok.cmd` 생성 확인, 출력에 `is not recognized`가 없어야 함
-  - ZIP·`nalmeok-app.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
+  - ZIP·`nalmeok-app-win64.zip`·`windows-manifest.json`·`SHA256SUMS.txt` 아티팩트 업로드
 - offline 확장판은 기본 CI에서 빌드하지 않는다: `python scripts/build_windows.py --offline`
 
 ### 6.3 수동 검증 매트릭스
@@ -356,7 +356,7 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 3. `python scripts/build_windows.py`로 thin ZIP을 만든다(필요 시 `--offline`).
 4. ZIP을 풀어 **깨끗한 Windows 11**에서 첫 실행(PBS/SDK/ffmpeg)·업데이트를 확인한다.
 5. `SHA256SUMS.txt`와 `windows-manifest.json`을 확인한다.
-6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok-app.zip`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
+6. GitHub Release에 thin ZIP, (선택) offline ZIP, `nalmeok-app-win64.zip`, `windows-manifest.json`, `SHA256SUMS.txt`를 올린다.
 7. README의 Windows 절과 다운로드 링크를 갱신한다.
 8. 이 문서의 상태 표와 변경 이력을 갱신한다.
 
@@ -402,4 +402,4 @@ Windows 버전/빌드 · 터미널(WT/conhost + 버전) · 실행 방법 · `nal
 | 2026-10-30 | thin 배포 결정(D16/D17). v0.6.1 릴리스(thin ZIP 193KB, bootstrap·update 검증) | Claude Code |
 | 2026-10-30 | **v0.6.2**: `'더의' is not recognized` 수정. `.cmd` 순수 ASCII(D19), ZIP 루트 `installer.cmd`만(D18). Windows 11 실기 검증 | Claude Code |
 | 2026-10-30 | 문서 정리: 오래된 기준선·중복 제거, 기준선 0.6.2/157 tests로 갱신, 코드서명·의존성 금지·단일 파일 제약 폐기 | Claude Code |
-| 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 `nalmeok-app.zip` 디렉터리 교체 | Claude Code |
+| 2026-10-31 | **패키지 분리**: 단일 `nalmeok.py` → `nalmeok/` 패키지. 런처는 `-m nalmeok`, 업데이트는 `nalmeok-app-win64.zip` 디렉터리 교체 | Claude Code |

@@ -25,7 +25,7 @@ macOS 앱 패키징(DMG·서명·공증·업데이트)은 **`docs/macos-app.md`�
 
 - **Windows에서 코드서명은 필수 아님.** SmartScreen 확인창 한 번은 감수한다(D4). macOS 배포물은 서명·공증이 필요하다(`docs/macos-app.md` 0.3).
 - **"새 런타임 의존성 금지" 폐기.** 직접 구현이 더 비싸면 검증된 라이브러리를 쓴다(예: `platformdirs`, `packaging`, `httpx`).
-- **"앱 코드는 단일 `nalmeok.py`" 폐기.** 코드는 `nalmeok/` 패키지로 분리했다(`constants`, `runtime`, `keys`, `update`, `term`, `media`, `engine`, `screens`, `cli`). 배포·업데이트는 패키지 ZIP(`nalmeok-app.zip`) 단위로 한다.
+- **"앱 코드는 단일 `nalmeok.py`" 폐기.** 코드는 `nalmeok/` 패키지로 분리했다(`constants`, `runtime`, `keys`, `update`, `term`, `media`, `engine`, `screens`, `cli`). 배포·업데이트는 플랫폼별 패키지 ZIP(`nalmeok-app-win64.zip`, `nalmeok-app-macos-arm64.zip`) 단위로 한다.
 
 ### macOS 서명·공증 (선택)
 

@@ -243,7 +243,7 @@ def create_dmg(app: Path, version: str) -> Path:
 def write_manifest(version: str) -> Path:
     """릴리스에 올릴 macos-manifest.json과 앱 패키지 ZIP을 준비합니다."""
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    payload = DIST_DIR / "nalmeok-app.zip"
+    payload = DIST_DIR / "nalmeok-app-macos-arm64.zip"
     with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted((ROOT / "nalmeok").glob("*.py")):
             archive.write(path, f"nalmeok/{path.name}")
@@ -253,7 +253,7 @@ def write_manifest(version: str) -> Path:
             "version": version,
             "url": (
                 "https://github.com/jseook11/nalmeok/releases/download/"
-                f"v{version}/nalmeok-app.zip"
+                f"v{version}/nalmeok-app-macos-arm64.zip"
             ),
             "sha256": sha256(payload),
         },
@@ -297,7 +297,7 @@ def main() -> int:
     log(f"sha256: {digest}")
     log(f"sums: {sums}")
     log(f"manifest: {manifest}")
-    log("release assets: dmg, nalmeok-app.zip, macos-manifest.json, SHA256SUMS.txt")
+    log("release assets: dmg, nalmeok-app-macos-arm64.zip, macos-manifest.json, SHA256SUMS.txt")
     return 0
 
 

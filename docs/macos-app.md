@@ -194,7 +194,7 @@ macOS manifest(`dist/macos-manifest.json` → 릴리스에서 `macos-manifest.js
 동작:
 
 1. `update`/홈 화면 `v`가 manifest를 받는다. `NALMEOK_MANIFEST_URL`로 대체 가능.
-2. manifest 버전이 현재 `__version__`보다 **클 때만** 앱 패키지 ZIP(`nalmeok-app.zip`)을 내려받는다. 같은 버전의 수정 빌드는 받지 않는다.
+2. manifest 버전이 현재 `__version__`보다 **클 때만** 앱 패키지 ZIP(`nalmeok-app-macos-arm64.zip`)을 내려받는다. 같은 버전의 수정 빌드는 받지 않는다.
 3. SHA-256 → ZIP 확인 → `.nalmeok-next`에 풀고 `nalmeok/__init__.py`의 버전 문자열과 모든 `.py`의 `compile()`을 검증한 뒤 디렉터리를 교체한다. 실패하면 기존 패키지가 그대로 남는다(교체 전에 실패). 백업은 교체 직후 삭제한다.
 4. SDK는 **이미 설치돼 있고** manifest 버전보다 낮을 때만 `.venv` pip로 갱신한다.
 5. Python·ffmpeg는 `update`가 교체하지 않는다. Python은 첫 실행 부트스트랩이, ffmpeg는 온디맨드가 맡는다(후자는 미구현).
@@ -294,7 +294,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | pyenv/Homebrew Python 3.10+ | 검증 후 사용 또는 폴백 |
 | 네트워크 없음 | 명확한 오류, 재시도 |
 | 한글·공백 경로 드롭 | 전사 시작 |
-| 코드만 바뀐 업데이트 | `nalmeok-app.zip`으로 패키지만 교체 |
+| 코드만 바뀐 업데이트 | `nalmeok-app-macos-arm64.zip`으로 패키지만 교체 |
 | 해시 불일치 | 교체 없이 기존 파일 유지 |
 | 공증된 DMG, 새 Mac | Gatekeeper 경고 없음 |
 
@@ -311,7 +311,7 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 2. 테스트를 통과시킨다.
 3. `NALMEOK_SIGN_IDENTITY`, `NALMEOK_NOTARY_PROFILE`을 지정하면 서명·공증까지 수행한다(선택). 없으면 unsigned DMG가 나온다.
 4. `spctl`, `stapler validate`, 마운트한 DMG 실행을 확인한다.
-5. GitHub Release에 **DMG, `nalmeok-app.zip`, `macos-manifest.json`, `SHA256SUMS.txt`** 를 올린다. 태그는 `v<version>`.
+5. GitHub Release에 **DMG, `nalmeok-app-macos-arm64.zip`, `macos-manifest.json`, `SHA256SUMS.txt`** 를 올린다. 태그는 `v<version>`.
 6. 새 Mac에서 설치·업데이트를 확인한다.
 7. 이 문서의 상태 표와 변경 이력을 갱신한다.
 
@@ -354,4 +354,4 @@ spctl -a -vv --type execute /Volumes/nalmeok/nalmeok.app   # 마운트한 DMG �
 | 2026-10-30 | M3. `nalmeok update`로 앱 코드·SDK 갱신, manifest 생성 | Claude Code |
 | 2026-10-30 | v0.6.0 → v0.6.1 릴리스, 파일명 `macos-arm64`로 통일 | Claude Code |
 | 2026-10-30 | 문서 정리: 코드와 어긋난 설명 수정(런처가 bootstrap을 연다, macOS manifest에는 ffmpeg/python URL이 없다, update는 앱 코드만 교체·백업 없음, ffmpeg 온디맨드 미구현), 폐기된 단일 파일 제약 제거, **서명·공증 필수 요건 폐기**(선택 사항으로) | Claude Code |
-| 2026-10-31 | 패키지 분리 반영: 번들 Resources/`nalmeok/`, seed는 패키지 복사, 실행은 `-m nalmeok`, 업데이트는 `nalmeok-app.zip` 교체 | Claude Code |
+| 2026-10-31 | 패키지 분리 반영: 번들 Resources/`nalmeok/`, seed는 패키지 복사, 실행은 `-m nalmeok`, 업데이트는 `nalmeok-app-macos-arm64.zip` 교체 | Claude Code |
