@@ -695,8 +695,7 @@ button {
 }
 
 .key-list {
-  margin-bottom: 22px;
-  border-top: 0.5px solid var(--separator);
+  margin: -12px 0 22px;
 }
 
 .key-row {

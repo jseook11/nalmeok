@@ -204,7 +204,7 @@
       }
       case "batch_waiting": {
         const minutes = minutesSince(item.CreatedAt);
-        const text = minutes < 1 ? "기다리는 중" : `기다리는 중 · ${minutes}분`;
+        const text = minutes < 1 ? "기다리는 중" : `기다리는 중 · ${minutes}분째`;
         return { status: `<div class="status"><span>${text}</span></div>` };
       }
       case "free_exhausted":
@@ -228,7 +228,10 @@
         };
       }
       case "canceled":
-        return { status: `<div class="status"><span>취소됨</span></div>` };
+        return {
+          status: `<div class="status"><span>취소됨</span></div>`,
+          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>`,
+        };
       default:
         return { status: `<div class="status"><span>${esc(item.Detail || "대기 중")}</span></div>` };
     }
@@ -729,8 +732,42 @@
       </div>`;
   }
 
+  const hiddenKeys = new Set(); // keys removed from view while undo is possible
+  let pendingKeyDelete = null; // { id, timer }
+
+  function commitKeyDelete() {
+    if (!pendingKeyDelete) return;
+    const { id, timer } = pendingKeyDelete;
+    clearTimeout(timer);
+    pendingKeyDelete = null;
+    call("DeleteKey", id)
+      .catch((error) => showToast(errorText(error)))
+      .finally(async () => {
+        hiddenKeys.delete(id);
+        await loadKeys();
+      });
+  }
+
+  function deleteKeyWithUndo(id) {
+    commitKeyDelete();
+    hiddenKeys.add(id);
+    renderKeys();
+    pendingKeyDelete = { id, timer: setTimeout(commitKeyDelete, UNDO_MS) };
+    showToast("키를 지웠어요", {
+      action: "실행 취소",
+      duration: UNDO_MS,
+      onAction: () => {
+        if (!pendingKeyDelete || pendingKeyDelete.id !== id) return;
+        clearTimeout(pendingKeyDelete.timer);
+        pendingKeyDelete = null;
+        hiddenKeys.delete(id);
+        renderKeys();
+      },
+    });
+  }
+
   function renderKeys() {
-    keyList.innerHTML = state.keys.map(keyHTML).join("");
+    keyList.innerHTML = state.keys.filter((key) => !hiddenKeys.has(key.ID)).map(keyHTML).join("");
     keysIntro.hidden = state.keys.length > 0;
     for (const button of keyTier.querySelectorAll("button")) {
       button.setAttribute("aria-selected", String(button.dataset.tier === state.keyTier));
@@ -759,7 +796,7 @@
     keyError.hidden = true;
     renderKeys();
     keysSheet.hidden = false;
-    keyValue.focus();
+    if (state.keys.length === 0) keyValue.focus();
   }
 
   function openHelp() {
@@ -933,14 +970,7 @@
     keyList.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-key-delete]");
       if (!button) return;
-      button.disabled = true;
-      try {
-        await call("DeleteKey", button.dataset.keyDelete);
-        await loadKeys();
-      } catch (error) {
-        button.disabled = false;
-        showKeyError(errorText(error));
-      }
+      deleteKeyWithUndo(button.dataset.keyDelete);
     });
 
     keyForm.addEventListener("submit", async (event) => {
@@ -982,13 +1012,14 @@
       showToast(errorText(error));
     }
 
+    if (document.activeElement === search) search.blur();
     if (state.keys.length === 0) openKeys("free");
 
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);
     }
 
-    // Keep "기다리는 중 · N분" current without a backend round trip.
+    // Keep "기다리는 중 · N분째" current without a backend round trip.
     setInterval(() => {
       if (state.items.some((item) => item.State === "batch_waiting")) renderItems();
     }, 30000);
