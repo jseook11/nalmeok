@@ -195,6 +195,13 @@
   "pane.truncated": "파일이 커서 앞부분만 보여요",
   "pane.waitingNote": "결과까지 보통 10분~1시간 · 앱을 닫아도 계속 진행",
 
+  "pdf.cancel": "취소",
+  "pdf.none": "PDF 없이 전사",
+  "pdf.pages": "{count}쪽",
+  "pdf.start": "전사 시작",
+  "pdf.subline": "{folder} · PDF {count}개 · 용어 표기에만 씁니다",
+  "pdf.title": "참고할 PDF를 고르세요",
+
   "picker.auto": "자동",
   "picker.autoByPriority": "자동 (우선순위대로)",
   "picker.title": "새 파일에 쓸 키",

@@ -70,6 +70,12 @@
   const keyError = $("key-error");
   const keySave = $("key-save");
   const helpSheet = $("help-sheet");
+  const pdfSheet = $("pdf-sheet");
+  const pdfForm = $("pdf-form");
+  const pdfSub = $("pdf-sub");
+  const pdfList = $("pdf-list");
+  const pdfNone = $("pdf-none");
+  const pdfCancel = $("pdf-cancel");
 
   const menu = $("menu");
   const toast = $("toast");
@@ -1510,7 +1516,86 @@
   }
 
   function sheetOpen() {
-    return !keysSheet.hidden || !helpSheet.hidden;
+    return !keysSheet.hidden || !helpSheet.hidden || !pdfSheet.hidden;
+  }
+
+  // ── PDF choice ────────────────────────────────────────────
+
+  // A folder with audio and two or more PDFs waits in Go until the user
+  // picks the PDFs ("items:choosePDF"). Folders dropped together, or while
+  // the card is open, queue up and are asked one after another.
+  const pdfQueue = [];
+  let pdfCurrent = null;
+
+  function queuePDFChoice(choice) {
+    if (!choice || !choice.Token) return;
+    const known = (c) => c.Token === choice.Token;
+    if ((pdfCurrent && known(pdfCurrent)) || pdfQueue.some(known)) return;
+    pdfQueue.push(choice);
+    if (!pdfCurrent) showNextPDFChoice();
+  }
+
+  function showNextPDFChoice() {
+    pdfCurrent = pdfQueue.shift() || null;
+    if (!pdfCurrent) {
+      pdfSheet.hidden = true;
+      return;
+    }
+    closeMenu();
+    const files = pdfCurrent.PDFs || [];
+    pdfSub.textContent = t("pdf.subline", { folder: pdfCurrent.Name, count: files.length });
+    pdfList.textContent = "";
+    for (const file of files) {
+      const row = document.createElement("label");
+      row.className = "pdf-row";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.className = "check";
+      box.checked = true;
+      box.value = file.Path;
+      const name = document.createElement("span");
+      name.className = "pdf-name";
+      name.textContent = file.Name;
+      name.title = file.Name;
+      row.append(box, name);
+      if (file.Pages > 0) {
+        const pages = document.createElement("span");
+        pages.className = "pdf-pages";
+        pages.textContent = t("pdf.pages", { count: file.Pages });
+        row.append(pages);
+      }
+      pdfList.append(row);
+    }
+    pdfSheet.hidden = false;
+    // Focus the card, not the button: Enter still starts (see keydown) and
+    // no focus ring shows until the keyboard moves it.
+    pdfForm.focus();
+  }
+
+  // answerPDF sends the choice for the folder on the card: a list of paths
+  // (empty = no PDF), or null to not add the folder. The next queued folder
+  // shows at once; the answer's result only matters when it fails.
+  function answerPDF(selected) {
+    const choice = pdfCurrent;
+    if (!choice) return;
+    const done = selected === null
+      ? call("CancelPDFs", choice.Token)
+      : call("ConfirmPDFs", choice.Token, selected);
+    Promise.resolve(done).catch((error) => showToast(errorText(error)));
+    showNextPDFChoice();
+  }
+
+  function checkedPDFs() {
+    return Array.from(pdfList.querySelectorAll("input.check:checked"), (box) => box.value);
+  }
+
+  async function loadPendingPDFChoices() {
+    try {
+      const pending = await call("PendingPDFChoices");
+      for (const choice of pending || []) queuePDFChoice(choice);
+    } catch (_) {
+      // Older backend or not ready: drops still raise the event.
+    }
   }
 
   // ── Events ────────────────────────────────────────────────
@@ -1674,7 +1759,26 @@
       }
     });
 
+    pdfForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      answerPDF(checkedPDFs());
+    });
+    pdfNone.addEventListener("click", () => answerPDF([]));
+    pdfCancel.addEventListener("click", () => answerPDF(null));
+    trackHover(pdfList, ".pdf-row");
+
     document.addEventListener("keydown", (event) => {
+      if (!pdfSheet.hidden) {
+        // The card is modal: Escape cancels this folder, other shortcuts wait.
+        if (event.key === "Escape") {
+          event.preventDefault();
+          answerPDF(null);
+        } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
+          event.preventDefault();
+          answerPDF(checkedPDFs());
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (!menu.hidden) closeMenu();
         else if (!keysSheet.hidden && collapseKeyPanel()) return;
@@ -1767,6 +1871,21 @@
   async function init() {
     bindEvents();
 
+    // Windows: Wails only forwards dropped file paths to Go (OnFileDrop in
+    // internal/app) once the page registers its JS drop listener. macOS
+    // delivers drops natively, so this is a no-op there. The callback is
+    // empty because Go handles the paths; false = no drop-target check, so
+    // a drop lands anywhere in the window, sheets and the PDF card included.
+    // Registered first, before anything awaits, so a drop while the window
+    // is still loading (or while the first-run key sheet is up) is not lost.
+    if (window.runtime && typeof window.runtime.OnFileDrop === "function") {
+      window.runtime.OnFileDrop(() => {}, false);
+    }
+    if (window.runtime && typeof window.runtime.EventsOn === "function") {
+      // A folder with several PDFs waits for the PDF card.
+      window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
+    }
+
     // The window opened at the width for this choice (cmd/nalmeok).
     try {
       setPane(Boolean(await call("PaneOpen")), false);
@@ -1789,13 +1908,7 @@
     if (document.activeElement === search) search.blur();
     if (state.keys.length === 0) openKeys("free");
 
-    // Windows: Wails only forwards dropped file paths to Go (OnFileDrop in
-    // internal/app) once the page registers its JS drop listener. macOS
-    // delivers drops natively, so this is a no-op there. The callback is
-    // empty because Go handles the paths; false = the whole window accepts.
-    if (window.runtime && typeof window.runtime.OnFileDrop === "function") {
-      window.runtime.OnFileDrop(() => {}, false);
-    }
+    await loadPendingPDFChoices();
 
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);

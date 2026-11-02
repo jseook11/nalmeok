@@ -125,6 +125,19 @@
   </div>
 </div>
 
+<div class="modal" id="pdf-sheet" role="dialog" aria-modal="true" aria-labelledby="pdf-title" hidden>
+  <form class="modal-card" id="pdf-form" tabindex="-1" novalidate>
+    <h2 class="modal-title" id="pdf-title" data-i18n="pdf.title"></h2>
+    <p class="modal-sub" id="pdf-sub"></p>
+    <div class="pdf-list" id="pdf-list"></div>
+    <button class="plain-option" id="pdf-none" type="button" data-i18n="pdf.none"></button>
+    <div class="modal-actions">
+      <button class="secondary-button" id="pdf-cancel" type="button" data-i18n="pdf.cancel"></button>
+      <button class="primary-button" id="pdf-start" type="submit" data-i18n="pdf.start"></button>
+    </div>
+  </form>
+</div>
+
 <div class="menu" id="menu" role="menu" hidden></div>
 
 <div class="toast" id="toast" role="status" aria-live="polite">

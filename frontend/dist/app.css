@@ -31,6 +31,9 @@
   --toast-bg: rgba(30, 30, 32, 0.92);
   --toast-text: #f5f5f7;
   --toast-action: #5fd39b;
+  --scrim: rgba(0, 0, 0, 0.28);
+  --card: #ffffff;
+  --card-shadow: 0 12px 40px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -63,6 +66,9 @@
     --toast-bg: rgba(245, 245, 247, 0.94);
     --toast-text: #1d1d1f;
     --toast-action: #1a7046;
+    --scrim: rgba(0, 0, 0, 0.45);
+    --card: #2a2a2c;
+    --card-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   }
 }
 
@@ -81,6 +87,16 @@
 html,
 body {
   height: 100%;
+}
+
+/* Wails accepts file drops on elements with this property. Custom
+   properties inherit, so setting it on the root makes every element a drop
+   target: the list, the sheets, the PDF card and the menu, which are not
+   inside #app. app.js also registers the drop listener without the target
+   check (OnFileDrop(..., false)); this keeps drops working if that ever
+   changes. */
+html {
+  --wails-drop-target: drop;
 }
 
 body {
@@ -125,9 +141,6 @@ button {
    a fixed column and the pane takes the rest; the footer sits under the
    pane. */
 #app {
-  /* Wails accepts file drops on elements with this property. It is
-     inherited, so the whole window is a drop target. */
-  --wails-drop-target: drop;
   --gutter: 16px;
   --side-width: 360px;
 
@@ -1178,6 +1191,153 @@ button {
 
 .primary-button:disabled {
   opacity: 0.6;
+}
+
+/* ── PDF choice (modal card over the dimmed window) ───────── */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 56px 16px 16px;
+  background: var(--scrim);
+  animation: fade-in 0.15s ease-out;
+}
+
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  padding: 22px 22px 18px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+}
+
+.modal-card:focus-visible {
+  outline: none;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.modal-sub {
+  margin: 6px 0 0;
+  padding-bottom: 12px;
+  border-bottom: var(--hairline) solid var(--separator);
+  color: var(--secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.pdf-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 6px -6px 0;
+  overflow-y: auto;
+}
+
+.pdf-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
+.pdf-row.is-hover {
+  background: var(--hover);
+}
+
+.pdf-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-pages {
+  flex: 0 0 auto;
+  color: var(--secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--tertiary);
+  border-radius: 5px;
+  background: var(--card);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.check:checked {
+  border-color: var(--accent);
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='m4.5 9.2 3 3 6-6.4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 18px no-repeat;
+}
+
+.check:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.plain-option {
+  align-self: flex-start;
+  margin: 14px 0 0;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.plain-option:hover,
+.plain-option.is-hover {
+  color: var(--accent-text);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.secondary-button {
+  min-width: 64px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.secondary-button:hover {
+  background: var(--fill);
+}
+
+.modal-actions .primary-button {
+  align-self: auto;
+  min-width: 88px;
 }
 
 .help {
