@@ -148,7 +148,7 @@ func runGUI() {
 			EnableFileDrop: true,
 		},
 		Mac: &mac.Options{
-			TitleBar:   mac.TitleBarDefault(),
+			TitleBar:   mac.TitleBarHiddenInset(),
 			Appearance: appearance,
 		},
 		OnStartup:  application.Startup,

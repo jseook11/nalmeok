@@ -150,6 +150,31 @@ button {
   margin-bottom: 8px;
 }
 
+/* macOS: the title bar is transparent and this bar is the toolbar row, next
+   to the traffic lights. The empty parts drag the window. */
+.topbar,
+.sheet-head {
+  --wails-draggable: drag;
+}
+
+.topbar button,
+.sheet-head button {
+  --wails-draggable: no-drag;
+}
+
+.is-mac .chrome {
+  padding-top: 0;
+}
+
+.is-mac .topbar {
+  height: 52px;
+  margin-bottom: 2px;
+}
+
+.is-mac .add-button {
+  top: 13px;
+}
+
 .segmented {
   display: inline-flex;
   padding: 2px;
@@ -249,6 +274,7 @@ button {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  padding-bottom: 6px;
   scrollbar-width: thin;
 }
 
@@ -361,9 +387,22 @@ button {
   text-overflow: ellipsis;
 }
 
-.status .check {
-  flex: 0 0 auto;
-  color: var(--accent);
+.icon-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--secondary);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.icon-action:hover {
+  background: var(--fill);
+  color: var(--accent-text);
 }
 
 .progress {
@@ -505,7 +544,12 @@ button {
   flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
-  padding: 8px 12px 10px;
+  padding: 6px 12px 7px;
+  border-top: 0.5px solid var(--separator);
+}
+
+#app.is-empty .footer {
+  border-top-color: transparent;
 }
 
 .round-button {
@@ -591,6 +635,10 @@ button {
   height: 44px;
   border-bottom: 0.5px solid var(--separator);
   background: var(--chrome);
+}
+
+.is-mac .sheet-head {
+  height: 52px;
 }
 
 .sheet-head h2 {

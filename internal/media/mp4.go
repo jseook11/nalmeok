@@ -12,11 +12,11 @@ import (
 )
 
 // ErrNotAAC is returned for MP4 files whose first audio track is not AAC.
-var ErrNotAAC = errors.New("AAC 오디오가 아닌 MP4는 지원하지 않습니다")
+var ErrNotAAC = errors.New("AAC 오디오가 아닌 MP4는 지원하지 않아요")
 
 // errMP4 wraps structural problems of an MP4 file.
 func errMP4(format string, args ...any) error {
-	return fmt.Errorf("지원하지 않는 MP4 형식입니다 (%s)", fmt.Sprintf(format, args...))
+	return fmt.Errorf("지원하지 않는 MP4 형식이에요 (%s)", fmt.Sprintf(format, args...))
 }
 
 // maxMoovSize guards against absurd moov sizes in corrupt files.
@@ -150,7 +150,7 @@ func readMoov(f *os.File) ([]byte, error) {
 		switch typ {
 		case "moov":
 			if size-hlen > maxMoovSize {
-				return nil, errMP4("moov가 너무 큽니다")
+				return nil, errMP4("moov가 너무 커요")
 			}
 			moov = make([]byte, size-hlen)
 			if _, err := f.ReadAt(moov, pos+hlen); err != nil {
@@ -660,7 +660,7 @@ func (w *windowReader) at(off int64, size int) ([]byte, error) {
 	n, err := w.f.ReadAt(w.buf, off)
 	if n < size {
 		if err == nil || errors.Is(err, io.EOF) {
-			err = errMP4("샘플이 파일 밖에 있습니다")
+			err = errMP4("샘플이 파일 밖에 있어요")
 		}
 		return nil, err
 	}

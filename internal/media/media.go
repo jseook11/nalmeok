@@ -60,7 +60,7 @@ type Piece struct {
 }
 
 // ErrUnsupported marks inputs this app cannot read.
-var ErrUnsupported = errors.New("지원하지 않는 형식입니다")
+var ErrUnsupported = errors.New("지원하지 않는 형식이에요")
 
 // FormatOf returns the track format for a file name, or "" if unsupported.
 func FormatOf(name string) string {
@@ -83,12 +83,12 @@ func Scan(path string) (Input, error) {
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return Input{}, fmt.Errorf("입력을 열 수 없습니다: %s", filepath.Base(abs))
+		return Input{}, fmt.Errorf("파일을 열지 못했어요: %s", filepath.Base(abs))
 	}
 	if !info.IsDir() {
 		format := FormatOf(abs)
 		if format == "" {
-			return Input{}, fmt.Errorf("%w: %s (.m4a, .mp4, .mp3, .wav만 받습니다)", ErrUnsupported, filepath.Base(abs))
+			return Input{}, fmt.Errorf("%w: %s", ErrUnsupported, filepath.Base(abs))
 		}
 		track, err := readTrack(abs, format)
 		if err != nil {
@@ -100,7 +100,7 @@ func Scan(path string) (Input, error) {
 
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		return Input{}, fmt.Errorf("폴더를 읽을 수 없습니다: %s", filepath.Base(abs))
+		return Input{}, fmt.Errorf("폴더를 읽지 못했어요: %s", filepath.Base(abs))
 	}
 	var audio, pdfs []string
 	for _, entry := range entries {
@@ -121,13 +121,13 @@ func Scan(path string) (Input, error) {
 		}
 	}
 	if len(audio) == 0 {
-		return Input{}, fmt.Errorf("폴더에 오디오 파일이 없습니다 (.m4a, .mp4, .mp3, .wav): %s", filepath.Base(abs))
+		return Input{}, errors.New("폴더에 오디오 파일이 없어요")
 	}
 	if len(audio) > MaxFiles {
-		return Input{}, fmt.Errorf("오디오 파일은 1~%d개여야 합니다 (현재 %d개).", MaxFiles, len(audio))
+		return Input{}, fmt.Errorf("오디오 파일이 너무 많아요 (%d개, 최대 %d개)", len(audio), MaxFiles)
 	}
 	if len(pdfs) > 1 {
-		return Input{}, errors.New("참고 PDF는 폴더에 최대 1개까지 둘 수 있습니다.")
+		return Input{}, errors.New("PDF는 한 폴더에 하나만 둘 수 있어요")
 	}
 	SortNatural(audio)
 	in := Input{Source: abs, Kind: "folder", Name: filepath.Base(abs)}

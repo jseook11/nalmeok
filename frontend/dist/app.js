@@ -30,6 +30,8 @@
 
   const KEY_SOURCE_URL = "https://aistudio.google.com/apikey";
   const IS_WINDOWS = /Windows/i.test(navigator.userAgent);
+  const IS_MAC = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  document.documentElement.classList.toggle("is-mac", IS_MAC);
   const REVEAL_LABEL = IS_WINDOWS ? "탐색기에서 보기" : "Finder에서 보기";
   const ACTION_WIDTH = 78; // px per swipe action button
   const UNDO_MS = 4000;
@@ -49,9 +51,9 @@
     folder: `<svg class="glyph" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.2"
       stroke-linejoin="round" aria-hidden="true">
       <path d="M2.5 5.5h6l2 2h9v10h-17z"/></svg>`,
-    check: `<svg class="check" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-      stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="m2.5 6.3 2.3 2.3 4.7-5"/></svg>`,
+    reveal: `<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M2.5 4.5h4.5l1.5 1.5h7v8.5h-13z"/><path d="M6.5 10.3h5M9.7 8.5l1.8 1.8-1.8 1.8"/></svg>`,
     close: `<svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
       stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="m2 2 6 6M8 2 2 8"/></svg>`,
   };
@@ -140,6 +142,30 @@
 
   // ── Rows ──────────────────────────────────────────────────
 
+  const AUDIO_EXT = /\.(m4a|mp4|mp3|wav)$/i;
+
+  // Display names drop the audio extension; folder names stay as they are.
+  function displayName(item) {
+    const name = item.Name || "";
+    return item.Kind === "folder" ? name : name.replace(AUDIO_EXT, "") || name;
+  }
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  // When a finished item finished: "오늘 21:08", "어제 14:02", "11월 2일",
+  // "2025년 11월 2일".
+  function finishedAt(stamp) {
+    const date = new Date(Date.parse(stamp));
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    if (date >= startOfToday) return `오늘 ${time}`;
+    if (date >= new Date(startOfToday.getTime() - 86400000)) return `어제 ${time}`;
+    const day = `${date.getMonth() + 1}월 ${date.getDate()}일`;
+    return date.getFullYear() === now.getFullYear() ? day : `${date.getFullYear()}년 ${day}`;
+  }
+
   function minutesSince(stamp) {
     const then = Date.parse(stamp);
     if (!Number.isFinite(then)) return 0;
@@ -180,8 +206,9 @@
         };
       case "done":
         return {
-          status: `<div class="status">${GLYPHS.check}<span>완료</span></div>`,
-          aside: `<button class="accent-button" type="button" data-action="reveal" data-id="${id}">${REVEAL_LABEL}</button>`,
+          status: `<div class="status"><span>${finishedAt(item.UpdatedAt || item.CreatedAt)}</span></div>`,
+          aside: `<button class="icon-action" type="button" data-action="reveal" data-id="${id}"
+            title="${REVEAL_LABEL}" aria-label="${REVEAL_LABEL}">${GLYPHS.reveal}</button>`,
         };
       case "failed": {
         const reason = item.Detail ? ` · ${esc(item.Detail)}` : "";
@@ -215,7 +242,7 @@
       <div class="row-main">
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
         <div class="row-body">
-          <div class="name" title="${esc(item.Source || item.Name)}">${esc(item.Name)}</div>
+          <div class="name" title="${esc(item.Source || item.Name)}">${esc(displayName(item))}</div>
           ${parts.status}
         </div>
         ${parts.aside ? `<div class="row-aside">${parts.aside}</div>` : ""}
@@ -487,12 +514,9 @@
   // ── Rename ────────────────────────────────────────────────
 
   function renameValue(item) {
-    if (item.State === "done" && item.Output) {
-      const base = item.Output.split(/[\\/]/).pop() || "";
-      return base.replace(/\.md$/i, "");
-    }
-    return item.Name || "";
+    return displayName(item);
   }
+
 
   function startRename(id) {
     const item = itemByID(id);

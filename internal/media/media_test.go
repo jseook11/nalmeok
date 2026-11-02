@@ -137,10 +137,10 @@ func TestScanErrors(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{"empty", nil, "오디오 파일이 없습니다"},
-		{"only pdf and text", []string{"a.pdf", "note.txt"}, "오디오 파일이 없습니다"},
-		{"eleven", []string{"1.mp3", "2.mp3", "3.mp3", "4.mp3", "5.mp3", "6.mp3", "7.mp3", "8.mp3", "9.mp3", "10.mp3", "11.mp3"}, "1~10개"},
-		{"two pdfs", []string{"1.mp3", "a.pdf", "b.PDF"}, "PDF는 폴더에 최대 1개"},
+		{"empty", nil, "오디오 파일이 없어요"},
+		{"only pdf and text", []string{"a.pdf", "note.txt"}, "오디오 파일이 없어요"},
+		{"eleven", []string{"1.mp3", "2.mp3", "3.mp3", "4.mp3", "5.mp3", "6.mp3", "7.mp3", "8.mp3", "9.mp3", "10.mp3", "11.mp3"}, "11개, 최대 10개"},
+		{"two pdfs", []string{"1.mp3", "a.pdf", "b.PDF"}, "PDF는 한 폴더에 하나만"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -242,7 +242,7 @@ func TestNonAACMP4(t *testing.T) {
 	if !errors.Is(err, ErrNotAAC) {
 		t.Fatalf("err = %v, want ErrNotAAC", err)
 	}
-	if !strings.Contains(err.Error(), "AAC 오디오가 아닌 MP4는 지원하지 않습니다") {
+	if !strings.Contains(err.Error(), "AAC 오디오가 아닌 MP4는 지원하지 않아요") {
 		t.Errorf("message = %q", err)
 	}
 }

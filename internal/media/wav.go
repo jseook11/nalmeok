@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-var errWAV = errors.New("WAV 형식을 읽지 못했습니다")
+var errWAV = errors.New("WAV 형식을 읽지 못했어요")
 
 type wavInfo struct {
 	fmtChunk   []byte

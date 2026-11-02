@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-var errMP3 = errors.New("MP3 프레임을 찾지 못했습니다")
+var errMP3 = errors.New("MP3 프레임을 찾지 못했어요")
 
 var mp3Bitrates = [5][16]int{
 	{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0}, // V1 L1
