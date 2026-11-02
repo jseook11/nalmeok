@@ -842,11 +842,9 @@ def transcribe_flow(folder, key):
     key = app.ensure_paid_key(key)
     if not key:
         return key
-    if facts["needs_convert"] and not caps["ffmpeg"]:
+    if facts["needs_convert"] and not caps["audio"]:
         app.screen("유료 Batch", folder.name)
-        app.notice("MP4 → M4A 변환에 ffmpeg가 필요합니다.")
-        app.log("  macOS: brew install ffmpeg")
-        app.log("  Ubuntu: sudo apt install ffmpeg")
+        app.notice("MP4 → M4A 변환에 필요한 PyAV(av)가 없습니다. uv sync 후 다시 실행하세요.")
         app.wait()
         return key
     if facts["needs_convert"]:
@@ -1328,8 +1326,8 @@ def multi_submit(key):
     selected = [Path(value) for value in chosen]
     caps = app.capabilities()
     if (any(app.inspect_folder(folder)["needs_convert"] for folder in selected)
-            and not caps["ffmpeg"]):
-        app.notice("MP4 → M4A 변환에 ffmpeg가 필요합니다.")
+            and not caps["audio"]):
+        app.notice("MP4 → M4A 변환에 필요한 PyAV(av)가 없습니다. uv sync 후 다시 실행하세요.")
         app.wait()
         return key
 
@@ -1424,8 +1422,7 @@ def settings_menu(key):
         env = app.env_key_entry()
         info = [
             ("API 키", app.key_summary(entries)),
-            ("ffmpeg", caps["ffmpeg"] or "없음"),
-            ("ffprobe", caps["ffprobe"] or "없음"),
+            ("오디오", caps["audio"] or "없음 (PyAV 미설치)"),
             ("SDK", "설치됨" if caps["sdk"] else "없음"),
             ("설정", app.short_path(app.config_path())),
         ]
@@ -1468,8 +1465,6 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
 
 def start_screen(folder, facts, key):
     """화면 3-1. 기본은 무료 live, Tab 으로 유료 Batch를 고릅니다."""
-    if facts["mp4"] and not app.find_tool("ffmpeg"):
-        app.ensure_ffmpeg()
     prepared = facts["stage"] == "prepared"
     mode = "paid" if prepared else "free"
     summaries = {}
@@ -1659,7 +1654,7 @@ def mixed_session(folder, key, include_paid=True):
         for line in plan:
             print(f"  {line}")
     else:
-        print(f"  {app.dim('ffprobe로 길이를 읽지 못해 계획을 미리 표시하지 못했습니다.')}")
+        print(f"  {app.dim('오디오 길이를 읽지 못해 계획을 미리 표시하지 못했습니다.')}")
     if any("유료 키 필요" in line for line in plan):
         print()
         if include_paid:
@@ -1899,11 +1894,10 @@ def session_screen(folder, key):
         if choice == "live":
             return app.live_session(folder, key)
         if facts["needs_convert"]:
-            if not app.capabilities()["ffmpeg"]:
-                app.message_screen(folder, "ffmpeg 필요", [
-                    "MP4 → M4A 변환에는 ffmpeg가 필요합니다.",
-                    "macOS: brew install ffmpeg",
-                    "Ubuntu: sudo apt install ffmpeg",
+            if not app.capabilities()["audio"]:
+                app.message_screen(folder, "PyAV 필요", [
+                    "MP4 → M4A 변환에 필요한 PyAV(av)가 없습니다.",
+                    "uv sync 후 다시 실행하세요.",
                 ])
                 return key
             app.header("변환", folder.name)

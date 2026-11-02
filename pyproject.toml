@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
+    "av>=17.1.0",
     "google-genai>=2.31.0,<3",
 ]
 

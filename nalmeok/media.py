@@ -5,68 +5,13 @@ import os
 import platform
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import time
-import zipfile
 from pathlib import Path
 
 import nalmeok as app
 
-
-def ensure_ffmpeg():
-    """패키징 설치에서 ffmpeg/ffprobe를 한 번 받아 옵니다."""
-    if app.find_tool("ffmpeg") and app.find_tool("ffprobe"):
-        return True
-    if not app.packaged_mode():
-        return False
-    try:
-        manifest = app.fetch_manifest()
-        info = app.platform_section(manifest).get("ffmpeg") or {}
-        url = str(info.get("url") or "").strip()
-        digest = str(info.get("sha256") or "").strip().lower()
-    except (OSError, ValueError, RuntimeError):
-        return False
-    if not url or not digest:
-        return False
-
-    print("\nMP4 변환에는 ffmpeg가 필요합니다. (약 160MB)")
-    if os.getenv("NALMEOK_FFMPEG_YES") != "1":
-        if not sys.stdin.isatty():
-            return False
-        if input("지금 받을까요? [Y/n] ").strip().lower() not in ("", "y", "yes"):
-            return False
-
-    home = Path(os.getenv("NALMEOK_HOME") or Path(__file__).resolve().parent)
-    bin_dir = home / "bin"
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    archive = bin_dir / "ffmpeg-download.zip"
-    suffix = ".exe" if app.IS_WINDOWS else ""
-    try:
-        app.download_file(url, archive)
-        actual = app.file_sha256(archive)
-        if actual != digest:
-            raise RuntimeError("ffmpeg 체크섬이 맞지 않습니다.")
-        with zipfile.ZipFile(archive) as bundle:
-            names = bundle.namelist()
-            for base in ("ffmpeg", "ffprobe"):
-                exe = base + suffix
-                matches = [name for name in names
-                           if name.lower() == exe.lower()
-                           or name.lower().endswith("/" + exe.lower())]
-                if not matches:
-                    raise RuntimeError(f"{exe}를 찾지 못했습니다.")
-                target = bin_dir / exe
-                with bundle.open(matches[0]) as source, \
-                        target.open("wb") as output:
-                    shutil.copyfileobj(source, output)
-    finally:
-        if archive.exists():
-            archive.unlink()
-    if app.find_tool("ffmpeg") and app.find_tool("ffprobe"):
-        return True
-    app.fail("ffmpeg 설치를 확인하지 못했습니다.")
+from . import audio as audio_io
 
 
 def folder_model(folder):
@@ -106,42 +51,9 @@ def price_lines(prompt_audio, prompt_text, low_output, high_output, model):
             f"{app.pad('일반 비용', app.LABEL_WIDTH)}  {app.money(standard)}"]
 
 
-def find_tool(name):
-    """ffmpeg/ffprobe 실행 파일. NALMEOK_FFMPEG → 앱 폴더(번들) → PATH 순."""
-    exe = name + ".exe" if os.name == "nt" else name
-    override = os.getenv("NALMEOK_FFMPEG")
-    if override:
-        path = Path(override).expanduser()
-        if path.is_dir():
-            candidate = path / exe
-            if candidate.exists():
-                return str(candidate)
-        elif path.exists():
-            if path.name.lower() == exe.lower():
-                return str(path)
-            sibling = path.with_name(exe)
-            if sibling.exists():
-                return str(sibling)
-    app = Path(__file__).resolve().parent
-    candidate = app / exe
-    if candidate.exists():
-        return str(candidate)
-    return shutil.which(name)
-
-
 def probe_duration(path):
-    ffprobe = app.find_tool("ffprobe")
-    if not ffprobe:
-        return None
-    result = subprocess.run(
-        [ffprobe, "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(path)],
-        check=False, capture_output=True, text=True,
-        encoding="utf-8", errors="replace")
-    try:
-        return float(result.stdout.strip())
-    except ValueError:
-        return None
+    """오디오 길이(초). 읽을 수 없으면 None."""
+    return audio_io.duration(path)
 
 
 def estimate_files(folder):
@@ -163,7 +75,7 @@ def estimate_values(folder, model):
     durations = [app.probe_duration(p) for p in files]
     unknown = [p.name for p, seconds in zip(files, durations) if seconds is None]
     if unknown:
-        app.fail("ffmpeg(ffprobe)로 길이를 읽지 못했습니다: " + ", ".join(unknown))
+        app.fail("오디오 길이를 읽지 못했습니다: " + ", ".join(unknown))
     seconds = sum(durations)
     prompt_text = (len(app.PROMPT) // 4) * len(files)
     prompt_audio = int(seconds * app.AUDIO_TOKENS_PER_SECOND)
@@ -409,12 +321,6 @@ def convert(folder, temporary=False):
     if not videos:
         app.log("변환할 MP4 파일이 없습니다.")
         return
-    ffmpeg = app.find_tool("ffmpeg")
-    if not ffmpeg and app.ensure_ffmpeg():
-        ffmpeg = app.find_tool("ffmpeg")
-    if not ffmpeg:
-        app.fail("ffmpeg가 필요합니다. Windows는 설치 폴더의 ffmpeg.exe를 확인하거나 "
-             "NALMEOK_FFMPEG를 지정하세요. macOS: brew install ffmpeg")
     converted = skipped = 0
     failures = []
     live = app._progress_enabled()
@@ -426,40 +332,26 @@ def convert(folder, temporary=False):
             continue
         duration = app.probe_duration(source)
         app.log(f"변환 ({index}/{len(videos)}): {source.name} → {output.name}")
+
+        def show(seconds, source=source, index=index, duration=duration):
+            if live:
+                sys.stdout.write("\r\033[K" + app.convert_progress_line(
+                    index, len(videos), source.name, seconds, duration))
+                sys.stdout.flush()
+
         # 실패한 출력이 남지 않도록 임시 폴더에서 만든 뒤에만 공개합니다.
         with tempfile.TemporaryDirectory(prefix=".gemini_convert_", dir=folder) as temp:
             pending = Path(temp) / "audio.m4a"
-            process = subprocess.Popen([
-                ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-                "-progress", "pipe:1", "-nostats",
-                "-i", str(source), "-map", "0:a:0", "-vn",
-                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-                str(pending),
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-               encoding="utf-8", errors="replace")
-            started = time.monotonic()
-            assert process.stdout is not None
-            for line in process.stdout:
-                if not line.startswith("out_time="):
-                    continue
-                stamp = line.strip().split("=", 1)[1]
-                try:
-                    hours, minutes, secs = stamp.split(":")
-                    seconds = int(hours) * 3600 + int(minutes) * 60 + float(secs)
-                except ValueError:
-                    seconds = time.monotonic() - started
-                if live:
-                    sys.stdout.write("\r\033[K" + app.convert_progress_line(
-                        index, len(videos), source.name, seconds, duration))
-                    sys.stdout.flush()
-            _, stderr = process.communicate()
-            if live:
-                sys.stdout.write("\r\033[K")
-                sys.stdout.flush()
-            if process.returncode != 0:
+            try:
+                audio_io.extract(source, pending, progress=show)
+            except audio_io.AudioError as exc:
                 failures.append(source.name)
-                app.log(f"변환 실패: {source.name}\n{(stderr or '').strip()}")
+                app.log(f"변환 실패: {exc}")
                 continue
+            finally:
+                if live:
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
             try:
                 # 동시 실행이 이미 만든 M4A를 덮어쓰지 않도록 링크로 게시합니다.
                 os.link(pending, output)
@@ -688,8 +580,7 @@ def capabilities(refresh=False):
     """환경 상태. 무거운 확인은 한 번만 하고 키 정보는 매번 새로 읽습니다."""
     if refresh or not app._CAP_CACHE:
         app._CAP_CACHE.update(
-            ffmpeg=app.find_tool("ffmpeg"),
-            ffprobe=app.find_tool("ffprobe"),
+            audio=audio_io.version(),
             sdk=app.sdk_importable(),
         )
     entries = app.key_entries()
@@ -708,7 +599,7 @@ def caps_line(caps=None):
     def mark(value):
         return app.accent("✓") if value else app.warn("✗")
 
-    return (f"ffmpeg {mark(caps['ffmpeg'])} · ffprobe {mark(caps['ffprobe'])} · "
+    return (f"오디오 {mark(caps['audio'])} · "
             f"SDK {mark(caps['sdk'])} · 키 {caps['key_source'] or app.warn('없음')}")
 
 
@@ -751,8 +642,7 @@ def doctor_lines():
         f"{app.pad('Python', 12)}  {sys.version.split()[0]}",
         f"{app.pad('실행 파일', 12)}  {app.short_path(Path(sys.executable))}",
         f"{app.pad('앱 폴더', 12)}  {app.short_path(Path(__file__).resolve().parent)}",
-        f"{app.pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
-        f"{app.pad('ffprobe', 12)}  {caps['ffprobe'] or '없음'}",
+        f"{app.pad('오디오', 12)}  {caps['audio'] or '없음 (PyAV 미설치)'}",
         f"{app.pad('SDK', 12)}  {'설치됨' if caps['sdk'] else '없음'}",
         f"{app.pad('API 키', 12)}  {caps['key_summary']}",
         f"{app.pad('설정 파일', 12)}  {app.short_path(app.config_path())}",
@@ -778,8 +668,7 @@ def diagnostics_lines():
         f"encoding={getattr(sys.stdout, 'encoding', '?')}",
         f"{app.pad('Python', 12)}  {sys.version.split()[0]}",
         f"{app.pad('실행 파일', 12)}  {app.short_path(Path(sys.executable))}",
-        f"{app.pad('ffmpeg', 12)}  {caps['ffmpeg'] or '없음'}",
-        f"{app.pad('ffprobe', 12)}  {caps['ffprobe'] or '없음'}",
+        f"{app.pad('오디오', 12)}  {caps['audio'] or '없음 (PyAV 미설치)'}",
         f"{app.pad('SDK', 12)}  {'설치됨' if caps['sdk'] else '없음'}",
         f"{app.pad('API 키', 12)}  {caps['key_summary']}",
         f"{app.pad('키 출처', 12)}  {caps['key_source'] or '없음'}",

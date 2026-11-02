@@ -14,6 +14,8 @@ from pathlib import Path
 
 import nalmeok as app
 
+from . import audio as audio_io
+
 
 def watch_pid_path(folder):
     return Path(folder) / app.WATCH_PID
@@ -669,10 +671,7 @@ def allocate_mixed_entries(entries, free_keys, paid_keys,
 
 
 def split_audio_ranges(path, duration, cuts, segment_dir):
-    """파일을 cuts(로컬 초)에서 여러 조각으로 나눕니다. copy 실패 시 재인코딩합니다."""
-    ffmpeg = app.find_tool("ffmpeg")
-    if not ffmpeg:
-        app.fail("긴 파일 분할에는 ffmpeg가 필요합니다.")
+    """파일을 cuts(로컬 초)에서 여러 조각으로 나눕니다. AAC는 다시 인코딩하지 않습니다."""
     segment_dir.mkdir(parents=True, exist_ok=True)
     boundaries = [0.0] + sorted(
         cut for cut in cuts if 0.5 < cut < duration - 0.5) + [duration]
@@ -682,29 +681,19 @@ def split_audio_ranges(path, duration, cuts, segment_dir):
         length = boundaries[index] - start
         if length <= 0.5:
             continue
-        output = segment_dir / f"{path.stem}.part{index:03d}{path.suffix}"
-        base = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-                "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", str(path),
-                "-map", "0:a:0", "-avoid_negative_ts", "make_zero"]
-        copy_command = base + ["-c", "copy", str(output)]
-        result = subprocess.run(copy_command, check=False, capture_output=True,
-                                text=True, encoding="utf-8", errors="replace")
-        if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
-            encode_command = base + ["-c:a", "aac", "-b:a", "128k",
-                                     "-movflags", "+faststart", str(output)]
-            result = subprocess.run(encode_command, check=False,
-                                    capture_output=True, text=True,
-                                    encoding="utf-8", errors="replace")
-        if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
-            app.fail(f"오디오 분할 실패: {path.name} ({start:.0f}s 부근)\n"
-                 f"{(result.stderr or '').strip()}")
+        output = segment_dir / f"{path.stem}.part{index:03d}.m4a"
+        last = index == len(boundaries) - 1
+        try:
+            audio_io.extract(path, output, start=start, length=None if last else length)
+        except audio_io.AudioError as exc:
+            app.fail(f"오디오 분할 실패: {path.name} ({start:.0f}s 부근)\n{exc}")
         actual = app.probe_duration(output) or length
         parts.append((output, actual))
     return parts
 
 
 def split_audio_for_live(path, duration, cap_seconds, segment_dir):
-    """cap을 넘는 파일을 ffmpeg로 나눕니다. copy 실패 시 재인코딩합니다."""
+    """cap을 넘는 파일을 cap 길이 조각으로 나눕니다."""
     cuts = []
     start = cap_seconds
     while start < duration - 0.5:
@@ -730,7 +719,7 @@ def prepare_live(folder, model=app.DEFAULT_MODEL, chunk_seconds=app.LIVE_CHUNK_S
     for audio_index, audio in enumerate(audios, 1):
         duration = app.probe_duration(audio)
         if duration is None or duration <= 0:
-            app.fail(f"live 모드에는 ffprobe가 필요합니다: {audio.name}")
+            app.fail(f"오디오 길이를 읽지 못했습니다: {audio.name}")
         if duration > chunk_seconds + 1.0:
             parts = app.split_audio_for_live(audio, duration, chunk_seconds, segment_dir)
             app.log(f"live 분할: {audio.name} → {len(parts)}개")
@@ -798,7 +787,7 @@ def prepare_mixed(folder, model=app.DEFAULT_MODEL, free_keys=None, paid_keys=Non
     for audio_index, audio in enumerate(audios, 1):
         duration = app.probe_duration(audio)
         if duration is None or duration <= 0:
-            app.fail(f"혼합 전사에는 ffprobe가 필요합니다: {audio.name}")
+            app.fail(f"오디오 길이를 읽지 못했습니다: {audio.name}")
         if duration > chunk_seconds + 1.0:
             parts = app.split_audio_for_live(audio, duration, chunk_seconds, segment_dir)
             app.log(f"분할: {audio.name} → {len(parts)}개")

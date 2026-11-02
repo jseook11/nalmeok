@@ -15,8 +15,10 @@ import nalmeok as app
 
 
 def sdk_importable():
+    """google-genai와 오디오 처리용 PyAV(av)를 모두 불러올 수 있는지."""
     try:
         from google import genai  # noqa: F401
+        import av  # noqa: F401
         return True
     except Exception:  # noqa: BLE001 - 손상된 설치도 '없음'으로 표시합니다.
         return False
@@ -40,7 +42,7 @@ def project_python():
 
 
 def has_sdk(python):
-    result = subprocess.run([str(python), "-c", "import google.genai"],
+    result = subprocess.run([str(python), "-c", "import google.genai, av"],
                             check=False, capture_output=True)
     return result.returncode == 0
 
@@ -109,7 +111,8 @@ def ensure_sdk():
             python = app.project_python()
         if not python:
             app.fail("가상환경을 만들지 못했습니다. uv 를 설치해 주세요: https://docs.astral.sh/uv/")
-        command = [str(python), "-m", "pip", "install", "-q", "-U", app.SDK_SPEC]
+        command = [str(python), "-m", "pip", "install", "-q", "-U",
+                   app.SDK_SPEC, app.AV_SPEC]
     print(f"$ {' '.join(command)}\n", flush=True)
     if subprocess.call(command) != 0:
         app.fail("자동 설치에 실패했습니다. 직접 설치해 주세요:\n  uv sync")
@@ -142,20 +145,6 @@ def download_bytes(url, timeout=60):
 
     with urllib.request.urlopen(url, timeout=timeout) as response:
         return response.read()
-
-
-def platform_key():
-    return "windows" if app.IS_WINDOWS else "macos"
-
-
-def platform_section(manifest):
-    """manifest의 플랫폼 섹션. 예전(최상위 python/ffmpeg) 형식도 읽습니다."""
-    platforms = manifest.get("platforms")
-    if isinstance(platforms, dict):
-        section = platforms.get(app.platform_key())
-        if isinstance(section, dict):
-            return section
-    return {key: manifest[key] for key in ("python", "ffmpeg") if key in manifest}
 
 
 def update_target(manifest):

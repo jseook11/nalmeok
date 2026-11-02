@@ -37,6 +37,8 @@ __version__ = "0.6.3"
 SDK = "google-genai"
 SDK_VERSION = "2.31.0"
 SDK_SPEC = f"{SDK}=={SDK_VERSION}"
+# 오디오 길이 측정·변환·분할. FFmpeg 라이브러리가 wheel 안에 들어 있습니다.
+AV_SPEC = "av>=17.1.0"
 MANIFEST_URL = (
     "https://github.com/jseook11/nalmeok/releases/latest/download/manifest.json"
 )

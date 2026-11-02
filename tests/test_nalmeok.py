@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import nalmeok as app
+from nalmeok import audio
 
 
 def write_state(folder, batch_id="batches/1", names=("01.m4a",)):
@@ -676,6 +677,88 @@ class BatchUploadExpiryTests(unittest.TestCase):
                             confirm=lambda lines: True)
             self.assertEqual(uploads, [])
             self.assertEqual(created, ["files/input"])
+
+
+def make_audio(path, seconds, codec="aac", container=None, rate=16_000):
+    """테스트용 무음 오디오. codec='pcm_s16le'·container='wav'면 재인코딩 경로를 씁니다."""
+    import av
+    with av.open(str(path), "w", format=container) as out:
+        stream = out.add_stream(codec, rate=rate)
+        stream.layout = "mono"
+        fmt = "fltp" if codec == "aac" else "s16"
+        total = int(seconds * rate)
+        pts = 0
+        while pts < total:
+            samples = min(1024, total - pts)
+            frame = av.AudioFrame(format=fmt, layout="mono", samples=samples)
+            for plane in frame.planes:
+                plane.update(bytes(plane.buffer_size))
+            frame.sample_rate = rate
+            frame.pts = pts
+            pts += samples
+            for packet in stream.encode(frame):
+                out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+    return path
+
+
+@unittest.skipUnless(audio.available(), "PyAV(av)가 설치되어 있지 않습니다")
+class AudioTests(unittest.TestCase):
+    def test_duration_and_aac_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = make_audio(Path(temp) / "강의.mp4", 5)
+            self.assertAlmostEqual(audio.duration(source), 5, delta=0.2)
+            output = Path(temp) / "out.m4a"
+            audio.extract(source, output)
+            self.assertAlmostEqual(audio.duration(output), 5, delta=0.2)
+
+    def test_extract_range(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = make_audio(Path(temp) / "a.m4a", 6)
+            output = Path(temp) / "part.m4a"
+            audio.extract(source, output, start=2, length=2)
+            self.assertAlmostEqual(audio.duration(output), 2, delta=0.2)
+
+    def test_non_aac_is_encoded_to_aac(self):
+        import av
+        with tempfile.TemporaryDirectory() as temp:
+            source = make_audio(Path(temp) / "a.wav", 3, codec="pcm_s16le",
+                                container="wav")
+            output = Path(temp) / "out.m4a"
+            audio.extract(source, output)
+            with av.open(str(output)) as container:
+                self.assertEqual(container.streams.audio[0].codec_context.name, "aac")
+            self.assertAlmostEqual(audio.duration(output), 3, delta=0.2)
+
+    def test_unreadable_source_raises_and_leaves_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "broken.mp4"
+            source.write_bytes(b"not media")
+            output = Path(temp) / "out.m4a"
+            self.assertIsNone(audio.duration(source))
+            with self.assertRaises(audio.AudioError):
+                audio.extract(source, output)
+            self.assertFalse(output.exists())
+
+    def test_convert_folder_mp4_to_m4a(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            make_audio(folder / "01.mp4", 2)
+            with contextlib.redirect_stdout(io.StringIO()):
+                app.convert(folder, temporary=True)
+            self.assertAlmostEqual(audio.duration(folder / "01.m4a"), 2, delta=0.2)
+            self.assertEqual((folder / app.CONVERTED_FILE).read_text(
+                encoding="utf-8").strip(), "01.m4a")
+
+    def test_split_audio_ranges(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source = make_audio(folder / "long.m4a", 7)
+            parts = app.split_audio_ranges(source, 7.0, [3.0], folder / "seg")
+            self.assertEqual(len(parts), 2)
+            self.assertAlmostEqual(parts[0][1], 3, delta=0.2)
+            self.assertAlmostEqual(parts[1][1], 4, delta=0.2)
 
 
 class LiveGroupTests(unittest.TestCase):
@@ -1409,22 +1492,9 @@ class PlatformTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 app.require_tui()
 
-    def test_find_tool_prefers_override_directory(self):
-        name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / name
-            path.write_bytes(b"")
-            with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": temp},
-                                 clear=False):
-                self.assertEqual(app.find_tool("ffmpeg"), str(path))
-
-    def test_find_tool_missing_returns_none(self):
-        with mock.patch.dict(os.environ, {"NALMEOK_FFMPEG": ""}, clear=False):
-            self.assertIsNone(app.find_tool("nalmeok-no-such-tool"))
-
     def test_doctor_lines_include_environment(self):
         text = "\n".join(app.doctor_lines())
-        for label in ("OS", "터미널", "VT/ANSI", "Python", "ffmpeg", "설정 파일"):
+        for label in ("OS", "터미널", "VT/ANSI", "Python", "오디오", "설정 파일"):
             self.assertIn(label, text)
 
 
@@ -1747,7 +1817,8 @@ class PackagingSDKTests(unittest.TestCase):
                 app.ensure_sdk()
         self.assertEqual(calls, [
             [sys.executable, "-m", "venv", str(Path("/tmp/app/.venv"))],
-            [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK_SPEC],
+            [str(fake_python), "-m", "pip", "install", "-q", "-U", app.SDK_SPEC,
+             app.AV_SPEC],
         ])
         which.assert_not_called()
         prompt.assert_not_called()
@@ -2014,103 +2085,9 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(args.check)
 
 
-class FFmpegTests(unittest.TestCase):
+class ManifestTests(unittest.TestCase):
     def test_manifest_url_is_shared(self):
         self.assertTrue(app.manifest_url().endswith("/manifest.json"))
-
-    def test_platform_section_reads_platform_then_legacy(self):
-        manifest = {
-            "nalmeok": {"version": "1.0.0", "url": "x", "sha256": "0" * 64},
-            "platforms": {
-                "windows": {"ffmpeg": {"version": "8"}},
-                "macos": {"python": {"version": "3.12"}},
-            },
-        }
-        with mock.patch.object(app, "IS_WINDOWS", True):
-            self.assertEqual(app.platform_section(manifest)["ffmpeg"]["version"], "8")
-        with mock.patch.object(app, "IS_WINDOWS", False):
-            self.assertEqual(app.platform_section(manifest)["python"]["version"], "3.12")
-        legacy = {"python": {"version": "3.11"}, "ffmpeg": {"version": "7"}}
-        self.assertEqual(app.platform_section(legacy)["ffmpeg"]["version"], "7")
-
-    def test_ensure_ffmpeg_noop_when_installed(self):
-        with mock.patch.object(app, "find_tool", return_value="/x/ffmpeg"):
-            self.assertTrue(app.ensure_ffmpeg())
-
-    def test_ensure_ffmpeg_source_mode_skips(self):
-        with mock.patch.object(app, "find_tool", return_value=None), \
-                mock.patch.object(app, "packaged_mode", return_value=False):
-            self.assertFalse(app.ensure_ffmpeg())
-
-    def make_archive(self, root):
-        archive = root / "ffmpeg.zip"
-        with zipfile.ZipFile(archive, "w") as bundle:
-            bundle.writestr("ffmpeg-bin/bin/ffmpeg.exe", b"ffmpeg")
-            bundle.writestr("ffmpeg-bin/bin/ffprobe.exe", b"ffprobe")
-        return archive
-
-    def test_ensure_ffmpeg_downloads_and_extracts(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            home = root / "home"
-            bin_dir = home / "bin"
-            archive = self.make_archive(root)
-            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-
-            def fake_find(name):
-                target = bin_dir / (name + ".exe")
-                return str(target) if target.exists() else None
-
-            with mock.patch.object(app, "IS_WINDOWS", True), \
-                    mock.patch.object(app, "find_tool", side_effect=fake_find), \
-                    mock.patch.object(app, "packaged_mode", return_value=True), \
-                    mock.patch.object(app, "fetch_manifest",
-                                      return_value={"ffmpeg": {
-                                          "url": "x", "sha256": digest}}), \
-                    mock.patch.object(app, "download_file",
-                                      side_effect=lambda url, dest:
-                                      Path(dest).write_bytes(archive.read_bytes())), \
-                    mock.patch("builtins.input", return_value="y"), \
-                    mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
-                    mock.patch.dict(os.environ, {"NALMEOK_HOME": str(home)}), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                self.assertTrue(app.ensure_ffmpeg())
-            self.assertEqual((bin_dir / "ffmpeg.exe").read_bytes(), b"ffmpeg")
-            self.assertEqual((bin_dir / "ffprobe.exe").read_bytes(), b"ffprobe")
-            self.assertFalse((bin_dir / "ffmpeg-download.zip").exists())
-
-    def test_ensure_ffmpeg_rejects_bad_checksum(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            home = root / "home"
-            archive = self.make_archive(root)
-            with mock.patch.object(app, "IS_WINDOWS", True), \
-                    mock.patch.object(app, "find_tool", return_value=None), \
-                    mock.patch.object(app, "packaged_mode", return_value=True), \
-                    mock.patch.object(app, "fetch_manifest",
-                                      return_value={"ffmpeg": {
-                                          "url": "x", "sha256": "0" * 64}}), \
-                    mock.patch.object(app, "download_file",
-                                      side_effect=lambda url, dest:
-                                      Path(dest).write_bytes(archive.read_bytes())), \
-                    mock.patch("builtins.input", return_value="y"), \
-                    mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
-                    mock.patch.dict(os.environ, {"NALMEOK_HOME": str(home)}), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                with self.assertRaises(RuntimeError):
-                    app.ensure_ffmpeg()
-
-    def test_ensure_ffmpeg_respects_decline(self):
-        with mock.patch.object(app, "find_tool", return_value=None), \
-                mock.patch.object(app, "packaged_mode", return_value=True), \
-                mock.patch.object(app, "fetch_manifest",
-                                  return_value={"ffmpeg": {
-                                      "url": "x", "sha256": "0" * 64}}), \
-                mock.patch("builtins.input", return_value="n"), \
-                mock.patch.object(app.sys.stdin, "isatty", return_value=True), \
-                contextlib.redirect_stdout(io.StringIO()):
-            self.assertFalse(app.ensure_ffmpeg())
-
 
 if __name__ == "__main__":
     unittest.main()
