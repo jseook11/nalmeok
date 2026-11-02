@@ -83,6 +83,30 @@ func TestPDFPages(t *testing.T) {
 	}
 }
 
+// A damaged object stream whose offset table holds a negative number must
+// give an unknown count, not a panic: PDFPages runs inside the drop handler,
+// and a panic there ends the app.
+func TestPDFPagesNegativeObjStmOffset(t *testing.T) {
+	header := "2 -40 "
+	raw := header + "<< /Type /Pages /Count 3 >> "
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zw.Write([]byte(raw))
+	zw.Close()
+	var b bytes.Buffer
+	b.WriteString("%PDF-1.5\n")
+	fmt.Fprintf(&b, "9 0 obj\n<< /Type /ObjStm /N 1 /First %d /Filter /FlateDecode /Length %d >>\nstream\n", len(header), z.Len())
+	b.Write(z.Bytes())
+	b.WriteString("\nendstream\nendobj\n%%EOF\n")
+	path := filepath.Join(t.TempDir(), "bad.pdf")
+	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := PDFPages(path); got != 0 {
+		t.Errorf("PDFPages = %d, want 0", got)
+	}
+}
+
 func TestFolderPDFs(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "10장.pdf", "2장.PDF", "._2장.pdf", ".hidden.pdf", "a.m4a", "note.txt")

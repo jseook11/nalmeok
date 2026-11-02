@@ -128,7 +128,7 @@ func objStmObjects(head, body []byte) [][]byte {
 	var offsets []int
 	for i := 1; i < len(fields); i += 2 {
 		off, err := strconv.Atoi(string(fields[i]))
-		if err != nil || first+off > len(data) {
+		if err != nil || off < 0 || off > len(data)-first {
 			return nil
 		}
 		offsets = append(offsets, first+off)
