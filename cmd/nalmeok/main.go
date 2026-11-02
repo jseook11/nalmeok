@@ -23,6 +23,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/macdrop"
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
@@ -167,6 +168,14 @@ func runGUI() {
 			return
 		}
 		application.Startup(ctx)
+		// macOS: recordings dragged from Voice Memos arrive as file promises.
+		// Once received they take the normal drop path (OnFileDrop in
+		// internal/app). No-op elsewhere.
+		if workDir, err := config.WorkDir(); err == nil {
+			macdrop.Install(workDir, func(paths []string) {
+				wailsruntime.EventsEmit(ctx, "wails:file-drop", 0, 0, paths)
+			})
+		}
 	}
 	onShutdown := func(ctx context.Context) {
 		if lockErr == nil {
