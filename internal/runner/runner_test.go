@@ -84,6 +84,7 @@ type fakeClient struct {
 	mimes     []string
 	generates int
 	gen       genFunc
+	hold      chan struct{} // when set, Generate waits for it or ctx
 }
 
 func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Upload, error) {
@@ -99,7 +100,15 @@ func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (string,
 	c.generates++
 	n := c.generates
 	gen := c.gen
+	hold := c.hold
 	c.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+	}
 	if gen != nil {
 		return gen(n, parts)
 	}
@@ -118,12 +127,21 @@ func answer(parts []gemini.Part) string {
 
 func (c *fakeClient) SubmitBatch(ctx context.Context, reqs []gemini.BatchRequest, displayName string) (string, error) {
 	c.w.mu.Lock()
+	c.w.submitCalls++
+	hold := c.w.submitHold
 	if c.w.submitFailures > 0 {
 		c.w.submitFailures--
 		c.w.mu.Unlock()
 		return "", genai.APIError{Code: 503}
 	}
 	c.w.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	return c.w.submit(reqs)
 }
 
@@ -171,6 +189,8 @@ type fakeWorld struct {
 	batchDrop      map[string]bool
 	batchResults   map[string]gemini.Result
 	submitFailures int
+	submitCalls    int
+	submitHold     chan struct{} // when set, SubmitBatch waits for it or ctx
 	cancelled      []string
 }
 

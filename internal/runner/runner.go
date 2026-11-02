@@ -1,9 +1,11 @@
 // Package runner turns dropped paths into .md files.
 //
-// One worker goroutine runs items in FIFO order (scan → prepare → free live
-// calls or a paid Batch submission → output). A second goroutine polls
-// submitted Batch jobs. All progress lives in the store, so a restart resumes
-// where the previous run stopped.
+// Items run in two lanes, each a FIFO queue with one worker: free live work
+// (scan → prepare → live calls → output) and paid Batch submission (scan →
+// prepare → upload → submit). The lanes run side by side, so a Batch
+// submission never waits behind a long free transcription. Another goroutine
+// polls submitted Batch jobs. All progress lives in the store, so a restart
+// resumes where the previous run stopped.
 package runner
 
 import (
@@ -132,13 +134,8 @@ type Runner struct {
 	logFile *logFile
 
 	mu        sync.Mutex
-	queue     []string
-	queued    map[string]bool
-	wake      chan struct{}
+	lanes     map[string]*lane // by item mode: "free", "batch"
 	pollNow   chan struct{}
-	active    string
-	cancel    context.CancelFunc
-	canceled  map[string]bool
 	started   bool
 	clients   map[string]gemini.Client
 	uploads   map[string]store.Upload // keyID + "\x00" + path
@@ -184,10 +181,8 @@ func New(opts Options) *Runner {
 	}
 	r := &Runner{
 		opts:      opts,
-		queued:    make(map[string]bool),
-		wake:      make(chan struct{}, 1),
+		lanes:     map[string]*lane{"free": newLane(), "batch": newLane()},
 		pollNow:   make(chan struct{}, 1),
-		canceled:  make(map[string]bool),
 		clients:   make(map[string]gemini.Client),
 		uploads:   make(map[string]store.Upload),
 		lastStart: make(map[string]time.Time),
@@ -242,7 +237,7 @@ func (l *logFile) Close() error {
 	return err
 }
 
-// Start resumes interrupted work and launches the worker and poller.
+// Start resumes interrupted work and launches the lane workers and poller.
 func (r *Runner) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -259,10 +254,12 @@ func (r *Runner) Start(ctx context.Context) {
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	for _, item := range items {
 		if item.State == StateRunning {
-			r.enqueue(item.ID)
+			r.enqueue(item.ID, item.Mode)
 		}
 	}
-	go r.worker(ctx)
+	for _, l := range r.lanes {
+		go r.worker(ctx, l)
+	}
 	go r.poller(ctx)
 }
 
@@ -320,7 +317,7 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 		} else {
 			r.logf("item %s added: %s (%s)", item.ID, path, mode)
 		}
-		r.enqueue(item.ID)
+		r.enqueue(item.ID, mode)
 	}
 	return nil
 }
@@ -334,10 +331,12 @@ func (r *Runner) Cancel(id string) error {
 	switch item.State {
 	case StateRunning, StateFreeExhausted:
 		r.mu.Lock()
-		r.removeQueuedLocked(id)
-		if r.active == id && r.cancel != nil {
-			r.canceled[id] = true
-			r.cancel()
+		for _, l := range r.lanes {
+			l.remove(id)
+			if l.active == id {
+				l.canceled = true
+				l.cancel()
+			}
 		}
 		r.mu.Unlock()
 		return r.update(id, func(it *store.Item) {
@@ -404,10 +403,7 @@ func (r *Runner) Remove(id string) error {
 func (r *Runner) waitInactive(id string, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for {
-		r.mu.Lock()
-		active := r.active == id
-		r.mu.Unlock()
-		if !active || !time.Now().Before(deadline) {
+		if !r.isActive(id) || !time.Now().Before(deadline) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -449,7 +445,7 @@ func (r *Runner) Retry(id string) error {
 	}); err != nil {
 		return err
 	}
-	r.enqueue(id)
+	r.enqueue(id, mode)
 	return nil
 }
 
@@ -484,82 +480,125 @@ func (r *Runner) SendToBatch(id string) error {
 	}); err != nil {
 		return err
 	}
-	r.enqueue(id)
+	r.enqueue(id, "batch")
 	return nil
 }
 
-// ---- queue -----------------------------------------------------------------
+// ---- lanes -----------------------------------------------------------------
 
-func (r *Runner) enqueue(id string) {
-	r.mu.Lock()
-	delete(r.canceled, id)
-	if !r.queued[id] && r.active != id {
-		r.queue = append(r.queue, id)
-		r.queued[id] = true
-	}
-	r.mu.Unlock()
-	select {
-	case r.wake <- struct{}{}:
-	default:
-	}
+// lane runs one kind of work, one item at a time in FIFO order. Free live work
+// is serial because of per-key rate limits; Batch submission is serial to
+// share upload bandwidth, and the poller takes over once a job is submitted.
+// Every field is guarded by Runner.mu.
+type lane struct {
+	queue    []string
+	queued   map[string]bool
+	active   string
+	cancel   context.CancelFunc // cancels the active item
+	canceled bool               // the user canceled the active item
+	wake     chan struct{}
 }
 
-func (r *Runner) removeQueuedLocked(id string) {
-	if !r.queued[id] {
+func newLane() *lane {
+	return &lane{queued: make(map[string]bool), wake: make(chan struct{}, 1)}
+}
+
+func (l *lane) remove(id string) {
+	if !l.queued[id] {
 		return
 	}
-	delete(r.queued, id)
-	for i, q := range r.queue {
+	delete(l.queued, id)
+	for i, q := range l.queue {
 		if q == id {
-			r.queue = append(r.queue[:i], r.queue[i+1:]...)
+			l.queue = append(l.queue[:i], l.queue[i+1:]...)
 			break
 		}
 	}
 }
 
-func (r *Runner) next() (string, bool) {
+// enqueue puts id at the back of the lane for mode. An item that is still
+// active in a lane is not queued again.
+func (r *Runner) enqueue(id, mode string) {
+	target, ok := r.lanes[mode]
+	if !ok {
+		target = r.lanes["free"]
+	}
+	r.mu.Lock()
+	for _, l := range r.lanes {
+		if l.active == id {
+			l.canceled = false
+			r.mu.Unlock()
+			return
+		}
+		if l != target {
+			l.remove(id)
+		}
+	}
+	if !target.queued[id] {
+		target.queue = append(target.queue, id)
+		target.queued[id] = true
+	}
+	r.mu.Unlock()
+	select {
+	case target.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (r *Runner) isActive(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.queue) == 0 {
+	for _, l := range r.lanes {
+		if l.active == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runner) next(l *lane) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(l.queue) == 0 {
 		return "", false
 	}
-	id := r.queue[0]
-	r.queue = r.queue[1:]
-	delete(r.queued, id)
+	id := l.queue[0]
+	l.queue = l.queue[1:]
+	delete(l.queued, id)
 	return id, true
 }
 
-func (r *Runner) worker(ctx context.Context) {
+func (r *Runner) worker(ctx context.Context, l *lane) {
 	for {
-		id, ok := r.next()
+		id, ok := r.next(l)
 		if !ok {
 			select {
 			case <-ctx.Done():
 				return
-			case <-r.wake:
+			case <-l.wake:
 				continue
 			}
 		}
-		r.runItem(ctx, id)
+		r.runItem(ctx, l, id)
 	}
 }
 
-func (r *Runner) runItem(parent context.Context, id string) {
+func (r *Runner) runItem(parent context.Context, l *lane, id string) {
 	item, ok := r.opts.Store.Get(id)
 	if !ok || item.State != StateRunning {
 		return
 	}
 	ctx, cancel := context.WithCancel(parent)
 	r.mu.Lock()
-	r.active = id
-	r.cancel = cancel
+	l.active = id
+	l.cancel = cancel
 	r.mu.Unlock()
 	defer func() {
 		cancel()
 		r.mu.Lock()
-		r.active = ""
-		r.cancel = nil
-		delete(r.canceled, id)
+		l.active = ""
+		l.cancel = nil
+		l.canceled = false
 		r.mu.Unlock()
 	}()
 
@@ -574,7 +613,7 @@ func (r *Runner) runItem(parent context.Context, id string) {
 		return
 	}
 	r.mu.Lock()
-	userCanceled := r.canceled[id]
+	userCanceled := l.canceled
 	r.mu.Unlock()
 	if userCanceled {
 		r.logf("item %s canceled", id)
@@ -807,7 +846,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 //
 // A pinned item gets only its key, so a 429 ends in free_exhausted instead of
 // moving to another key. Otherwise keys follow the priority order (config
-// order, environment key first). Items run one at a time, so strict priority
+// order, environment key first). Free items run one at a time, so strict priority
 // would make every unit wait out the 12 s+ gap on the first key while others
 // sit idle; keys whose gap has already passed therefore go first, each group
 // still in priority order. Every key is still tried before giving up.
@@ -1437,8 +1476,12 @@ func (r *Runner) client(key config.Key) (gemini.Client, error) {
 		return nil, err
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Both lanes may create a client for the same key at once; keep the first.
+	if existing, ok := r.clients[key.APIKey]; ok {
+		return existing, nil
+	}
 	r.clients[key.APIKey] = c
-	r.mu.Unlock()
 	return c, nil
 }
 
