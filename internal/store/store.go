@@ -49,6 +49,38 @@ type Item struct {
 	// its pieces were prepared. A change means finished units and uploads
 	// belong to old audio.
 	SourceSig string `json:"SourceSig,omitempty"`
+	// StartedAt is when the current run began; each retry starts over.
+	StartedAt time.Time `json:"StartedAt,omitzero"`
+	// FinishedAt is when the item was done. Renaming does not change it,
+	// unlike UpdatedAt. Older items lack it; the window falls back to
+	// UpdatedAt.
+	FinishedAt time.Time `json:"FinishedAt,omitzero"`
+	// EstimateKRW is what the whole audio would cost on the paid Batch tier,
+	// rounded to won. Free items cost nothing, so the window shows it only
+	// for paid items. 0 until the audio length is known.
+	EstimateKRW int `json:"EstimateKRW,omitempty"`
+	// Usage sums the tokens Gemini reported for the item's requests, and
+	// CostKRW is the paid cost computed from it. CostKRW is nil when unknown
+	// (items finished before usage was recorded).
+	Usage   *Usage `json:"Usage,omitempty"`
+	CostKRW *int   `json:"CostKRW,omitempty"`
+}
+
+// Usage is the token count Gemini reported (usageMetadata). Text is every
+// prompt token that is not audio (prompt text, PDF). Output is the answer
+// and Thoughts the thinking; both are billed at the output rate. Batch marks
+// requests that ran on the paid Batch tier.
+type Usage struct {
+	Audio    int  `json:"Audio,omitempty"`
+	Text     int  `json:"Text,omitempty"`
+	Output   int  `json:"Output,omitempty"`
+	Thoughts int  `json:"Thoughts,omitempty"`
+	Batch    bool `json:"Batch,omitempty"`
+}
+
+// Empty reports whether no tokens were recorded.
+func (u Usage) Empty() bool {
+	return u.Audio == 0 && u.Text == 0 && u.Output == 0 && u.Thoughts == 0
 }
 
 // Unit is one transcription request and its result. MIMEs runs parallel to
@@ -59,6 +91,9 @@ type Unit struct {
 	MIMEs   []string `json:"MIMEs,omitempty"`
 	Seconds float64  `json:"Seconds"`
 	Text    string   `json:"Text"`
+	// Usage is what the request that produced Text reported. Nil while the
+	// unit is unfinished or when it finished before usage was recorded.
+	Usage *Usage `json:"Usage,omitempty"`
 }
 
 // BatchRef identifies a submitted Gemini Batch job.
@@ -281,8 +316,20 @@ func cloneItem(item Item) Item {
 			if units[i].Files != nil {
 				units[i].Files = append([]string(nil), units[i].Files...)
 			}
+			if units[i].Usage != nil {
+				u := *units[i].Usage
+				units[i].Usage = &u
+			}
 		}
 		item.Units = units
+	}
+	if item.Usage != nil {
+		u := *item.Usage
+		item.Usage = &u
+	}
+	if item.CostKRW != nil {
+		c := *item.CostKRW
+		item.CostKRW = &c
 	}
 	if item.Batch != nil {
 		batch := *item.Batch

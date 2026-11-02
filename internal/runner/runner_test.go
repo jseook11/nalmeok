@@ -96,7 +96,18 @@ func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Uploa
 	return store.Upload{URI: c.key + ":" + filepath.Base(path), MIME: mime, UploadedAt: time.Now()}, nil
 }
 
-func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (string, string, error) {
+func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (gemini.Result, error) {
+	text, finish, err := c.generate(ctx, parts)
+	if err != nil {
+		return gemini.Result{Finish: finish}, err
+	}
+	return gemini.Result{Text: text, Finish: finish, Usage: fakeUsage}, nil
+}
+
+// fakeUsage is what every successful fake request reports.
+var fakeUsage = store.Usage{Audio: 1000, Text: 200, Output: 300, Thoughts: 50}
+
+func (c *fakeClient) generate(ctx context.Context, parts []gemini.Part) (string, string, error) {
 	c.mu.Lock()
 	c.generates++
 	n := c.generates
@@ -194,7 +205,7 @@ func (c *fakeClient) BatchResults(ctx context.Context, name string) (map[string]
 			out[r.Key] = gemini.Result{Error: "internal"}
 			continue
 		}
-		out[r.Key] = gemini.Result{Text: "B" + answer(r.Parts), Finish: gemini.FinishStop}
+		out[r.Key] = gemini.Result{Text: "B" + answer(r.Parts), Finish: gemini.FinishStop, Usage: fakeUsage}
 	}
 	return out, nil
 }

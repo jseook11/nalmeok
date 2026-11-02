@@ -61,8 +61,9 @@ const (
 type Client interface {
 	// Upload sends a local file and waits until it is ACTIVE.
 	Upload(ctx context.Context, path, mime string) (store.Upload, error)
-	// Generate runs one live request and returns the text and finish reason.
-	Generate(ctx context.Context, parts []Part) (text string, finish string, err error)
+	// Generate runs one live request and returns its text, finish reason
+	// and token usage (Result.Error stays empty; failures are err).
+	Generate(ctx context.Context, parts []Part) (Result, error)
 	// SubmitBatch creates a Batch job with one request per BatchRequest.
 	SubmitBatch(ctx context.Context, reqs []BatchRequest, displayName string) (name string, err error)
 	// FindBatch returns the name of a Batch job with exactly this display
@@ -92,11 +93,36 @@ type BatchRequest struct {
 	Parts []Part
 }
 
-// Result is one Batch request's outcome. Error is set when the request failed.
+// Result is one request's outcome. Error is set when a Batch request failed.
+// Usage is what the response's usageMetadata reported (zero when absent).
 type Result struct {
 	Text   string
 	Finish string
 	Error  string
+	Usage  store.Usage
+}
+
+// UsageOf reads a response's usageMetadata the way the Python app did: audio
+// prompt tokens apart from the rest of the prompt (text, PDF), answer and
+// thinking tokens apart.
+func UsageOf(resp *genai.GenerateContentResponse) store.Usage {
+	if resp == nil || resp.UsageMetadata == nil {
+		return store.Usage{}
+	}
+	m := resp.UsageMetadata
+	var u store.Usage
+	for _, d := range m.PromptTokensDetails {
+		if d != nil && d.Modality == genai.MediaModalityAudio {
+			u.Audio += int(d.TokenCount)
+		}
+	}
+	u.Text = int(m.PromptTokenCount) - u.Audio
+	if u.Text < 0 {
+		u.Text = 0
+	}
+	u.Output = int(m.CandidatesTokenCount)
+	u.Thoughts = int(m.ThoughtsTokenCount)
+	return u
 }
 
 type client struct {
@@ -194,16 +220,16 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 	return store.Upload{URI: file.URI, MIME: mime, UploadedAt: uploadedAt}, nil
 }
 
-func (c *client) Generate(ctx context.Context, parts []Part) (string, string, error) {
+func (c *client) Generate(ctx context.Context, parts []Part) (Result, error) {
 	resp, err := c.c.Models.GenerateContent(ctx, Model, contents(parts), generationConfig())
 	if err != nil {
-		return "", "", err
+		return Result{}, err
 	}
 	text, finish := responseText(resp)
 	if strings.TrimSpace(text) == "" && (finish == "" || finish == FinishStop) {
-		return "", finish, &EmptyResponseError{Finish: finish, Usage: usageText(resp)}
+		return Result{Finish: finish}, &EmptyResponseError{Finish: finish, Usage: usageText(resp)}
 	}
-	return text, finish, nil
+	return Result{Text: text, Finish: finish, Usage: UsageOf(resp)}, nil
 }
 
 // usageText summarizes token counts for the log.
@@ -419,7 +445,7 @@ func inlinedResult(r *genai.InlinedResponse) Result {
 		return Result{Error: msg}
 	}
 	text, finish := responseText(r.Response)
-	return Result{Text: text, Finish: finish}
+	return Result{Text: text, Finish: finish, Usage: UsageOf(r.Response)}
 }
 
 // ParseResultsJSONL reads a Batch result file (one JSON object per line with
@@ -461,7 +487,7 @@ func ParseResultsJSONL(data []byte) (map[string]Result, error) {
 			continue
 		}
 		text, finish := responseText(row.Response)
-		out[key] = Result{Text: text, Finish: finish}
+		out[key] = Result{Text: text, Finish: finish, Usage: UsageOf(row.Response)}
 	}
 	return out, nil
 }

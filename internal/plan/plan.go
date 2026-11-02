@@ -89,3 +89,26 @@ func EstimateKRW(seconds float64, batch bool) (low, high int) {
 	}
 	return won(outputLowPerSecond), won(outputHighPerSecond)
 }
+
+// EstimateMidKRW is the middle of EstimateKRW's range for Batch, the one
+// number the window shows as "약 N원".
+func EstimateMidKRW(seconds float64) int {
+	low, high := EstimateKRW(seconds, true)
+	return int(math.Round(float64(low+high) / 2))
+}
+
+// CostUSD prices reported tokens with the same table as EstimateKRW: audio
+// and other prompt tokens at their input rates, answer and thinking tokens
+// at the output rate, half price on Batch.
+func CostUSD(audio, text, output int, batch bool) float64 {
+	usd := (float64(audio)*priceAudioIn + float64(text)*priceTextIn + float64(output)*priceOutput) / 1e6
+	if batch {
+		usd *= batchMultiplier
+	}
+	return usd
+}
+
+// USDToKRW converts at the fixed rate EstimateKRW uses, rounded to won.
+func USDToKRW(usd float64) int {
+	return int(math.Round(usd * usdToKRW))
+}

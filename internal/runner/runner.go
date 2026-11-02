@@ -30,6 +30,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/output"
+	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -126,6 +127,10 @@ type Options struct {
 	// retry schedule out of wall-clock time.
 	Sleep func(ctx context.Context, d time.Duration) error
 	Now   func() time.Time
+	// EarlyEstimate scans each added source in the background to record its
+	// audio length and paid estimate before its turn comes. Off in tests,
+	// which count scans.
+	EarlyEstimate bool
 }
 
 // Runner implements app.Runner.
@@ -319,8 +324,34 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 			r.logf("item %s added: %s (%s)", item.ID, path, mode)
 		}
 		r.enqueue(item.ID, mode)
+		if r.opts.EarlyEstimate {
+			go r.estimate(item.ID, path)
+		}
 	}
 	return nil
+}
+
+// estimate records the audio length and paid estimate of a just-added item.
+// prepare records the same values when the item starts, so a scan error is
+// left for prepare to report.
+func (r *Runner) estimate(id, path string) {
+	input, err := r.opts.Media.Scan(path)
+	if err != nil {
+		return
+	}
+	var total float64
+	for _, t := range input.Tracks {
+		total += t.Seconds
+	}
+	if total <= 0 {
+		return
+	}
+	_ = r.update(id, func(it *store.Item) {
+		if it.AudioSec == 0 {
+			it.AudioSec = total
+			it.EstimateKRW = plan.EstimateMidKRW(total)
+		}
+	})
 }
 
 // Cancel stops a running item or cancels a submitted Batch.
@@ -675,6 +706,7 @@ func (r *Runner) runItem(parent context.Context, l *lane, id string) {
 }
 
 func (r *Runner) process(ctx context.Context, id string) error {
+	_ = r.update(id, func(it *store.Item) { it.StartedAt = r.opts.Now() })
 	item, err := r.prepare(ctx, id)
 	if err != nil {
 		return err
@@ -784,11 +816,13 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		for i := range units {
 			if math.Abs(item.Units[i].Seconds-units[i].Seconds) < 1 {
 				units[i].Text = item.Units[i].Text
+				units[i].Usage = item.Units[i].Usage
 			}
 		}
 	}
 	err = r.update(id, func(it *store.Item) {
-		if input.Name != "" {
+		// A name the user changed while the item waited stays.
+		if input.Name != "" && it.Name == filepath.Base(it.Source) {
 			it.Name = input.Name
 		}
 		if input.Kind != "" {
@@ -796,6 +830,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		}
 		it.Units = units
 		it.AudioSec = total
+		it.EstimateKRW = plan.EstimateMidKRW(total)
 		it.Progress = doneRatio(units)
 		it.SourceSig = sig
 	})
@@ -906,16 +941,18 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		}
 		limited := 0
 		var text string
+		var usage store.Usage
 		done := false
 		for k := 0; k < len(candidates) && !done; k++ {
 			key := candidates[k]
-			t, outcome, err := r.freeAttempt(ctx, id, key, unit, pdf)
+			res, outcome, err := r.freeAttempt(ctx, id, key, unit, pdf)
 			if err != nil {
 				return err
 			}
 			switch outcome {
 			case keyOK:
-				text = t
+				text = res.Text
+				usage = res.Usage
 				done = true
 			case keyLimited:
 				limited++
@@ -950,6 +987,10 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		if err := r.update(id, func(it *store.Item) {
 			if i < len(it.Units) {
 				it.Units[i].Text = text
+				if !usage.Empty() {
+					u := usage
+					it.Units[i].Usage = &u
+				}
 			}
 			it.Progress = doneRatio(it.Units)
 		}); err != nil {
@@ -1000,48 +1041,50 @@ func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, e
 
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
 // outcome tells the caller whether to rotate to the next key.
-func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdf string) (string, keyOutcome, error) {
+// The result's Text is trimmed.
+func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdf string) (gemini.Result, keyOutcome, error) {
 	client, err := r.client(key)
 	if err != nil {
-		return "", keyRejected, nil
+		return gemini.Result{}, keyRejected, nil
 	}
 	parts, err := r.uploadParts(ctx, client, key.ID, unit, pdf)
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
-			return "", outcome, nil
+			return gemini.Result{}, outcome, nil
 		}
-		return "", keyOK, err
+		return gemini.Result{}, keyOK, err
 	}
 	if err := r.waitGap(ctx, key.ID, unit.Seconds); err != nil {
-		return "", keyOK, err
+		return gemini.Result{}, keyOK, err
 	}
 
 	r.setDetail(id, i18n.T("status.transcribing"))
-	var text, finish string
+	var res gemini.Result
 	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail()) }, func() error {
 		r.mu.Lock()
 		r.lastStart[key.ID] = r.opts.Now()
 		r.mu.Unlock()
 		var genErr error
-		text, finish, genErr = client.Generate(ctx, parts)
-		if genErr == nil && strings.TrimSpace(text) == "" && (finish == "" || finish == gemini.FinishStop) {
+		res, genErr = client.Generate(ctx, parts)
+		if genErr == nil && strings.TrimSpace(res.Text) == "" && (res.Finish == "" || res.Finish == gemini.FinishStop) {
 			// An empty answer with no reason comes from an overloaded
 			// server; the same request usually works when sent again.
-			genErr = &gemini.EmptyResponseError{Finish: finish, Usage: "no usage"}
+			genErr = &gemini.EmptyResponseError{Finish: res.Finish, Usage: "no usage"}
 		}
 		return genErr
 	})
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
-			return "", outcome, nil
+			return gemini.Result{}, outcome, nil
 		}
-		return "", keyOK, err
+		return gemini.Result{}, keyOK, err
 	}
 	r.setDetail(id, i18n.T("status.transcribing"))
-	if err := checkText(text, finish); err != nil {
-		return "", keyOK, err
+	if err := checkText(res.Text, res.Finish); err != nil {
+		return gemini.Result{}, keyOK, err
 	}
-	return strings.TrimSpace(text), keyOK, nil
+	res.Text = strings.TrimSpace(res.Text)
+	return res, keyOK, nil
 }
 
 func keyFailure(err error) (keyOutcome, bool) {
@@ -1579,6 +1622,11 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 				continue
 			}
 			it.Units[i].Text = strings.TrimSpace(res.Text)
+			if !res.Usage.Empty() {
+				u := res.Usage
+				u.Batch = true
+				it.Units[i].Usage = &u
+			}
 		}
 		it.Progress = doneRatio(it.Units)
 	})
@@ -1643,6 +1691,8 @@ func (r *Runner) finish(id string) error {
 		it.Output = target
 		it.Progress = 1
 		it.Detail = ""
+		it.FinishedAt = r.opts.Now()
+		it.Usage, it.CostKRW = itemCost(it.Units)
 		it.Batch = nil
 		// The .md is the record; dropping texts keeps items.json small.
 		it.Units = nil
@@ -1653,6 +1703,34 @@ func (r *Runner) finish(id string) error {
 	r.logf("item %s done: %s", id, target)
 	r.opts.Notify("Nalmeok", i18n.T("notify.done", "name", item.Name))
 	return nil
+}
+
+// itemCost sums the units' reported usage and prices the paid part. Free
+// requests cost nothing. Both are nil when no unit reported usage (results
+// from before usage was recorded); a partial record counts what is known.
+func itemCost(units []store.Unit) (*store.Usage, *int) {
+	var total store.Usage
+	usd := 0.0
+	known := false
+	for _, u := range units {
+		if u.Usage == nil {
+			continue
+		}
+		known = true
+		total.Audio += u.Usage.Audio
+		total.Text += u.Usage.Text
+		total.Output += u.Usage.Output
+		total.Thoughts += u.Usage.Thoughts
+		if u.Usage.Batch {
+			total.Batch = true
+			usd += plan.CostUSD(u.Usage.Audio, u.Usage.Text, u.Usage.Output+u.Usage.Thoughts, true)
+		}
+	}
+	if !known {
+		return nil, nil
+	}
+	won := plan.USDToKRW(usd)
+	return &total, &won
 }
 
 func (r *Runner) fail(id, detail string) {

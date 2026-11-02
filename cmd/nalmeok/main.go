@@ -99,6 +99,7 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 		WorkDir:        workDir,
 		LogPath:        logPath,
 		UnitMaxSeconds: plan.UnitMaxSeconds,
+		EarlyEstimate:  true,
 	})
 	return cfg, history, engine, nil
 }
