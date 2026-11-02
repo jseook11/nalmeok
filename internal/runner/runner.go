@@ -45,7 +45,10 @@ const (
 	DefaultKeyGap         = 12 * time.Second
 	DefaultPollInterval   = 30 * time.Second
 	uploadMaxAge          = 47 * time.Hour
-	transientAttempts     = 3
+	transientRetries      = 5
+	transientBaseDelay    = 10 * time.Second
+	transientMaxDelay     = 2 * time.Minute
+	retryDetail           = "Gemini 서버가 붐벼요 · 다시 시도 중"
 	freeTPM               = 250_000
 	freeRPM               = 5
 	rateTokensPerSecond   = 32
@@ -114,7 +117,10 @@ type Options struct {
 	PollInterval time.Duration
 	// Backoff returns the wait before transient retry n (1-based).
 	Backoff func(attempt int) time.Duration
-	Now     func() time.Time
+	// Sleep waits for d or context cancellation. Tests replace it to keep the
+	// retry schedule out of wall-clock time.
+	Sleep func(ctx context.Context, d time.Duration) error
+	Now   func() time.Time
 }
 
 // Runner implements app.Runner.
@@ -151,7 +157,10 @@ func New(opts Options) *Runner {
 		opts.PollInterval = DefaultPollInterval
 	}
 	if opts.Backoff == nil {
-		opts.Backoff = func(n int) time.Duration { return time.Duration(1<<n) * time.Second }
+		opts.Backoff = defaultBackoff
+	}
+	if opts.Sleep == nil {
+		opts.Sleep = sleep
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -662,7 +671,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		done := false
 		for k := 0; k < len(free) && !done; k++ {
 			key := free[(start+k)%len(free)]
-			t, outcome, err := r.freeAttempt(ctx, key, unit, pdf)
+			t, outcome, err := r.freeAttempt(ctx, id, key, unit, pdf)
 			if err != nil {
 				return err
 			}
@@ -729,7 +738,7 @@ func (r *Runner) takeFreeStart(n int) int {
 
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
 // outcome tells the caller whether to rotate to the next key.
-func (r *Runner) freeAttempt(ctx context.Context, key config.Key, unit store.Unit, pdf string) (string, keyOutcome, error) {
+func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdf string) (string, keyOutcome, error) {
 	client, err := r.client(key)
 	if err != nil {
 		return "", keyRejected, nil
@@ -745,8 +754,9 @@ func (r *Runner) freeAttempt(ctx context.Context, key config.Key, unit store.Uni
 		return "", keyOK, err
 	}
 
+	r.setDetail(id, "전사 중")
 	var text, finish string
-	err = r.retryTransient(ctx, func() error {
+	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail) }, func() error {
 		r.mu.Lock()
 		r.lastStart[key.ID] = r.opts.Now()
 		r.mu.Unlock()
@@ -760,6 +770,7 @@ func (r *Runner) freeAttempt(ctx context.Context, key config.Key, unit store.Uni
 		}
 		return "", keyOK, err
 	}
+	r.setDetail(id, "전사 중")
 	if err := checkText(text, finish); err != nil {
 		return "", keyOK, err
 	}
@@ -841,14 +852,17 @@ func (r *Runner) waitGap(ctx context.Context, keyID string, seconds float64) err
 	if !ok {
 		return nil
 	}
-	return sleep(ctx, g-r.opts.Now().Sub(last))
+	return r.opts.Sleep(ctx, g-r.opts.Now().Sub(last))
 }
 
-func (r *Runner) retryTransient(ctx context.Context, fn func() error) error {
+func (r *Runner) retryTransient(ctx context.Context, onRetry func(int), fn func() error) error {
 	var err error
-	for attempt := 0; attempt <= transientAttempts; attempt++ {
+	for attempt := 0; attempt <= transientRetries; attempt++ {
 		if attempt > 0 {
-			if serr := sleep(ctx, r.opts.Backoff(attempt)); serr != nil {
+			if onRetry != nil {
+				onRetry(attempt)
+			}
+			if serr := r.opts.Sleep(ctx, r.opts.Backoff(attempt)); serr != nil {
 				return serr
 			}
 		}
@@ -859,6 +873,21 @@ func (r *Runner) retryTransient(ctx context.Context, fn func() error) error {
 		r.logf("transient error (attempt %d): %v", attempt+1, r.redact(err))
 	}
 	return err
+}
+
+// defaultBackoff doubles from 10 s and stops at 2 min: 10, 20, 40, 80, 120 s.
+func defaultBackoff(n int) time.Duration {
+	if n < 1 {
+		return 0
+	}
+	d := transientBaseDelay
+	for i := 1; i < n; i++ {
+		d *= 2
+		if d >= transientMaxDelay {
+			return transientMaxDelay
+		}
+	}
+	return d
 }
 
 // uploadParts builds [prompt, pdf?, audio...] for one key, uploading files
@@ -906,7 +935,7 @@ func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, 
 
 func (r *Runner) upload(ctx context.Context, client gemini.Client, path, mime string) (store.Upload, error) {
 	var up store.Upload
-	err := r.retryTransient(ctx, func() error {
+	err := r.retryTransient(ctx, nil, func() error {
 		var uerr error
 		up, uerr = client.Upload(ctx, path, mime)
 		return uerr
@@ -1030,7 +1059,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	}
 	r.setDetail(id, "요청 보내는 중")
 	var name string
-	err = r.retryTransient(ctx, func() error {
+	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail) }, func() error {
 		var serr error
 		name, serr = client.SubmitBatch(ctx, reqs, item.Name)
 		return serr

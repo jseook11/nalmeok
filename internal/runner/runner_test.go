@@ -113,6 +113,13 @@ func answer(parts []gemini.Part) string {
 }
 
 func (c *fakeClient) SubmitBatch(ctx context.Context, reqs []gemini.BatchRequest, displayName string) (string, error) {
+	c.w.mu.Lock()
+	if c.w.submitFailures > 0 {
+		c.w.submitFailures--
+		c.w.mu.Unlock()
+		return "", genai.APIError{Code: 503}
+	}
+	c.w.mu.Unlock()
 	return c.w.submit(reqs)
 }
 
@@ -152,14 +159,15 @@ func (c *fakeClient) CancelBatch(ctx context.Context, name string) error {
 func (c *fakeClient) Validate(ctx context.Context) error { return nil }
 
 type fakeWorld struct {
-	mu           sync.Mutex
-	clients      map[string]*fakeClient
-	batches      map[string][]gemini.BatchRequest
-	batchOrder   []string
-	batchState   string
-	batchDrop    map[string]bool
-	batchResults map[string]gemini.Result
-	cancelled    []string
+	mu             sync.Mutex
+	clients        map[string]*fakeClient
+	batches        map[string][]gemini.BatchRequest
+	batchOrder     []string
+	batchState     string
+	batchDrop      map[string]bool
+	batchResults   map[string]gemini.Result
+	submitFailures int
+	cancelled      []string
 }
 
 func newWorld() *fakeWorld {
@@ -208,6 +216,12 @@ func (w *fakeWorld) setBatchResult(key string, res gemini.Result) {
 	w.mu.Unlock()
 }
 
+func (w *fakeWorld) failNextSubmit(n int) {
+	w.mu.Lock()
+	w.submitFailures = n
+	w.mu.Unlock()
+}
+
 func err429() error { return genai.APIError{Code: 429, Message: "quota"} }
 
 // ---- harness -----------------------------------------------------------------
@@ -225,6 +239,9 @@ type harness struct {
 
 	notesMu sync.Mutex
 	notes   []string
+
+	sleepMu sync.Mutex
+	sleeps  []time.Duration
 }
 
 func newHarness(t *testing.T, keys ...config.Key) *harness {
@@ -258,7 +275,12 @@ func (h *harness) newRunner() *Runner {
 		},
 		KeyGap:       -1,
 		PollInterval: time.Hour, // tests poll explicitly
-		Backoff:      func(int) time.Duration { return 0 },
+		Sleep: func(ctx context.Context, d time.Duration) error {
+			h.sleepMu.Lock()
+			h.sleeps = append(h.sleeps, d)
+			h.sleepMu.Unlock()
+			return nil
+		},
 	})
 }
 
@@ -612,7 +634,16 @@ func TestBlockedBatchResponseFailsItem(t *testing.T) {
 
 func TestTransientErrorsAreRetried(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
+	details := make(chan string, 1)
 	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call > 1 {
+			if items := h.st.List(""); len(items) > 0 {
+				select {
+				case details <- items[0].Detail:
+				default:
+				}
+			}
+		}
 		if call <= 2 {
 			return "", "", genai.APIError{Code: 503}
 		}
@@ -621,6 +652,75 @@ func TestTransientErrorsAreRetried(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	h.wait(item.ID, StateDone)
+	if got := h.world.client("AIza-f1").generatesNow(); got != 4 {
+		t.Errorf("generates = %d, want 4 (3 for the retried unit, 1 for the next)", got)
+	}
+	want := []time.Duration{10 * time.Second, 20 * time.Second}
+	if got := h.sleepsNow(); !equalDurations(got, want) {
+		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+	select {
+	case detail := <-details:
+		if detail != retryDetail {
+			t.Errorf("detail during retry = %q, want %q", detail, retryDetail)
+		}
+	default:
+		t.Error("no retry detail was visible while retrying")
+	}
+}
+
+func TestTransientRetriesGiveUpAfterFive(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
+		return "", "", genai.APIError{Code: 503}
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	failed := h.wait(item.ID, StateFailed)
+	if failed.Detail != "네트워크 오류" {
+		t.Errorf("Detail = %q", failed.Detail)
+	}
+	if got := h.world.client("AIza-f1").generatesNow(); got != 6 {
+		t.Errorf("generates = %d, want 6 (initial + 5 retries)", got)
+	}
+	want := []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute}
+	if got := h.sleepsNow(); !equalDurations(got, want) {
+		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+}
+
+func TestTransientBatchSubmitIsRetried(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	h.world.failNextSubmit(2)
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	h.wait(item.ID, StateBatchWaiting)
+	want := []time.Duration{10 * time.Second, 20 * time.Second}
+	if got := h.sleepsNow(); !equalDurations(got, want) {
+		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+}
+
+func TestDefaultBackoffSchedule(t *testing.T) {
+	r := New(Options{Store: nil})
+	want := []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute, 2 * time.Minute}
+	for i := 1; i <= len(want); i++ {
+		if got := r.opts.Backoff(i); got != want[i-1] {
+			t.Errorf("Backoff(%d) = %v, want %v", i, got, want[i-1])
+		}
+	}
+}
+
+func equalDurations(a, b []time.Duration) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestOutputCollisionGetsNumber(t *testing.T) {
@@ -696,6 +796,12 @@ func (c *fakeClient) mimesNow() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.mimes...)
+}
+
+func (h *harness) sleepsNow() []time.Duration {
+	h.sleepMu.Lock()
+	defer h.sleepMu.Unlock()
+	return append([]time.Duration(nil), h.sleeps...)
 }
 
 func (c *fakeClient) setGen(g genFunc) {
