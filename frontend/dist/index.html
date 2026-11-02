@@ -11,20 +11,20 @@
   <header class="chrome">
     <div class="topbar">
       <div class="topbar-center">
-        <div class="segmented" id="mode-toggle" role="tablist" aria-label="처리 방식" hidden>
-          <button type="button" role="tab" data-mode="free" aria-selected="true">무료</button>
-          <button type="button" role="tab" data-mode="batch" aria-selected="false">유료</button>
+        <div class="segmented" id="mode-toggle" role="tablist" data-i18n-aria-label="mode.label" hidden>
+          <button type="button" role="tab" data-mode="free" aria-selected="true" data-i18n="tier.free"></button>
+          <button type="button" role="tab" data-mode="batch" aria-selected="false" data-i18n="tier.paid"></button>
         </div>
         <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu"
-                aria-label="새 파일에 쓸 키" title="새 파일에 쓸 키" hidden>
-          <span class="picker-label" id="key-picker-label">자동</span>
+                data-i18n-aria-label="picker.title" data-i18n-title="picker.title" hidden>
+          <span class="picker-label" id="key-picker-label" data-i18n="picker.auto"></span>
           <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
                stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m2 3.5 3 3 3-3"/>
           </svg>
         </button>
       </div>
-      <button class="tool-button add-button" id="add" type="button" aria-label="파일 추가" title="파일 추가">
+      <button class="tool-button add-button" id="add" type="button" data-i18n-aria-label="action.addFile" data-i18n-title="action.addFile">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
           <path d="M8 3v10M3 8h10"/>
@@ -37,13 +37,14 @@
         <circle cx="7" cy="7" r="4.6"/>
         <path d="m10.5 10.5 3 3"/>
       </svg>
-      <input id="search" type="search" placeholder="검색" autocomplete="off" spellcheck="false" aria-label="검색">
+      <input id="search" type="search" data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false"
+             data-i18n-aria-label="search.placeholder">
     </label>
   </header>
 
   <main class="list" id="list"></main>
 
-  <button class="empty" id="empty" type="button" aria-label="음성 파일이나 폴더 선택">
+  <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
     <svg class="empty-glyph" width="56" height="28" viewBox="0 0 64 32" fill="none" aria-hidden="true">
       <rect x="4" y="12" width="3.4" height="8" rx="1.7" fill="currentColor"/>
       <rect x="13" y="8" width="3.4" height="16" rx="1.7" fill="currentColor"/>
@@ -53,12 +54,12 @@
       <rect x="49" y="10" width="3.4" height="12" rx="1.7" fill="currentColor"/>
       <rect x="58" y="13" width="3.4" height="6" rx="1.7" fill="currentColor"/>
     </svg>
-    <span>음성 파일이나 폴더를 놓으세요</span>
+    <span data-i18n="empty.text"></span>
   </button>
 
   <footer class="footer">
-    <button class="round-button" id="help" type="button" aria-label="도움말" title="도움말">?</button>
-    <button class="round-button" id="gear" type="button" aria-label="API 키" title="API 키">
+    <button class="round-button" id="help" type="button" data-i18n-aria-label="help.title" data-i18n-title="help.title">?</button>
+    <button class="round-button" id="gear" type="button" data-i18n-aria-label="keys.title" data-i18n-title="keys.title">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/>
@@ -70,44 +71,44 @@
 
 <div class="sheet" id="keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title" hidden>
   <header class="sheet-head">
-    <h2 id="keys-title">API 키</h2>
-    <button class="text-button" type="button" data-close>완료</button>
+    <h2 id="keys-title" data-i18n="keys.title"></h2>
+    <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
   </header>
   <div class="sheet-body">
     <p class="sheet-intro" id="keys-intro" hidden>
-      Gemini API 키가 필요해요.
-      <button class="text-button" id="key-source" type="button">키 받는 곳</button>
+      <span data-i18n="keys.intro"></span>
+      <button class="text-button" id="key-source" type="button" data-i18n="keys.source"></button>
     </p>
-    <p class="key-caption" id="key-caption" hidden>위에 있는 키부터 써요</p>
+    <p class="key-caption" id="key-caption" data-i18n="keys.caption" hidden></p>
     <div class="key-list" id="key-list"></div>
     <form class="key-form" id="key-form" novalidate>
-      <div class="segmented segmented-small" id="key-tier" role="tablist" aria-label="등급">
-        <button type="button" role="tab" data-tier="free" aria-selected="true">무료</button>
-        <button type="button" role="tab" data-tier="paid" aria-selected="false">유료</button>
+      <div class="segmented segmented-small" id="key-tier" role="tablist" data-i18n-aria-label="keys.tier">
+        <button type="button" role="tab" data-tier="free" aria-selected="true" data-i18n="tier.free"></button>
+        <button type="button" role="tab" data-tier="paid" aria-selected="false" data-i18n="tier.paid"></button>
       </div>
-      <input class="field" id="key-value" type="password" placeholder="API 키 붙여넣기"
-             autocomplete="new-password" spellcheck="false" aria-label="API 키">
+      <input class="field" id="key-value" type="password" data-i18n-placeholder="keys.placeholder"
+             autocomplete="new-password" spellcheck="false" data-i18n-aria-label="keys.title">
       <p class="form-error" id="key-error" role="alert" hidden></p>
-      <button class="primary-button" id="key-save" type="submit">저장</button>
+      <button class="primary-button" id="key-save" type="submit" data-i18n="keys.save"></button>
     </form>
   </div>
 </div>
 
 <div class="sheet" id="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
   <header class="sheet-head">
-    <h2 id="help-title">도움말</h2>
-    <button class="text-button" type="button" data-close>완료</button>
+    <h2 id="help-title" data-i18n="help.title"></h2>
+    <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
   </header>
   <div class="sheet-body">
     <dl class="help">
-      <dt>결과</dt>
-      <dd>원본 옆에 .md로 저장돼요. 폴더를 놓으면 하나로 합쳐요.</dd>
-      <dt>무료</dt>
-      <dd>바로 전사해요. 하루 사용량이 정해져 있어요.</dd>
-      <dt>유료</dt>
-      <dd>1시간에 약 74원. 결과까지 보통 10분~1시간 걸려요. 앱을 닫아도 진행돼요.</dd>
-      <dt>지원 형식</dt>
-      <dd>m4a, mp4, mp3, wav · 폴더 안 PDF는 용어 참고자료로 써요.</dd>
+      <dt data-i18n="help.result"></dt>
+      <dd data-i18n="help.resultBody"></dd>
+      <dt data-i18n="tier.free"></dt>
+      <dd data-i18n="help.freeBody"></dd>
+      <dt data-i18n="tier.paid"></dt>
+      <dd data-i18n="help.paidBody"></dd>
+      <dt data-i18n="help.formats"></dt>
+      <dd data-i18n="help.formatsBody"></dd>
     </dl>
   </div>
 </div>
@@ -116,7 +117,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite">
   <span id="toast-text"></span>
-  <button class="toast-action" id="toast-action" type="button" hidden>실행 취소</button>
+  <button class="toast-action" id="toast-action" type="button" data-i18n="toast.undo" hidden></button>
 </div>
 
 <script src="app.js"></script>

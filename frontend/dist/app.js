@@ -1,5 +1,47 @@
-(() => {
+(async () => {
   "use strict";
+
+  // ── Strings ───────────────────────────────────────────────
+
+  // All user-facing text lives in i18n/<lang>.json, the same file the Go side
+  // reads. A key missing from LANG falls back to BASE_LANG, then to the key.
+  const BASE_LANG = "ko";
+  const LANG = "ko";
+  const STRINGS = Object.assign(
+    {},
+    await loadStrings(BASE_LANG),
+    LANG === BASE_LANG ? {} : await loadStrings(LANG)
+  );
+
+  async function loadStrings(lang) {
+    try {
+      const response = await fetch(`i18n/${lang}.json`);
+      if (response.ok) return await response.json();
+    } catch (_) {
+      // Keys show instead of text; nothing else breaks.
+    }
+    return {};
+  }
+
+  // t returns key's text with "{name}" placeholders filled from vars.
+  function t(key, vars) {
+    const text = Object.prototype.hasOwnProperty.call(STRINGS, key) ? STRINGS[key] : key;
+    if (!vars) return text;
+    return text.replace(/\{(\w+)\}/g, (match, name) => (name in vars ? String(vars[name]) : match));
+  }
+
+  // Static text in index.html: data-i18n fills the text, data-i18n-aria-label,
+  // data-i18n-title and data-i18n-placeholder fill those attributes.
+  function applyStrings(root) {
+    for (const el of root.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+    for (const attr of ["aria-label", "title", "placeholder"]) {
+      for (const el of root.querySelectorAll(`[data-i18n-${attr}]`)) {
+        el.setAttribute(attr, t(el.getAttribute(`data-i18n-${attr}`)));
+      }
+    }
+  }
+
+  applyStrings(document);
 
   const $ = (id) => document.getElementById(id);
 
@@ -35,7 +77,7 @@
   const IS_WINDOWS = /Windows/i.test(navigator.userAgent);
   const IS_MAC = /Macintosh|Mac OS X/i.test(navigator.userAgent);
   document.documentElement.classList.toggle("is-mac", IS_MAC);
-  const REVEAL_LABEL = IS_WINDOWS ? "탐색기에서 보기" : "Finder에서 보기";
+  const REVEAL_LABEL = IS_WINDOWS ? t("menu.revealExplorer") : t("menu.revealFinder");
   const ACTION_WIDTH = 78; // px per swipe action button
   const UNDO_MS = 4000;
 
@@ -73,7 +115,7 @@
   function call(method, ...args) {
     const api = window.go && window.go.app && window.go.app.App;
     if (!api || typeof api[method] !== "function") {
-      return Promise.reject(new Error("아직 준비 중이에요"));
+      return Promise.reject(new Error(t("error.notReady")));
     }
     return api[method](...args);
   }
@@ -83,7 +125,7 @@
     if (typeof error === "string") text = error;
     else if (error && typeof error.message === "string") text = error.message;
     else if (error != null) text = String(error);
-    return text.replace(/^Error:\s*/, "").trim() || "문제가 생겼어요";
+    return text.replace(/^Error:\s*/, "").trim() || t("error.generic");
   }
 
   function esc(value) {
@@ -102,7 +144,7 @@
     toastText.textContent = message;
     toastOnAction = options.onAction || null;
     toastAction.hidden = !toastOnAction;
-    if (toastOnAction) toastAction.textContent = options.action || "실행 취소";
+    if (toastOnAction) toastAction.textContent = options.action || t("toast.undo");
     toast.classList.add("is-visible");
     toastTimer = setTimeout(hideToast, options.duration || 1800);
   }
@@ -148,8 +190,8 @@
     modeToggle.classList.add("is-nudging");
     const duration = 3200;
     missingTierNote = { mode, until: Date.now() + duration };
-    showToast(tier === "paid" ? "유료 키가 없어요" : "무료 키가 없어요", {
-      action: "키 추가",
+    showToast(tier === "paid" ? t("error.noPaidKey") : t("error.noFreeKey"), {
+      action: t("toast.addKey"),
       duration,
       onAction: () => {
         missingTierNote = null;
@@ -208,10 +250,12 @@
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-    if (date >= startOfToday) return `오늘 ${time}`;
-    if (date >= new Date(startOfToday.getTime() - 86400000)) return `어제 ${time}`;
-    const day = `${date.getMonth() + 1}월 ${date.getDate()}일`;
-    return date.getFullYear() === now.getFullYear() ? day : `${date.getFullYear()}년 ${day}`;
+    if (date >= startOfToday) return t("date.today", { time });
+    if (date >= new Date(startOfToday.getTime() - 86400000)) return t("date.yesterday", { time });
+    const day = t("date.monthDay", { month: date.getMonth() + 1, day: date.getDate() });
+    return date.getFullYear() === now.getFullYear()
+      ? day
+      : t("date.withYear", { year: date.getFullYear(), date: day });
   }
 
   function minutesSince(stamp) {
@@ -238,21 +282,21 @@
         const progress = Number(item.Progress) || 0;
         const detail = item.Detail || "";
         const aside = keyTag(item);
-        if (progress <= 0 && detail && detail !== "전사 중") {
+        if (progress <= 0 && detail && detail !== t("status.transcribing")) {
           return { status: `<div class="status"><span>${esc(detail)}</span></div>`, aside };
         }
         return { status: progressHTML(progress), aside };
       }
       case "batch_waiting": {
         const minutes = minutesSince(item.CreatedAt);
-        const text = minutes < 1 ? "기다리는 중" : `기다리는 중 · ${minutes}분째`;
+        const text = minutes < 1 ? t("row.waiting") : t("row.waitingMinutes", { minutes });
         return { status: `<div class="status"><span>${text}</span></div>`, aside: keyTag(item) };
       }
       case "free_exhausted":
         return {
-          status: `<div class="status"><span>오늘 무료 사용량을 다 썼어요</span></div>`,
+          status: `<div class="status"><span>${t("row.freeExhausted")}</span></div>`,
           aside: state.available.paid
-            ? `<button class="pill-button" type="button" data-action="batch" data-id="${id}">유료로 이어서</button>`
+            ? `<button class="pill-button" type="button" data-action="batch" data-id="${id}">${t("action.continuePaid")}</button>`
             : "",
         };
       case "done":
@@ -262,20 +306,20 @@
             title="${REVEAL_LABEL}" aria-label="${REVEAL_LABEL}">${GLYPHS.reveal}</button>`,
         };
       case "failed": {
-        const reason = item.Detail ? ` · ${esc(item.Detail)}` : "";
+        const text = item.Detail ? t("row.failedReason", { reason: esc(item.Detail) }) : t("row.failed");
         return {
-          status: `<div class="status"><span title="${esc(item.Detail)}">실패${reason}</span></div>`,
-          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>`,
+          status: `<div class="status"><span title="${esc(item.Detail)}">${text}</span></div>`,
+          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">${t("action.retry")}</button>`,
         };
       }
       case "canceled":
         return {
-          status: `<div class="status"><span>취소됨</span></div>`,
-          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>`,
+          status: `<div class="status"><span>${t("status.canceled")}</span></div>`,
+          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">${t("action.retry")}</button>`,
         };
       default:
         return {
-          status: `<div class="status"><span>${esc(item.Detail || "대기 중")}</span></div>`,
+          status: `<div class="status"><span>${esc(item.Detail || t("status.queued"))}</span></div>`,
           aside: keyTag(item),
         };
     }
@@ -294,12 +338,12 @@
     const id = esc(item.ID);
     const parts = rowParts(item);
     const first = isActive(item)
-      ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">취소</button>`
-      : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">이름 변경</button>`;
+      ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">${t("action.cancel")}</button>`
+      : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">${t("action.rename")}</button>`;
     return `
       <div class="row-actions">
         ${first}
-        <button class="act-delete" type="button" data-action="delete" data-id="${id}">삭제</button>
+        <button class="act-delete" type="button" data-action="delete" data-id="${id}">${t("action.delete")}</button>
       </div>
       <div class="row-main">
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
@@ -338,7 +382,7 @@
 
     if (items.length === 0) {
       rowCache.clear();
-      list.innerHTML = state.query ? `<p class="list-note">결과 없음</p>` : "";
+      list.innerHTML = state.query ? `<p class="list-note">${t("list.noResults")}</p>` : "";
       syncScrolled();
       return;
     }
@@ -572,8 +616,8 @@
     swipe.offsets.delete(id);
     renderItems();
     pendingDelete = { id, timer: setTimeout(commitDelete, UNDO_MS) };
-    showToast("목록에서 지웠어요", {
-      action: "실행 취소",
+    showToast(t("toast.removed"), {
+      action: t("toast.undo"),
       duration: UNDO_MS,
       onAction: () => {
         if (!pendingDelete || pendingDelete.id !== id) return;
@@ -605,7 +649,7 @@
     input.type = "text";
     input.spellcheck = false;
     input.value = renameValue(item);
-    input.setAttribute("aria-label", "이름");
+    input.setAttribute("aria-label", t("field.name"));
     nameEl.replaceWith(input);
     renaming = { id, input, original: input.value };
     input.focus();
@@ -652,7 +696,7 @@
           break;
         case "copy":
           await call("CopyOutput", id);
-          showToast("복사했어요");
+          showToast(t("toast.copied"));
           break;
         case "reveal":
           await call("RevealOutput", id);
@@ -693,30 +737,30 @@
     const entries = [];
     switch (item.State) {
       case "done":
-        entries.push(["open", "열기"], ["copy", "복사"], ["reveal", REVEAL_LABEL]);
+        entries.push(["open", t("menu.open")], ["copy", t("menu.copy")], ["reveal", REVEAL_LABEL]);
         break;
       case "running":
         // A free item can move to paid mid-run (e.g. while the server is busy).
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", "유료로 이어서"]);
-        entries.push(["cancel", "취소"]);
+        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
+        entries.push(["cancel", t("action.cancel")]);
         break;
       case "batch_waiting":
-        entries.push(["cancel", "취소"]);
+        entries.push(["cancel", t("action.cancel")]);
         break;
       case "free_exhausted":
-        if (state.available.paid) entries.push(["batch", "유료로 이어서"]);
-        entries.push(["cancel", "취소"]);
+        if (state.available.paid) entries.push(["batch", t("action.continuePaid")]);
+        entries.push(["cancel", t("action.cancel")]);
         break;
       case "failed":
       case "canceled":
-        entries.push(["retry", "다시 시도"]);
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", "유료로 이어서"]);
+        entries.push(["retry", t("action.retry")]);
+        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
         break;
       default:
         break;
     }
     if (entries.length) entries.push(null);
-    entries.push(["rename", "이름 변경"], ["delete", "삭제", true]);
+    entries.push(["rename", t("action.rename")], ["delete", t("action.delete"), true]);
     return entries;
   }
 
@@ -770,27 +814,27 @@
 
   // ── Keys ──────────────────────────────────────────────────
 
-  const tierName = (tier) => (tier === "free" ? "무료" : "유료");
+  const tierName = (tier) => (tier === "free" ? t("tier.free") : t("tier.paid"));
 
   function keyPanelHTML(key) {
     if (key.Source === "env") {
       return `
         <div class="key-panel">
-          <p class="key-panel-note">환경변수 키는 바꿀 수 없어요</p>
+          <p class="key-panel-note">${t("error.envKeyLocked")}</p>
         </div>`;
     }
     const tierButton = (tier) => `<button type="button" role="tab" data-key-tier="${tier}"
       aria-selected="${key.Tier === tier}">${tierName(tier)}</button>`;
     return `
       <div class="key-panel">
-        <label class="key-field-label" for="key-name">이름</label>
+        <label class="key-field-label" for="key-name">${t("field.name")}</label>
         <input class="field key-name" id="key-name" type="text" spellcheck="false"
                autocomplete="off" value="${esc(key.Label)}" data-original="${esc(key.Label)}">
-        <span class="key-field-label">등급</span>
-        <div class="segmented segmented-wide" role="tablist" aria-label="등급">
+        <span class="key-field-label">${t("keys.tier")}</span>
+        <div class="segmented segmented-wide" role="tablist" aria-label="${t("keys.tier")}">
           ${tierButton("free")}${tierButton("paid")}
         </div>
-        <button class="danger-button" type="button" data-key-delete="${esc(key.ID)}">키 삭제</button>
+        <button class="danger-button" type="button" data-key-delete="${esc(key.ID)}">${t("keys.delete")}</button>
       </div>`;
   }
 
@@ -804,10 +848,10 @@
         <div class="key-row" role="button" tabindex="0" aria-expanded="${isOpen}">
           ${isEnv
             ? `<span class="key-handle-spacer"></span>`
-            : `<span class="key-handle" title="끌어서 순서 바꾸기">${GLYPHS.handle}</span>`}
+            : `<span class="key-handle" title="${t("keys.dragHandle")}">${GLYPHS.handle}</span>`}
           <span class="key-label" title="${esc(key.Label)}">${esc(key.Label)}</span>
           ${showTier ? `<span class="key-meta">${tier}</span>` : ""}
-          ${isEnv && key.Label !== "환경변수" ? `<span class="key-meta">환경변수</span>` : ""}
+          ${isEnv && key.Label !== t("key.envLabel") ? `<span class="key-meta">${t("key.envLabel")}</span>` : ""}
           <span class="key-mask">${esc(key.Masked)}</span>
           <span class="key-chevron">${GLYPHS.chevron}</span>
         </div>
@@ -838,8 +882,8 @@
     renderKeys();
     renderPicker();
     pendingKeyDelete = { id, timer: setTimeout(commitKeyDelete, UNDO_MS) };
-    showToast("키를 지웠어요", {
-      action: "실행 취소",
+    showToast(t("toast.keyDeleted"), {
+      action: t("toast.undo"),
       duration: UNDO_MS,
       onAction: () => {
         if (!pendingKeyDelete || pendingKeyDelete.id !== id) return;
@@ -1128,7 +1172,7 @@
     const chosen = keys.find((key) => key.ID === state.newItemKey) || null;
     if (state.newItemKey && (!chosen || !show)) setNewItemKey("");
     keyPicker.hidden = !show;
-    keyPickerLabel.textContent = chosen && show ? chosen.Label : "자동";
+    keyPickerLabel.textContent = chosen && show ? chosen.Label : t("picker.auto");
     if (!show && menuRow === keyPicker) closeMenu();
   }
 
@@ -1156,7 +1200,7 @@
       return `<button type="button" role="menuitemradio" aria-checked="${selected}"
         data-pick="${esc(id)}"><span class="menu-check">${selected ? GLYPHS.check : ""}</span>${esc(label)}</button>`;
     };
-    menu.innerHTML = entry("", "자동 (우선순위대로)") + "<hr>"
+    menu.innerHTML = entry("", t("picker.autoByPriority")) + "<hr>"
       + pickerKeys().map((key) => entry(key.ID, key.Label)).join("");
     menu.classList.add("has-checks");
     delete menu.dataset.id;
@@ -1415,17 +1459,17 @@
         return;
       }
       keySave.disabled = true;
-      keySave.textContent = "확인 중";
+      keySave.textContent = t("keys.checking");
       try {
         await call("AddKey", "", state.keyTier, value);
         keyValue.value = "";
         await loadKeys();
-        showToast("키를 저장했어요");
+        showToast(t("toast.keySaved"));
       } catch (error) {
         showKeyError(errorText(error));
       } finally {
         keySave.disabled = false;
-        keySave.textContent = "저장";
+        keySave.textContent = t("keys.save");
       }
     });
   }
