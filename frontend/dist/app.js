@@ -1649,14 +1649,23 @@
     });
     keyPicker.addEventListener("click", openPickerMenu);
 
+    // Search runs on every input, also while the Korean IME is composing:
+    // the backend matches by jamo (internal/store/match.go), so a half-built
+    // syllable such as 컴픁 (on the way to 컴퓨터) keeps its results.
+    // compositionend searches once more in case the final text arrives
+    // without another input event.
     let searchTimer = null;
-    search.addEventListener("input", () => {
+    const runSearch = () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
-        state.query = search.value.trim();
+        const query = search.value.trim();
+        if (query === state.query) return;
+        state.query = query;
         refreshItems();
       }, 120);
-    });
+    };
+    search.addEventListener("input", runSearch);
+    search.addEventListener("compositionend", runSearch);
     search.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && search.value) {
         event.stopPropagation();

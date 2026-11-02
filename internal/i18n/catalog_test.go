@@ -29,9 +29,11 @@ var (
 )
 
 // hangulAllowed lists source files whose Hangul string literals are not
-// user-interface text. The transcription prompt is model input, not UI.
+// user-interface text. The transcription prompt is model input, not UI; the
+// search matcher's jamo tables are data.
 var hangulAllowed = map[string]bool{
 	"internal/gemini/prompt.go": true,
+	"internal/store/match.go":   true,
 }
 
 // jsDynamicAllowed are the only t(...) calls without a literal key: the

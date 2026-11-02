@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -246,16 +245,15 @@ func (s *Store) Get(id string) (Item, bool) {
 }
 
 // List returns items newest first. A non-empty query filters by a
-// case-insensitive substring of Name or Source.
+// substring of Name or Source, ignoring case and Unicode normalisation and
+// accepting a Hangul syllable still being composed (see match.go).
 func (s *Store) List(query string) []Item {
-	query = strings.ToLower(strings.TrimSpace(query))
+	m := newMatcher(query)
 
 	s.mu.RLock()
 	items := make([]Item, 0, len(s.items))
 	for _, item := range s.items {
-		if query != "" &&
-			!strings.Contains(strings.ToLower(item.Name), query) &&
-			!strings.Contains(strings.ToLower(item.Source), query) {
+		if !m.empty() && !m.match(item.Name) && !m.match(item.Source) {
 			continue
 		}
 		items = append(items, cloneItem(item))
