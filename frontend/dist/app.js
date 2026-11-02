@@ -1433,6 +1433,14 @@
     if (document.activeElement === search) search.blur();
     if (state.keys.length === 0) openKeys("free");
 
+    // Windows: Wails only forwards dropped file paths to Go (OnFileDrop in
+    // internal/app) once the page registers its JS drop listener. macOS
+    // delivers drops natively, so this is a no-op there. The callback is
+    // empty because Go handles the paths; false = the whole window accepts.
+    if (window.runtime && typeof window.runtime.OnFileDrop === "function") {
+      window.runtime.OnFileDrop(() => {}, false);
+    }
+
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);
       window.runtime.EventsOn("keys:changed", reloadKeys);
