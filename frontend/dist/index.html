@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>날먹</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app" class="is-empty">
+  <button class="drop-zone" id="drop-zone" type="button" aria-label="음성 파일이나 폴더 선택">
+    <svg class="wave-icon" width="64" height="32" viewBox="0 0 64 32" fill="none" aria-hidden="true">
+      <rect x="4" y="12" width="4" height="8" rx="2" fill="currentColor"/>
+      <rect x="13" y="8" width="4" height="16" rx="2" fill="currentColor"/>
+      <rect x="22" y="3" width="4" height="26" rx="2" fill="currentColor"/>
+      <rect x="31" y="6" width="4" height="20" rx="2" fill="currentColor"/>
+      <rect x="40" y="2" width="4" height="28" rx="2" fill="currentColor"/>
+      <rect x="49" y="10" width="4" height="12" rx="2" fill="currentColor"/>
+      <rect x="58" y="13" width="4" height="6" rx="2" fill="currentColor"/>
+    </svg>
+    <span class="drop-title">음성 파일이나 폴더를 놓으세요</span>
+  </button>
+
+  <div class="mode-toggle" id="mode-toggle" role="tablist" aria-label="처리 방식">
+    <button class="segment" id="mode-free" type="button" role="tab" data-mode="free" aria-selected="true">
+      <span class="segment-label">무료</span>
+      <span class="segment-caption">무료 · 바로</span>
+    </button>
+    <button class="segment" id="mode-batch" type="button" role="tab" data-mode="batch" aria-selected="false">
+      <span class="segment-label">유료 Batch</span>
+      <span class="segment-caption">약 74원/시간 · 10분~1시간</span>
+    </button>
+  </div>
+  <p class="empty-hint" id="empty-hint">완료된 전사본은 원본 옆에 .md로 저장됩니다</p>
+
+  <div class="search-wrap">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/>
+      <path d="m20 20-3.5-3.5"/>
+    </svg>
+    <input class="search-input" id="search" type="search" placeholder="전사한 파일 검색"
+           autocomplete="off" spellcheck="false" aria-label="전사한 파일 검색">
+  </div>
+
+  <main class="item-list" id="item-list"></main>
+
+  <button class="gear" id="gear" type="button" aria-label="키 설정" title="키 설정">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.9 4.6 1.7 1.7 0 0 0 9.93 3.04V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.9c.2.62.78 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.7 0-1.3.4-1.51 1.07Z"/>
+    </svg>
+  </button>
+</div>
+
+<div class="sheet-overlay" id="sheet" hidden>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <header class="sheet-head">
+      <h2 id="sheet-title">키 설정</h2>
+      <button class="icon-button" id="sheet-close" type="button" aria-label="닫기" title="닫기">✕</button>
+    </header>
+
+    <p class="sheet-intro" id="sheet-intro" hidden>전사하려면 Gemini API 키를 먼저 등록하세요.</p>
+
+    <div class="key-list" id="key-list"></div>
+
+    <form class="key-form" id="key-form" novalidate>
+      <h3>키 추가</h3>
+      <label class="field">
+        <span>이름</span>
+        <input id="key-label" type="text" placeholder="예: 무료 키" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>등급</span>
+        <select id="key-tier">
+          <option value="free">무료</option>
+          <option value="paid">유료</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>API 키</span>
+        <input id="key-value" type="password" placeholder="API 키" autocomplete="new-password" spellcheck="false">
+      </label>
+      <p class="form-error" id="key-error" role="alert" hidden></p>
+      <button class="primary-button" id="key-save" type="submit">저장</button>
+    </form>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

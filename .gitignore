@@ -6,6 +6,10 @@ dist/
 wheels/
 *.egg-info
 
+# Wails 프런트엔드 정적 자산 (go:embed 대상)
+!frontend/dist/
+!frontend/dist/**
+
 # 가상환경
 .venv
 

@@ -1,0 +1,387 @@
+// Package app exposes the methods the Wails frontend calls.
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+
+	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/store"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+// Runner owns transcription work. Phase 1 ships a stub; phase 2 replaces it.
+type Runner interface {
+	Start(ctx context.Context)
+	Add(paths []string, mode string) error
+	Cancel(id string) error
+	Retry(id string) error
+	SendToBatch(id string) error
+}
+
+// Item is the frontend-facing history item.
+type Item = store.Item
+
+// KeyView is a key as shown in settings. It never contains the full API key.
+type KeyView struct {
+	ID           string `json:"ID"`
+	Label        string `json:"Label"`
+	Tier         string `json:"Tier"`
+	Masked       string `json:"Masked"`
+	LimitMinutes int    `json:"LimitMinutes"`
+	Source       string `json:"Source"`
+}
+
+// App is the object bound to the frontend.
+type App struct {
+	cfg    *config.Config
+	store  *store.Store
+	runner Runner
+
+	ctx atomicContext
+
+	mu sync.Mutex // serializes config reads and writes
+
+	// ValidateKey is an optional, non-billing check run before saving a key.
+	// Phase 2 sets this to a models.get call; it is nil in phase 1.
+	ValidateKey func(ctx context.Context, key string) error
+}
+
+// New wires the app. The store's change callback emits "items:changed".
+func New(cfg *config.Config, st *store.Store, runner Runner) *App {
+	a := &App{cfg: cfg, store: st, runner: runner}
+	if st != nil {
+		st.SetOnChange(a.emitItemsChanged)
+	}
+	return a
+}
+
+// Startup is called by Wails once the window exists.
+func (a *App) Startup(ctx context.Context) {
+	a.ctx.set(ctx)
+	if a.store != nil {
+		a.store.SetOnChange(a.emitItemsChanged)
+	}
+	wailsruntime.OnFileDrop(ctx, func(_ int, _ int, paths []string) {
+		if len(paths) > 0 {
+			_ = a.AddPaths(paths)
+		}
+	})
+	if a.runner != nil {
+		a.runner.Start(ctx)
+	}
+}
+
+// Shutdown is called by Wails when the window closes.
+func (a *App) Shutdown(context.Context) {}
+
+func (a *App) context() context.Context {
+	return a.ctx.get()
+}
+
+type atomicContext struct {
+	mu  sync.RWMutex
+	ctx context.Context
+}
+
+func (c *atomicContext) set(ctx context.Context) {
+	c.mu.Lock()
+	c.ctx = ctx
+	c.mu.Unlock()
+}
+
+func (c *atomicContext) get() context.Context {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ctx
+}
+
+func (a *App) emitItemsChanged() {
+	ctx := a.context()
+	if ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(ctx, "items:changed")
+}
+
+// ListItems returns the history, newest first, filtered by query.
+func (a *App) ListItems(query string) []Item {
+	if a.store == nil {
+		return []Item{}
+	}
+	return a.store.List(query)
+}
+
+// AddPaths hands dropped or picked paths to the runner using the saved mode.
+func (a *App) AddPaths(paths []string) error {
+	if a.runner == nil {
+		return errors.New("전사 엔진이 준비되지 않았습니다")
+	}
+	cleaned := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			cleaned = append(cleaned, path)
+		}
+	}
+	if len(cleaned) == 0 {
+		return errors.New("추가할 파일이나 폴더가 없습니다")
+	}
+	return a.runner.Add(cleaned, a.GetMode())
+}
+
+// PickFiles opens the OS file picker and adds the selection.
+func (a *App) PickFiles() error {
+	ctx := a.context()
+	if ctx == nil {
+		return errors.New("앱이 아직 준비되지 않았습니다")
+	}
+	paths, err := wailsruntime.OpenMultipleFilesDialog(ctx, wailsruntime.OpenDialogOptions{
+		Title: "음성 파일 선택",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "오디오 파일", Pattern: "*.m4a;*.mp4;*.mp3;*.wav"},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return a.AddPaths(paths)
+}
+
+// Cancel stops an in-flight item.
+func (a *App) Cancel(id string) error {
+	if a.runner == nil {
+		return errors.New("전사 엔진이 준비되지 않았습니다")
+	}
+	return a.runner.Cancel(id)
+}
+
+// Retry reruns a failed item.
+func (a *App) Retry(id string) error {
+	if a.runner == nil {
+		return errors.New("전사 엔진이 준비되지 않았습니다")
+	}
+	return a.runner.Retry(id)
+}
+
+// SendToBatch moves the remaining free-tier work to a paid Batch job.
+func (a *App) SendToBatch(id string) error {
+	if a.runner == nil {
+		return errors.New("전사 엔진이 준비되지 않았습니다")
+	}
+	return a.runner.SendToBatch(id)
+}
+
+// Remove drops an item from the history only; source and output stay on disk.
+func (a *App) Remove(id string) error {
+	if a.store == nil {
+		return store.ErrNotFound
+	}
+	return a.store.Remove(id)
+}
+
+// OpenOutput opens the finished .md with the OS default application.
+func (a *App) OpenOutput(id string) error {
+	path, err := a.readyOutput(id)
+	if err != nil {
+		return err
+	}
+	if err := openPath(path); err != nil {
+		return fmt.Errorf("결과 파일을 열지 못했습니다: %w", err)
+	}
+	return nil
+}
+
+// RevealOutput shows the finished .md in Finder or Explorer.
+func (a *App) RevealOutput(id string) error {
+	path, err := a.readyOutput(id)
+	if err != nil {
+		return err
+	}
+	if err := revealPath(path); err != nil {
+		return fmt.Errorf("폴더에서 보여 주지 못했습니다: %w", err)
+	}
+	return nil
+}
+
+// CopyOutput puts the whole .md on the clipboard.
+func (a *App) CopyOutput(id string) error {
+	path, err := a.readyOutput(id)
+	if err != nil {
+		return err
+	}
+	ctx := a.context()
+	if ctx == nil {
+		return errors.New("앱이 아직 준비되지 않았습니다")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return errors.New("결과 파일을 읽지 못했습니다")
+	}
+	if err := wailsruntime.ClipboardSetText(ctx, string(data)); err != nil {
+		return fmt.Errorf("클립보드에 복사하지 못했습니다: %w", err)
+	}
+	return nil
+}
+
+func (a *App) readyOutput(id string) (string, error) {
+	if a.store == nil {
+		return "", store.ErrNotFound
+	}
+	item, ok := a.store.Get(id)
+	if !ok {
+		return "", store.ErrNotFound
+	}
+	if item.Output == "" {
+		return "", errors.New("결과 파일이 없습니다")
+	}
+	if info, err := os.Stat(item.Output); err != nil || info.IsDir() {
+		return "", errors.New("결과 파일을 찾을 수 없습니다")
+	}
+	return item.Output, nil
+}
+
+// GetMode returns "free" or "batch".
+func (a *App) GetMode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return "free"
+	}
+	return a.cfg.Mode()
+}
+
+// SetMode stores the processing mode for the next drop.
+func (a *App) SetMode(mode string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return errors.New("설정을 불러오지 못했습니다")
+	}
+	if mode != "free" && mode != "batch" {
+		return errors.New("처리 방식은 무료 또는 유료 Batch 중 하나여야 합니다")
+	}
+	return a.cfg.SetMode(mode)
+}
+
+// Keys returns saved keys plus the read-only environment key.
+func (a *App) Keys() []KeyView {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	views := []KeyView{}
+	if a.cfg == nil {
+		return views
+	}
+	for _, key := range a.cfg.AllKeys() {
+		source := "config"
+		if key.ID == "env" && config.EnvKey() != nil {
+			source = "env"
+		}
+		views = append(views, KeyView{
+			ID:           key.ID,
+			Label:        key.Label,
+			Tier:         key.Tier,
+			Masked:       maskKey(key.APIKey),
+			LimitMinutes: key.LimitMinutes,
+			Source:       source,
+		})
+	}
+	return views
+}
+
+// AddKey validates and saves a key. Phase 1 only checks shape unless
+// ValidateKey is set.
+func (a *App) AddKey(label, tier, key string) error {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier != "free" && tier != "paid" {
+		return errors.New("등급은 무료 또는 유료 중 하나여야 합니다")
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("API 키를 입력해 주세요")
+	}
+	if a.cfg == nil {
+		return errors.New("설정을 불러오지 못했습니다")
+	}
+
+	if a.ValidateKey != nil {
+		ctx := a.context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := a.ValidateKey(ctx, key); err != nil {
+			return fmt.Errorf("키를 확인하지 못했습니다: %w", err)
+		}
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, err := a.cfg.AddKey(label, tier, key); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteKey removes a saved key. The environment key cannot be deleted here.
+func (a *App) DeleteKey(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("키를 찾을 수 없습니다")
+	}
+	if id == "env" && config.EnvKey() != nil {
+		return errors.New("환경변수 키는 삭제할 수 없습니다")
+	}
+	if a.cfg == nil {
+		return errors.New("설정을 불러오지 못했습니다")
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	deleted, err := a.cfg.DeleteKey(id)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return errors.New("키를 찾을 수 없습니다")
+	}
+	return nil
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "••••"
+	}
+	return "••••" + key[len(key)-4:]
+}
+
+func openPath(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Run()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Run()
+	default:
+		return exec.Command("xdg-open", path).Run()
+	}
+}
+
+func revealPath(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", "-R", path).Run()
+	case "windows":
+		return exec.Command("explorer", "/select,"+path).Run()
+	default:
+		return exec.Command("xdg-open", filepath.Dir(path)).Run()
+	}
+}
