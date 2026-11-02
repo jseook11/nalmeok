@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // ---- fixtures ---------------------------------------------------------------
@@ -137,9 +139,9 @@ func TestScanErrors(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{"empty", nil, "오디오 파일이 없어요"},
-		{"only pdf and text", []string{"a.pdf", "note.txt"}, "오디오 파일이 없어요"},
-		{"eleven", []string{"1.mp3", "2.mp3", "3.mp3", "4.mp3", "5.mp3", "6.mp3", "7.mp3", "8.mp3", "9.mp3", "10.mp3", "11.mp3"}, "11개, 최대 10개"},
+		{"empty", nil, i18n.T("media.noAudio")},
+		{"only pdf and text", []string{"a.pdf", "note.txt"}, i18n.T("media.noAudio")},
+		{"eleven", []string{"1.mp3", "2.mp3", "3.mp3", "4.mp3", "5.mp3", "6.mp3", "7.mp3", "8.mp3", "9.mp3", "10.mp3", "11.mp3"}, i18n.T("media.tooMany", "count", 11, "max", 10)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -241,7 +243,7 @@ func TestNonAACMP4(t *testing.T) {
 	if !errors.Is(err, ErrNotAAC) {
 		t.Fatalf("err = %v, want ErrNotAAC", err)
 	}
-	if !strings.Contains(err.Error(), "AAC 오디오가 아닌 MP4는 지원하지 않아요") {
+	if !strings.Contains(err.Error(), i18n.T("media.mp4NotAAC")) {
 		t.Errorf("message = %q", err)
 	}
 }

@@ -46,7 +46,7 @@ func TestTFillsPlaceholders(t *testing.T) {
 
 func TestErrorAndWrap(t *testing.T) {
 	sentinel := Error("error.noKey")
-	if sentinel.Error() != "키가 없어요" {
+	if sentinel.Error() != "키 없음" {
 		t.Fatalf("Error() = %q", sentinel.Error())
 	}
 	if !IsText(sentinel) {
@@ -54,7 +54,7 @@ func TestErrorAndWrap(t *testing.T) {
 	}
 	cause := errors.New("disk full")
 	wrapped := Wrap("error.copyFailed", cause)
-	if wrapped.Error() != "복사하지 못했어요: disk full" {
+	if wrapped.Error() != "복사 실패: disk full" {
 		t.Fatalf("Wrap.Error() = %q", wrapped.Error())
 	}
 	if !errors.Is(wrapped, cause) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -270,7 +271,7 @@ func TestValidateKeyHookBlocksSave(t *testing.T) {
 	if err == nil {
 		t.Fatal("AddKey succeeded despite a rejected key")
 	}
-	if !strings.Contains(err.Error(), "키가 올바르지 않아요") {
+	if !strings.Contains(err.Error(), i18n.T("error.badKey")) {
 		t.Fatalf("error = %q", err)
 	}
 	if !called {

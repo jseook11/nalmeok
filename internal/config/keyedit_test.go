@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 const editFixture = `{
@@ -77,7 +79,7 @@ func TestRenameKey(t *testing.T) {
 		{name: "trimmed", id: "a", label: "  집 키  ", want: "집 키"},
 		{name: "same label keeps it", id: "a", label: "무료 1", want: "무료 1"},
 		{name: "taken label is numbered", id: "a", label: "무료 2", want: "무료 22"},
-		{name: "empty", id: "a", label: "   ", wantErr: errors.New("이름을 입력하세요")},
+		{name: "empty", id: "a", label: "   ", wantErr: errors.New(i18n.T("error.nameRequired"))},
 		{name: "unknown id", id: "zz", label: "x", wantErr: ErrKeyNotFound},
 	}
 	for _, tt := range tests {

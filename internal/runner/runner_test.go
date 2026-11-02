@@ -13,6 +13,7 @@ import (
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 	"google.golang.org/genai"
 )
@@ -662,7 +663,7 @@ func TestMaxTokensFailsUnit(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if !strings.Contains(failed.Detail, "잘렸어요") {
+	if !strings.Contains(failed.Detail, i18n.T("error.truncated")) {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	if _, err := os.Stat(filepath.Join(h.dir, "src", "lec.md")); !errors.Is(err, os.ErrNotExist) {
@@ -678,7 +679,7 @@ func TestEmptyTextFailsUnit(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if !strings.Contains(failed.Detail, "비어 있어요") {
+	if !strings.Contains(failed.Detail, i18n.T("error.emptyResult")) {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	// An empty answer with no reason is retried like a 503 before failing.
@@ -787,7 +788,7 @@ func TestTransientRetriesGiveUpAfterFive(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if failed.Detail != "네트워크 오류" {
+	if failed.Detail != i18n.T("error.network") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	if got := h.world.client("AIza-f1").generatesNow(); got != 6 {

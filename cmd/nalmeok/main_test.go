@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
 )
@@ -46,13 +47,13 @@ func TestStatusLine(t *testing.T) {
 	}{
 		{
 			name: "running percent",
-			item: store.Item{Name: "강의09", State: runner.StateRunning, Progress: 0.4, Detail: "전사 중"},
-			want: "강의09: 전사 중 40%",
+			item: store.Item{Name: "강의09", State: runner.StateRunning, Progress: 0.4, Detail: i18n.T("status.transcribing")},
+			want: i18n.T("cli.transcribing", "name", "강의09", "percent", 40),
 		},
 		{
 			name: "running preparation",
-			item: store.Item{Name: "강의09", State: runner.StateRunning, Detail: "오디오 준비 중"},
-			want: "강의09: 오디오 준비 중",
+			item: store.Item{Name: "강의09", State: runner.StateRunning, Detail: i18n.T("status.preparingAudio")},
+			want: "강의09: " + i18n.T("status.preparingAudio"),
 		},
 		{
 			name: "batch waiting",
@@ -60,27 +61,27 @@ func TestStatusLine(t *testing.T) {
 				Name: "강의09", State: runner.StateBatchWaiting,
 				Batch: &store.BatchRef{SubmittedAt: time.Now().Add(-12 * time.Minute)},
 			},
-			want: "강의09: 기다리는 중 · 12분",
+			want: i18n.T("cli.waiting", "name", "강의09", "minutes", 12),
 		},
 		{
 			name: "done",
 			item: store.Item{Name: "강의09", State: runner.StateDone, Output: "/tmp/강의09.md"},
-			want: "강의09: 완료 → /tmp/강의09.md",
+			want: i18n.T("cli.done", "name", "강의09", "output", "/tmp/강의09.md"),
 		},
 		{
 			name: "failed",
-			item: store.Item{Name: "강의09", State: runner.StateFailed, Detail: "API 키가 올바르지 않아요"},
-			want: "강의09: 실패 · API 키가 올바르지 않아요",
+			item: store.Item{Name: "강의09", State: runner.StateFailed, Detail: i18n.T("error.apiKeyInvalid")},
+			want: i18n.T("cli.failedReason", "name", "강의09", "reason", i18n.T("error.apiKeyInvalid")),
 		},
 		{
 			name: "free exhausted",
 			item: store.Item{Name: "강의09", State: runner.StateFreeExhausted},
-			want: "강의09: 오늘 무료 사용량을 다 썼어요",
+			want: i18n.T("cli.freeExhausted", "name", "강의09"),
 		},
 		{
 			name: "canceled",
 			item: store.Item{Name: "강의09", State: runner.StateCanceled},
-			want: "강의09: 취소됨",
+			want: i18n.T("cli.canceled", "name", "강의09"),
 		},
 	}
 	for _, tc := range cases {

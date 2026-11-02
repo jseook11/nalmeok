@@ -7,6 +7,7 @@ import (
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -157,7 +158,7 @@ func TestBatchUsesHighestPriorityPaidKey(t *testing.T) {
 
 func TestPinnedKeyMissing(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
-	if err := h.r.Add([]string{h.source("a.m4a")}, "free", "gone"); err == nil || err.Error() != "선택한 키가 없어요" {
+	if err := h.r.Add([]string{h.source("a.m4a")}, "free", "gone"); err == nil || err.Error() != i18n.T("error.pinnedKeyMissing") {
 		t.Fatalf("Add with unknown key = %v", err)
 	}
 
@@ -170,7 +171,7 @@ func TestPinnedKeyMissing(t *testing.T) {
 	}
 	h.r.Start(h.ctx)
 	failed := h.wait("run", StateFailed)
-	if failed.Detail != "선택한 키가 없어요" {
+	if failed.Detail != i18n.T("error.pinnedKeyMissing") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	if h.world.client("AIza-f1").generatesNow() != 0 {
@@ -191,7 +192,7 @@ func TestPinnedKeyTierMismatchFails(t *testing.T) {
 	}
 	h.r.Start(h.ctx)
 	failed := h.wait("run", StateFailed)
-	if failed.Detail != "선택한 키는 무료 키가 아니에요" {
+	if failed.Detail != i18n.T("error.notFreeKey") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	// Retry follows the key's current tier.
