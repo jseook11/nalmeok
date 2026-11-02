@@ -45,6 +45,9 @@ func main() {
 		runGUI()
 		return
 	}
+	// Windows: the exe is a GUI program, so its output goes nowhere unless
+	// it joins the console it was started from. No-op elsewhere.
+	attachParentConsole()
 
 	switch args[0] {
 	case "--version", "-version":
