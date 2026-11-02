@@ -82,6 +82,10 @@ type App struct {
 	// automatic. Guarded by mu.
 	newItemKey string
 
+	// listWidth is the window width before the transcript pane widened it,
+	// restored when the pane closes. Guarded by mu.
+	listWidth int
+
 	// ValidateKey is an optional, non-billing check run before saving a key.
 	// Phase 2 sets this to a models.get call; it is nil in phase 1.
 	ValidateKey func(ctx context.Context, key string) error
@@ -103,8 +107,12 @@ func (a *App) Startup(ctx context.Context) {
 		a.store.SetOnChange(a.emitItemsChanged)
 	}
 	wailsruntime.OnFileDrop(ctx, func(_ int, _ int, paths []string) {
-		if len(paths) > 0 {
-			_ = a.AddPaths(paths)
+		if len(paths) == 0 {
+			return
+		}
+		if err := a.AddPaths(paths); err != nil {
+			// A drop has no caller to return to; the window says why.
+			wailsruntime.EventsEmit(ctx, "items:addFailed", err.Error(), !a.hasKeys())
 		}
 	})
 	if a.runner != nil {
@@ -486,6 +494,12 @@ func (a *App) ModeState() ModeState {
 	}
 	free, paid := a.cfg.Tiers()
 	return ModeState{Mode: a.cfg.EffectiveMode(), Free: free, Paid: paid}
+}
+
+// hasKeys reports whether any tier has a key.
+func (a *App) hasKeys() bool {
+	state := a.ModeState()
+	return state.Free || state.Paid
 }
 
 // SetMode stores the processing mode for the next drop.

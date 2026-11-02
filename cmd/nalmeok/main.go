@@ -179,12 +179,17 @@ func runGUI() {
 		instanceID = "nalmeok-" + hex.EncodeToString(sum[:6])
 	}
 
+	// The window opens as it was left: list only, or list and transcript.
+	width, minWidth := app.ListWidth, app.ListMinWidth
+	if cfg.Pane() {
+		width, minWidth = app.PaneWidth, app.PaneMinWidth
+	}
 	err = wails.Run(&options.App{
 		Title:     "Nalmeok",
-		Width:     480,
+		Width:     width,
 		Height:    680,
-		MinWidth:  420,
-		MinHeight: 560,
+		MinWidth:  minWidth,
+		MinHeight: app.WindowMinTall,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

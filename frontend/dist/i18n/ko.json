@@ -87,6 +87,7 @@
   "error.notPaidKey": "선택한 키는 유료 키가 아니에요",
   "error.notReady": "아직 준비 중이에요",
   "error.openFailed": "결과 파일을 열지 못했어요: {error}",
+  "error.outputMoved": "결과 파일을 찾지 못했어요. 옮겼거나 지웠을 수 있어요",
   "error.paidKeyInvalid": "유료 키가 올바르지 않아요",
   "error.paidKeyRequired": "유료 키가 필요해요",
   "error.pasteKey": "API 키를 붙여넣으세요",

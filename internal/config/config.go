@@ -308,6 +308,50 @@ func (c *Config) SetMode(mode string) error {
 	return nil
 }
 
+// Pane reports whether the transcript pane is shown (gui.pane).
+func (c *Config) Pane() bool {
+	var gui map[string]json.RawMessage
+	if err := json.Unmarshal(c.raw["gui"], &gui); err != nil {
+		return false
+	}
+	var open bool
+	if err := json.Unmarshal(gui["pane"], &open); err != nil {
+		return false
+	}
+	return open
+}
+
+// SetPane stores whether the transcript pane is shown. Other gui fields are
+// kept as they are.
+func (c *Config) SetPane(open bool) error {
+	c.reload()
+	var gui map[string]json.RawMessage
+	_ = json.Unmarshal(c.raw["gui"], &gui)
+	if gui == nil {
+		gui = make(map[string]json.RawMessage)
+	}
+	value, err := json.Marshal(open)
+	if err != nil {
+		return err
+	}
+	previous, had := c.raw["gui"]
+	gui["pane"] = value
+	data, err := json.Marshal(gui)
+	if err != nil {
+		return err
+	}
+	c.raw["gui"] = data
+	if err := c.Save(); err != nil {
+		if had {
+			c.raw["gui"] = previous
+		} else {
+			delete(c.raw, "gui")
+		}
+		return err
+	}
+	return nil
+}
+
 // Tiers reports which processing tiers have at least one key.
 func (c *Config) Tiers() (free, paid bool) {
 	for _, key := range c.AllKeys() {
