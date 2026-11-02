@@ -46,7 +46,7 @@ func TestStatusLine(t *testing.T) {
 	}{
 		{
 			name: "running percent",
-			item: store.Item{Name: "강의09", State: runner.StateRunning, Progress: 0.4, Detail: "전사 중 (1/2)"},
+			item: store.Item{Name: "강의09", State: runner.StateRunning, Progress: 0.4, Detail: "전사 중"},
 			want: "강의09: 전사 중 40%",
 		},
 		{
@@ -60,7 +60,7 @@ func TestStatusLine(t *testing.T) {
 				Name: "강의09", State: runner.StateBatchWaiting,
 				Batch: &store.BatchRef{SubmittedAt: time.Now().Add(-12 * time.Minute)},
 			},
-			want: "강의09: Batch 대기 (12분)",
+			want: "강의09: 기다리는 중 · 12분",
 		},
 		{
 			name: "done",
@@ -69,13 +69,13 @@ func TestStatusLine(t *testing.T) {
 		},
 		{
 			name: "failed",
-			item: store.Item{Name: "강의09", State: runner.StateFailed, Detail: "API 키가 올바르지 않습니다"},
-			want: "강의09: 실패 · API 키가 올바르지 않습니다",
+			item: store.Item{Name: "강의09", State: runner.StateFailed, Detail: "API 키가 올바르지 않아요"},
+			want: "강의09: 실패 · API 키가 올바르지 않아요",
 		},
 		{
 			name: "free exhausted",
 			item: store.Item{Name: "강의09", State: runner.StateFreeExhausted},
-			want: "강의09: 무료 한도 소진",
+			want: "강의09: 오늘 무료 사용량을 다 썼어요",
 		},
 		{
 			name: "canceled",

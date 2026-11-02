@@ -17,7 +17,7 @@ import (
 )
 
 // ErrNotFound is returned when an item ID does not exist.
-var ErrNotFound = errors.New("항목을 찾을 수 없습니다")
+var ErrNotFound = errors.New("항목이 없어요")
 
 // Item is one dropped file or folder. The JSON field names are the contract
 // shared with the frontend and the future runner.

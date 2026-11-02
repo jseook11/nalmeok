@@ -4,117 +4,117 @@
   const $ = (id) => document.getElementById(id);
 
   const appEl = $("app");
-  const dropZone = $("drop-zone");
   const modeToggle = $("mode-toggle");
-  const freeSegment = $("mode-free");
-  const batchSegment = $("mode-batch");
-  const emptyHint = $("empty-hint");
+  const addButton = $("add");
   const search = $("search");
-  const itemList = $("item-list");
+  const list = $("list");
+  const empty = $("empty");
+  const helpButton = $("help");
   const gear = $("gear");
 
-  const sheet = $("sheet");
-  const sheetClose = $("sheet-close");
-  const sheetIntro = $("sheet-intro");
+  const keysSheet = $("keys-sheet");
+  const keysIntro = $("keys-intro");
+  const keySource = $("key-source");
   const keyList = $("key-list");
   const keyForm = $("key-form");
-  const keyLabel = $("key-label");
   const keyTier = $("key-tier");
   const keyValue = $("key-value");
   const keyError = $("key-error");
   const keySave = $("key-save");
+  const helpSheet = $("help-sheet");
 
+  const menu = $("menu");
   const toast = $("toast");
+  const toastText = $("toast-text");
+  const toastAction = $("toast-action");
+
+  const KEY_SOURCE_URL = "https://aistudio.google.com/apikey";
+  const IS_WINDOWS = /Windows/i.test(navigator.userAgent);
+  const REVEAL_LABEL = IS_WINDOWS ? "탐색기에서 보기" : "Finder에서 보기";
+  const ACTION_WIDTH = 78; // px per swipe action button
+  const UNDO_MS = 4000;
 
   const state = {
     items: [],
     keys: [],
     mode: "free",
     query: "",
+    keyTier: "free",
   };
 
-  const ICONS = {
-    music: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M9 18V5l10-2v13"/>
-      <circle cx="6.5" cy="18" r="2.5"/>
-      <circle cx="16.5" cy="16" r="2.5"/>
-    </svg>`,
-    folder: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h7A1.5 1.5 0 0 1 19 9v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17V6.5Z"/>
-    </svg>`,
-    clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9"/>
-      <path d="M12 7v5l3 2"/>
-    </svg>`,
-    check: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="m5 12 5 5L20 7"/>
-    </svg>`,
+  const GLYPHS = {
+    file: `<svg class="glyph" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.2"
+      stroke-linejoin="round" aria-hidden="true">
+      <path d="M5.5 2.5h7l4 4v13h-11z"/><path d="M12.5 2.5v4h4"/></svg>`,
+    folder: `<svg class="glyph" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.2"
+      stroke-linejoin="round" aria-hidden="true">
+      <path d="M2.5 5.5h6l2 2h9v10h-17z"/></svg>`,
+    check: `<svg class="check" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+      stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m2.5 6.3 2.3 2.3 4.7-5"/></svg>`,
+    close: `<svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+      stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="m2 2 6 6M8 2 2 8"/></svg>`,
   };
 
-  function backend() {
-    return (window.go && window.go.app && window.go.app.App) || null;
-  }
+  // ── Backend ───────────────────────────────────────────────
 
   function call(method, ...args) {
-    const api = backend();
+    const api = window.go && window.go.app && window.go.app.App;
     if (!api || typeof api[method] !== "function") {
-      return Promise.reject(new Error("앱이 아직 준비되지 않았습니다."));
+      return Promise.reject(new Error("아직 준비 중이에요"));
     }
     return api[method](...args);
   }
 
   function errorText(error) {
     let text = "";
-    if (typeof error === "string") {
-      text = error;
-    } else if (error && typeof error.message === "string") {
-      text = error.message;
-    } else if (error != null) {
-      text = String(error);
-    }
-    text = text.replace(/^Error:\s*/, "").trim();
-    return text || "알 수 없는 오류가 발생했습니다.";
+    if (typeof error === "string") text = error;
+    else if (error && typeof error.message === "string") text = error.message;
+    else if (error != null) text = String(error);
+    return text.replace(/^Error:\s*/, "").trim() || "문제가 생겼어요";
   }
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     })[ch]);
   }
 
-  let toastTimer = null;
+  // ── Toast ─────────────────────────────────────────────────
 
-  function showToast(message) {
-    toast.textContent = message;
-    toast.classList.add("is-visible");
+  let toastTimer = null;
+  let toastOnAction = null;
+
+  function showToast(message, options = {}) {
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("is-visible"), 1900);
+    toastText.textContent = message;
+    toastOnAction = options.onAction || null;
+    toastAction.hidden = !toastOnAction;
+    if (toastOnAction) toastAction.textContent = options.action || "실행 취소";
+    toast.classList.add("is-visible");
+    toastTimer = setTimeout(hideToast, options.duration || 1800);
+  }
+
+  function hideToast() {
+    clearTimeout(toastTimer);
+    toast.classList.remove("is-visible");
+    toastOnAction = null;
   }
 
   // ── Mode ──────────────────────────────────────────────────
 
+  function tiers() {
+    return {
+      free: state.keys.some((key) => key.Tier === "free"),
+      paid: state.keys.some((key) => key.Tier === "paid"),
+    };
+  }
+
   function renderMode() {
-    const tiers = { free: false, paid: false };
-    for (const key of state.keys) {
-      if (key.Tier === "free" || key.Tier === "paid") tiers[key.Tier] = true;
-    }
-    const hasKeys = state.keys.length > 0;
-
-    freeSegment.disabled = hasKeys && !tiers.free;
-    batchSegment.disabled = hasKeys && !tiers.paid;
-
-    for (const segment of [freeSegment, batchSegment]) {
-      const active = segment.dataset.mode === state.mode;
-      segment.classList.toggle("is-active", active);
-      segment.setAttribute("aria-selected", String(active));
+    const { free, paid } = tiers();
+    modeToggle.hidden = !(free && paid);
+    for (const button of modeToggle.querySelectorAll("button")) {
+      button.setAttribute("aria-selected", String(button.dataset.mode === state.mode));
     }
   }
 
@@ -132,136 +132,156 @@
     }
   }
 
-  async function syncModeAvailability() {
-    if (state.keys.length === 0) return;
-    const hasFree = state.keys.some((key) => key.Tier === "free");
-    const hasPaid = state.keys.some((key) => key.Tier === "paid");
-    if (!hasFree && hasPaid && state.mode !== "batch") {
-      await setMode("batch");
-    } else if (hasFree && !hasPaid && state.mode !== "free") {
-      await setMode("free");
-    }
+  async function syncMode() {
+    const { free, paid } = tiers();
+    if (!free && paid) await setMode("batch");
+    else if (free && !paid) await setMode("free");
   }
 
-  // ── Items ─────────────────────────────────────────────────
+  // ── Rows ──────────────────────────────────────────────────
 
-  function elapsedMinutes(item) {
-    const stamp = item.UpdatedAt || item.CreatedAt;
+  function minutesSince(stamp) {
     const then = Date.parse(stamp);
     if (!Number.isFinite(then)) return 0;
     return Math.max(0, Math.floor((Date.now() - then) / 60000));
   }
 
-  function statusHTML(item) {
-    const id = esc(item.ID);
+  function progressHTML(progress) {
+    if (progress > 0) {
+      const percent = Math.min(100, Math.round(progress * 100));
+      return `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+        aria-valuenow="${percent}"><span class="progress-fill" style="width:${percent}%"></span></div>`;
+    }
+    return `<div class="progress is-indeterminate" role="progressbar"><span class="progress-fill"></span></div>`;
+  }
 
+  // One state line (or a progress bar) under the name, and at most one
+  // visible action on the right.
+  function rowParts(item) {
+    const id = esc(item.ID);
     switch (item.State) {
       case "running": {
-        const percent = Math.max(0, Math.min(100, Math.round((Number(item.Progress) || 0) * 100)));
-        return `
-          <div class="status status-running">
-            <div class="status-line">
-              <span class="status-text">전사 중</span>
-              <span class="status-percent">${percent}%</span>
-            </div>
-            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-                 aria-valuenow="${percent}">
-              <span class="progress-fill" style="width:${percent}%"></span>
-            </div>
-          </div>`;
+        const progress = Number(item.Progress) || 0;
+        const detail = item.Detail || "";
+        if (progress <= 0 && detail && detail !== "전사 중") {
+          return { status: `<div class="status"><span>${esc(detail)}</span></div>` };
+        }
+        return { status: progressHTML(progress) };
       }
-
       case "batch_waiting": {
-        const minutes = elapsedMinutes(item);
-        return `
-          <div class="status status-batch">
-            <span class="status-line">
-              <span class="status-text">${ICONS.clock}Batch 대기 · ${minutes}분 경과</span>
-            </span>
-          </div>`;
+        const minutes = minutesSince(item.CreatedAt);
+        const text = minutes < 1 ? "기다리는 중" : `기다리는 중 · ${minutes}분`;
+        return { status: `<div class="status"><span>${text}</span></div>` };
       }
-
       case "free_exhausted":
-        return `
-          <div class="status status-exhausted">
-            <span class="status-text">무료 한도 소진</span>
-          </div>
-          <button class="batch-button" type="button" data-action="batch" data-id="${id}">
-            남은 분량 유료 Batch로
-          </button>`;
-
+        return {
+          status: `<div class="status"><span>오늘 무료 사용량을 다 썼어요</span></div>`,
+          aside: `<button class="pill-button" type="button" data-action="batch" data-id="${id}">유료로 이어서</button>`,
+        };
       case "done":
-        return `
-          <div class="status status-done">
-            <span class="status-text">${ICONS.check}완료</span>
-          </div>
-          <div class="status-actions">
-            <button class="link-button" type="button" data-action="open" data-id="${id}">열기</button>
-            <button class="link-button" type="button" data-action="copy" data-id="${id}">복사</button>
-            <button class="link-button" type="button" data-action="reveal" data-id="${id}">폴더</button>
-          </div>`;
-
+        return {
+          status: `<div class="status">${GLYPHS.check}<span>완료</span></div>`,
+          aside: `<button class="accent-button" type="button" data-action="reveal" data-id="${id}">${REVEAL_LABEL}</button>`,
+        };
       case "failed": {
-        const detail = item.Detail ? ` · ${esc(item.Detail)}` : "";
-        return `
-          <div class="status status-failed">
-            <span class="status-text">실패${detail}</span>
-          </div>
-          <div class="status-actions">
-            <button class="link-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>
-          </div>`;
+        const reason = item.Detail ? ` · ${esc(item.Detail)}` : "";
+        return {
+          status: `<div class="status"><span title="${esc(item.Detail)}">실패${reason}</span></div>`,
+          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>`,
+        };
       }
-
       case "canceled":
-        return `
-          <div class="status status-canceled">
-            <span class="status-text">취소됨</span>
-          </div>`;
-
+        return { status: `<div class="status"><span>취소됨</span></div>` };
       default:
-        return `
-          <div class="status status-canceled">
-            <span class="status-text">${esc(item.Detail || item.State || "대기 중")}</span>
-          </div>`;
+        return { status: `<div class="status"><span>${esc(item.Detail || "대기 중")}</span></div>` };
     }
   }
 
-  function sideHTML(item) {
+  function isActive(item) {
+    return item.State === "running" || item.State === "batch_waiting";
+  }
+
+  function rowHTML(item) {
     const id = esc(item.ID);
-    if (item.State === "running" || item.State === "batch_waiting") {
-      return `<button class="cancel-button" type="button" data-action="cancel" data-id="${id}">취소</button>`;
-    }
-    return `<button class="icon-button" type="button" data-action="remove" data-id="${id}"
-      aria-label="목록에서 지우기" title="목록에서 지우기">✕</button>`;
+    const parts = rowParts(item);
+    const first = isActive(item)
+      ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">취소</button>`
+      : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">이름 변경</button>`;
+    return `
+      <div class="row-actions">
+        ${first}
+        <button class="act-delete" type="button" data-action="delete" data-id="${id}">삭제</button>
+      </div>
+      <div class="row-main">
+        ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
+        <div class="row-body">
+          <div class="name" title="${esc(item.Source || item.Name)}">${esc(item.Name)}</div>
+          ${parts.status}
+        </div>
+        ${parts.aside ? `<div class="row-aside">${parts.aside}</div>` : ""}
+      </div>`;
   }
 
-  function cardHTML(item) {
-    const icon = item.Kind === "folder" ? ICONS.folder : ICONS.music;
-    return `
-      <article class="item-card" data-id="${esc(item.ID)}">
-        <div class="item-icon" aria-hidden="true">${icon}</div>
-        <div class="item-body">
-          <div class="item-name" title="${esc(item.Source || item.Name)}">${esc(item.Name)}</div>
-          ${statusHTML(item)}
-        </div>
-        <div class="item-side">${sideHTML(item)}</div>
-      </article>`;
+  // Rows are kept and patched in place so an open swipe, a rename field or a
+  // running animation survives the frequent "items:changed" refreshes.
+  const rowCache = new Map(); // id -> { el, html }
+  const hidden = new Set(); // ids removed from view while undo is possible
+  let renaming = null; // { id, input }
+
+  function visibleItems() {
+    return state.items.filter((item) => !hidden.has(item.ID));
   }
 
   function renderItems() {
-    if (state.items.length === 0) {
-      itemList.innerHTML = state.query ? `<p class="list-empty">검색 결과가 없습니다</p>` : "";
+    const items = visibleItems();
+    const isEmpty = items.length === 0 && !state.query;
+    appEl.classList.toggle("is-empty", isEmpty);
+
+    if (items.length === 0) {
+      rowCache.clear();
+      list.innerHTML = state.query ? `<p class="list-note">결과 없음</p>` : "";
       return;
     }
-    const scrollTop = itemList.scrollTop;
-    itemList.innerHTML = state.items.map(cardHTML).join("");
-    itemList.scrollTop = scrollTop;
+    const note = list.querySelector(".list-note");
+    if (note) note.remove();
+
+    const keep = new Set();
+    let previous = null;
+    for (const item of items) {
+      keep.add(item.ID);
+      const html = rowHTML(item);
+      let entry = rowCache.get(item.ID);
+      if (!entry) {
+        const el = document.createElement("div");
+        el.className = "row";
+        el.dataset.id = item.ID;
+        entry = { el, html: "" };
+        rowCache.set(item.ID, entry);
+      }
+      const el = entry.el;
+      const isRenaming = renaming && renaming.id === item.ID;
+      if (entry.html !== html && !isRenaming) {
+        entry.html = html;
+        el.innerHTML = html;
+        el.classList.toggle("is-done", item.State === "done");
+        const offset = swipe.offsets.get(item.ID);
+        if (offset) setOffset(el, offset, false);
+      }
+      const next = previous ? previous.nextSibling : list.firstChild;
+      if (next !== el) list.insertBefore(el, next);
+      previous = el;
+    }
+    for (const [id, entry] of rowCache) {
+      if (!keep.has(id)) {
+        entry.el.remove();
+        rowCache.delete(id);
+        swipe.offsets.delete(id);
+      }
+    }
   }
 
-  function renderEmpty() {
-    const empty = state.items.length === 0 && !state.query;
-    appEl.classList.toggle("is-empty", empty);
-    emptyHint.hidden = !empty;
+  function itemByID(id) {
+    return state.items.find((item) => item.ID === id) || null;
   }
 
   let listRequest = 0;
@@ -272,7 +292,6 @@
     if (token !== listRequest) return; // a newer search won
     state.items = Array.isArray(items) ? items : [];
     renderItems();
-    renderEmpty();
   }
 
   async function refreshItems() {
@@ -283,37 +302,382 @@
     }
   }
 
+  // ── Swipe ─────────────────────────────────────────────────
+  //
+  // Trackpad: horizontal wheel events (WKWebView reports two-finger swipes as
+  // wheel deltaX). Mouse: pointer drag. Both uncover the actions on the right;
+  // swiping past most of the row deletes it.
+
+  const swipe = {
+    offsets: new Map(), // id -> current translateX (<= 0)
+    wheel: null, // { el, raw, timer }
+    drag: null, // { el, startX, startY, base, active }
+    suppressClick: false,
+    quietUntil: 0,
+  };
+
+  function actionsWidth(el) {
+    return el.querySelectorAll(".row-actions button").length * ACTION_WIDTH;
+  }
+
+  function displayed(el, raw) {
+    if (raw > 0) return Math.min(24, raw * 0.25); // rubber band to the right
+    const width = el.clientWidth;
+    if (-raw > width) return -width;
+    return raw;
+  }
+
+  function setOffset(el, x, animate) {
+    const main = el.querySelector(".row-main");
+    if (!main) return;
+    el.classList.toggle("is-snapping", Boolean(animate));
+    main.style.transform = x ? `translateX(${x}px)` : "";
+    el.classList.toggle("is-full", -x > el.clientWidth * 0.6);
+    const buttons = el.querySelector(".row-actions");
+    if (buttons) buttons.style.width = `${Math.max(actionsWidth(el), -x)}px`;
+    if (x) {
+      swipe.offsets.set(el.dataset.id, x);
+      el.classList.add("is-swiped");
+    } else {
+      swipe.offsets.delete(el.dataset.id);
+      // Keep the actions visible while the row slides shut.
+      const hide = () => {
+        if (!swipe.offsets.has(el.dataset.id)) el.classList.remove("is-swiped");
+      };
+      if (animate) setTimeout(hide, 160);
+      else hide();
+    }
+  }
+
+  function closeRow(el, animate = true) {
+    if (el && swipe.offsets.has(el.dataset.id)) setOffset(el, 0, animate);
+  }
+
+  function closeOtherRows(except) {
+    for (const id of [...swipe.offsets.keys()]) {
+      const entry = rowCache.get(id);
+      if (entry && entry.el !== except) closeRow(entry.el);
+    }
+  }
+
+  function settle(el, raw) {
+    const x = displayed(el, raw);
+    const open = actionsWidth(el);
+    if (-x > el.clientWidth * 0.6) {
+      setOffset(el, -el.clientWidth, true);
+      setTimeout(() => removeWithUndo(el.dataset.id), 150);
+    } else if (-x > open / 2) {
+      closeOtherRows(el);
+      setOffset(el, -open, true);
+    } else {
+      setOffset(el, 0, true);
+    }
+  }
+
+  function onWheel(event) {
+    const el = event.target.closest(".row");
+    const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+    const current = swipe.wheel;
+
+    if (!current && !horizontal) {
+      if (swipe.offsets.size && Math.abs(event.deltaY) > 2) closeOtherRows(null);
+      return;
+    }
+    if (!current && (!el || renaming || Date.now() < swipe.quietUntil)) {
+      if (horizontal) event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+
+    let gesture = current;
+    if (!gesture) {
+      gesture = { el, raw: swipe.offsets.get(el.dataset.id) || 0, timer: null };
+      swipe.wheel = gesture;
+      closeOtherRows(el);
+    }
+    gesture.raw -= event.deltaX;
+    gesture.raw = Math.min(gesture.raw, 120);
+    setOffset(gesture.el, displayed(gesture.el, gesture.raw), false);
+
+    clearTimeout(gesture.timer);
+    gesture.timer = setTimeout(() => {
+      swipe.wheel = null;
+      // Momentum events keep arriving after the fingers lift; ignore them.
+      swipe.quietUntil = Date.now() + 350;
+      settle(gesture.el, gesture.raw);
+    }, 120);
+  }
+
+  function onPointerDown(event) {
+    if (event.button !== 0 || event.pointerType === "touch") return;
+    if (event.target.closest("button, input")) return;
+    const main = event.target.closest(".row-main");
+    if (!main || renaming) return;
+    const el = main.parentElement;
+    swipe.drag = {
+      el,
+      startX: event.clientX,
+      startY: event.clientY,
+      base: swipe.offsets.get(el.dataset.id) || 0,
+      active: false,
+      pointer: event.pointerId,
+    };
+  }
+
+  function onPointerMove(event) {
+    const drag = swipe.drag;
+    if (!drag || event.pointerId !== drag.pointer) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.active) {
+      if (Math.abs(dx) < 6 || Math.abs(dx) < Math.abs(dy)) return;
+      drag.active = true;
+      closeOtherRows(drag.el);
+      try { drag.el.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    }
+    setOffset(drag.el, displayed(drag.el, drag.base + dx), false);
+  }
+
+  function onPointerUp(event) {
+    const drag = swipe.drag;
+    if (!drag || event.pointerId !== drag.pointer) return;
+    swipe.drag = null;
+    if (!drag.active) return;
+    swipe.suppressClick = true;
+    setTimeout(() => { swipe.suppressClick = false; }, 0);
+    settle(drag.el, drag.base + (event.clientX - drag.startX));
+  }
+
+  // ── Delete with undo ──────────────────────────────────────
+
+  let pendingDelete = null; // { id, timer }
+
+  function commitDelete() {
+    if (!pendingDelete) return;
+    const { id, timer } = pendingDelete;
+    clearTimeout(timer);
+    pendingDelete = null;
+    call("Remove", id)
+      .catch((error) => showToast(errorText(error)))
+      .finally(() => {
+        hidden.delete(id);
+        refreshItems();
+      });
+  }
+
+  function removeWithUndo(id) {
+    commitDelete();
+    hidden.add(id);
+    swipe.offsets.delete(id);
+    renderItems();
+    pendingDelete = { id, timer: setTimeout(commitDelete, UNDO_MS) };
+    showToast("목록에서 지웠어요", {
+      action: "실행 취소",
+      duration: UNDO_MS,
+      onAction: () => {
+        if (!pendingDelete || pendingDelete.id !== id) return;
+        clearTimeout(pendingDelete.timer);
+        pendingDelete = null;
+        hidden.delete(id);
+        renderItems();
+      },
+    });
+  }
+
+  // ── Rename ────────────────────────────────────────────────
+
+  function renameValue(item) {
+    if (item.State === "done" && item.Output) {
+      const base = item.Output.split(/[\\/]/).pop() || "";
+      return base.replace(/\.md$/i, "");
+    }
+    return item.Name || "";
+  }
+
+  function startRename(id) {
+    const item = itemByID(id);
+    const entry = rowCache.get(id);
+    if (!item || !entry) return;
+    finishRename(false);
+    closeRow(entry.el, false);
+
+    const nameEl = entry.el.querySelector(".name");
+    const input = document.createElement("input");
+    input.className = "name-input";
+    input.type = "text";
+    input.spellcheck = false;
+    input.value = renameValue(item);
+    input.setAttribute("aria-label", "이름");
+    nameEl.replaceWith(input);
+    renaming = { id, input, original: input.value };
+    input.focus();
+    input.select();
+
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finishRename(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        finishRename(false);
+      }
+    });
+    input.addEventListener("blur", () => finishRename(true));
+  }
+
+  async function finishRename(save) {
+    const current = renaming;
+    if (!current) return;
+    renaming = null;
+    const value = current.input.value.trim();
+    const entry = rowCache.get(current.id);
+    if (entry) entry.html = ""; // force a fresh row on the next render
+    if (save && value && value !== current.original) {
+      try {
+        await call("Rename", current.id, value);
+      } catch (error) {
+        showToast(errorText(error));
+      }
+    }
+    await refreshItems();
+  }
+
+  // ── Row actions ───────────────────────────────────────────
+
+  async function runAction(action, id) {
+    try {
+      switch (action) {
+        case "open":
+          await call("OpenOutput", id);
+          break;
+        case "copy":
+          await call("CopyOutput", id);
+          showToast("복사했어요");
+          break;
+        case "reveal":
+          await call("RevealOutput", id);
+          break;
+        case "retry":
+          await call("Retry", id);
+          break;
+        case "batch":
+          if (!tiers().paid) {
+            openKeys("paid");
+            return;
+          }
+          await call("SendToBatch", id);
+          break;
+        case "cancel":
+          await call("Cancel", id);
+          break;
+        case "rename":
+          startRename(id);
+          return;
+        case "delete":
+          removeWithUndo(id);
+          return;
+        default:
+          return;
+      }
+      await refreshItems();
+    } catch (error) {
+      showToast(errorText(error));
+    }
+  }
+
+  // ── Context menu ──────────────────────────────────────────
+
+  let menuRow = null;
+
+  function menuEntries(item) {
+    const entries = [];
+    switch (item.State) {
+      case "done":
+        entries.push(["open", "열기"], ["copy", "복사"], ["reveal", REVEAL_LABEL]);
+        break;
+      case "running":
+      case "batch_waiting":
+        entries.push(["cancel", "취소"]);
+        break;
+      case "free_exhausted":
+        entries.push(["batch", "유료로 이어서"], ["cancel", "취소"]);
+        break;
+      case "failed":
+      case "canceled":
+        entries.push(["retry", "다시 시도"]);
+        break;
+      default:
+        break;
+    }
+    if (entries.length) entries.push(null);
+    entries.push(["rename", "이름 변경"], ["delete", "삭제", true]);
+    return entries;
+  }
+
+  function openMenu(event, item, rowEl) {
+    closeMenu();
+    menu.innerHTML = menuEntries(item).map((entry) => {
+      if (!entry) return "<hr>";
+      const [action, label, danger] = entry;
+      return `<button type="button" role="menuitem" data-action="${action}"
+        ${danger ? 'class="is-danger"' : ""}>${label}</button>`;
+    }).join("");
+    menu.dataset.id = item.ID;
+    menu.hidden = false;
+    menuRow = rowEl;
+    rowEl.classList.add("is-menu");
+
+    const { innerWidth, innerHeight } = window;
+    const rect = menu.getBoundingClientRect();
+    const x = Math.min(event.clientX, innerWidth - rect.width - 6);
+    const y = event.clientY + rect.height > innerHeight - 6
+      ? Math.max(6, event.clientY - rect.height)
+      : event.clientY;
+    menu.style.left = `${Math.max(6, x)}px`;
+    menu.style.top = `${y}px`;
+  }
+
+  function closeMenu() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    if (menuRow) menuRow.classList.remove("is-menu");
+    menuRow = null;
+  }
+
   // ── Keys ──────────────────────────────────────────────────
 
   function keyHTML(key) {
-    const tierLabel = key.Tier === "free" ? "무료" : "유료";
+    const tier = key.Tier === "free" ? "무료" : "유료";
     const isEnv = key.Source === "env";
+    const showTier = !String(key.Label || "").includes(tier);
     return `
       <div class="key-row">
-        <div class="key-info">
-          <span class="key-label" title="${esc(key.Label)}">${esc(key.Label)}</span>
-          <span class="tier-badge" data-tier="${esc(key.Tier)}">${tierLabel}</span>
-          ${isEnv ? `<span class="env-badge">환경변수 · 읽기 전용</span>` : ""}
-        </div>
-        <span class="key-meta">${esc(key.Masked)}</span>
-        ${isEnv ? "" : `
-          <button class="icon-button" type="button" data-key-delete="${esc(key.ID)}"
-            aria-label="키 삭제" title="키 삭제">✕</button>`}
+        <span class="key-label" title="${esc(key.Label)}">${esc(key.Label)}</span>
+        ${showTier ? `<span class="key-meta">${tier}</span>` : ""}
+        ${isEnv && key.Label !== "환경변수" ? `<span class="key-meta">환경변수</span>` : ""}
+        <span class="key-mask">${esc(key.Masked)}</span>
+        ${isEnv
+          ? `<span class="key-delete-spacer"></span>`
+          : `<button class="key-delete" type="button" data-key-delete="${esc(key.ID)}"
+              aria-label="키 삭제" title="삭제">${GLYPHS.close}</button>`}
       </div>`;
   }
 
   function renderKeys() {
-    keyList.innerHTML = state.keys.length
-      ? state.keys.map(keyHTML).join("")
-      : `<p class="key-empty">등록된 키가 없습니다.</p>`;
-    sheetIntro.hidden = state.keys.length > 0;
+    keyList.innerHTML = state.keys.map(keyHTML).join("");
+    keysIntro.hidden = state.keys.length > 0;
+    for (const button of keyTier.querySelectorAll("button")) {
+      button.setAttribute("aria-selected", String(button.dataset.tier === state.keyTier));
+    }
   }
 
   async function loadKeys() {
     const keys = await call("Keys");
     state.keys = Array.isArray(keys) ? keys : [];
     renderKeys();
-    await syncModeAvailability();
+    await syncMode();
     renderMode();
   }
 
@@ -322,48 +686,70 @@
     keyError.hidden = false;
   }
 
-  // ── Sheet ─────────────────────────────────────────────────
+  // ── Sheets ────────────────────────────────────────────────
 
-  function openSheet() {
-    sheet.hidden = false;
-    sheet.setAttribute("aria-hidden", "false");
-    renderKeys();
+  function openKeys(tier) {
+    closeMenu();
+    if (tier) state.keyTier = tier;
     keyError.hidden = true;
-    keyLabel.focus();
+    renderKeys();
+    keysSheet.hidden = false;
+    keyValue.focus();
   }
 
-  function closeSheet() {
-    sheet.hidden = true;
-    sheet.setAttribute("aria-hidden", "true");
+  function openHelp() {
+    closeMenu();
+    helpSheet.hidden = false;
+  }
+
+  function closeSheets() {
+    keysSheet.hidden = true;
+    helpSheet.hidden = true;
+  }
+
+  function sheetOpen() {
+    return !keysSheet.hidden || !helpSheet.hidden;
   }
 
   // ── Events ────────────────────────────────────────────────
 
-  function bindEvents() {
-    dropZone.addEventListener("click", () => {
-      call("PickFiles").catch((error) => showToast(errorText(error)));
-    });
+  function pickFiles() {
+    call("PickFiles").catch((error) => showToast(errorText(error)));
+  }
 
-    for (const type of ["dragenter", "dragover"]) {
-      dropZone.addEventListener(type, (event) => {
-        event.preventDefault();
-        dropZone.classList.add("is-over");
-      });
-    }
-    for (const type of ["dragleave", "drop"]) {
-      dropZone.addEventListener(type, (event) => {
-        event.preventDefault();
-        if (type === "dragleave" && dropZone.contains(event.relatedTarget)) return;
-        dropZone.classList.remove("is-over");
-      });
-    }
-    window.addEventListener("dragover", (event) => event.preventDefault());
-    window.addEventListener("drop", (event) => event.preventDefault());
+  function bindDragHighlight() {
+    let depth = 0;
+    const isFiles = (event) => event.dataTransfer && Array.from(event.dataTransfer.types || []).includes("Files");
+    window.addEventListener("dragenter", (event) => {
+      if (!isFiles(event)) return;
+      depth += 1;
+      appEl.classList.add("is-dragover");
+    });
+    window.addEventListener("dragleave", (event) => {
+      if (!isFiles(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) appEl.classList.remove("is-dragover");
+    });
+    window.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (isFiles(event)) appEl.classList.add("is-dragover");
+    });
+    window.addEventListener("drop", (event) => {
+      event.preventDefault();
+      depth = 0;
+      appEl.classList.remove("is-dragover");
+    });
+  }
+
+  function bindEvents() {
+    bindDragHighlight();
+
+    addButton.addEventListener("click", pickFiles);
+    empty.addEventListener("click", pickFiles);
 
     modeToggle.addEventListener("click", (event) => {
-      const segment = event.target.closest(".segment");
-      if (!segment || segment.disabled) return;
-      setMode(segment.dataset.mode);
+      const button = event.target.closest("button[data-mode]");
+      if (button) setMode(button.dataset.mode);
     });
 
     let searchTimer = null;
@@ -372,58 +758,106 @@
       searchTimer = setTimeout(() => {
         state.query = search.value.trim();
         refreshItems();
-      }, 150);
+      }, 120);
     });
-
-    itemList.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-action]");
-      if (!button) return;
-      const id = button.dataset.id;
-      const action = button.dataset.action;
-
-      button.disabled = true;
-      try {
-        switch (action) {
-          case "open":
-            await call("OpenOutput", id);
-            break;
-          case "reveal":
-            await call("RevealOutput", id);
-            break;
-          case "copy":
-            await call("CopyOutput", id);
-            showToast("복사했습니다");
-            break;
-          case "retry":
-            await call("Retry", id);
-            await refreshItems();
-            break;
-          case "batch":
-            await call("SendToBatch", id);
-            await refreshItems();
-            break;
-          case "cancel":
-            await call("Cancel", id);
-            await refreshItems();
-            break;
-          case "remove":
-            await call("Remove", id);
-            await refreshItems();
-            break;
-          default:
-            break;
-        }
-      } catch (error) {
-        showToast(errorText(error));
-      } finally {
-        button.disabled = false;
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && search.value) {
+        event.stopPropagation();
+        search.value = "";
+        state.query = "";
+        refreshItems();
       }
     });
 
-    gear.addEventListener("click", openSheet);
-    sheetClose.addEventListener("click", closeSheet);
+    list.addEventListener("wheel", onWheel, { passive: false });
+    list.addEventListener("pointerdown", onPointerDown);
+    list.addEventListener("pointermove", onPointerMove);
+    list.addEventListener("pointerup", onPointerUp);
+    list.addEventListener("pointercancel", onPointerUp);
+
+    list.addEventListener("click", (event) => {
+      if (swipe.suppressClick) return;
+      const rowEl = event.target.closest(".row");
+      if (!rowEl) return;
+      const id = rowEl.dataset.id;
+      const button = event.target.closest("button[data-action]");
+
+      if (button) {
+        if (button.closest(".row-actions")) closeRow(rowEl, false);
+        runAction(button.dataset.action, button.dataset.id);
+        return;
+      }
+      if (event.target.closest("input")) return;
+      // A click while any row is swiped open only closes it.
+      if (swipe.offsets.size) {
+        closeOtherRows(null);
+        return;
+      }
+      const item = itemByID(id);
+      if (item && item.State === "done") runAction("open", id);
+    });
+
+    list.addEventListener("contextmenu", (event) => {
+      const rowEl = event.target.closest(".row");
+      if (!rowEl || event.target.closest("input")) return;
+      event.preventDefault();
+      const item = itemByID(rowEl.dataset.id);
+      if (!item) return;
+      closeOtherRows(null);
+      openMenu(event, item, rowEl);
+    });
+
+    menu.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const id = menu.dataset.id;
+      closeMenu();
+      runAction(button.dataset.action, id);
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      if (!menu.hidden && !menu.contains(event.target)) closeMenu();
+      if (swipe.offsets.size && !event.target.closest(".row")) closeOtherRows(null);
+    }, true);
+    list.addEventListener("scroll", closeMenu, { passive: true });
+    window.addEventListener("blur", closeMenu);
+
+    toastAction.addEventListener("click", () => {
+      const action = toastOnAction;
+      hideToast();
+      if (action) action();
+    });
+
+    helpButton.addEventListener("click", openHelp);
+    gear.addEventListener("click", () => openKeys());
+    for (const button of document.querySelectorAll("[data-close]")) {
+      button.addEventListener("click", closeSheets);
+    }
+    keySource.addEventListener("click", () => {
+      if (window.runtime && typeof window.runtime.BrowserOpenURL === "function") {
+        window.runtime.BrowserOpenURL(KEY_SOURCE_URL);
+      } else {
+        window.open(KEY_SOURCE_URL, "_blank");
+      }
+    });
+
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !sheet.hidden) closeSheet();
+      if (event.key === "Escape") {
+        if (!menu.hidden) closeMenu();
+        else if (sheetOpen()) closeSheets();
+        else if (swipe.offsets.size) closeOtherRows(null);
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !sheetOpen()) {
+        event.preventDefault();
+        search.focus();
+        search.select();
+      }
+    });
+
+    keyTier.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-tier]");
+      if (!button) return;
+      state.keyTier = button.dataset.tier;
+      renderKeys();
     });
 
     keyList.addEventListener("click", async (event) => {
@@ -442,24 +876,18 @@
     keyForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       keyError.hidden = true;
-
-      const label = keyLabel.value.trim();
-      const tier = keyTier.value;
       const value = keyValue.value.trim();
       if (!value) {
-        showKeyError("API 키를 입력해 주세요.");
         keyValue.focus();
         return;
       }
-
       keySave.disabled = true;
-      keySave.textContent = "확인 중…";
+      keySave.textContent = "확인 중";
       try {
-        await call("AddKey", label, tier, value);
+        await call("AddKey", "", state.keyTier, value);
         keyValue.value = "";
-        keyLabel.value = "";
         await loadKeys();
-        showToast("키를 저장했습니다");
+        showToast("키를 저장했어요");
       } catch (error) {
         showKeyError(errorText(error));
       } finally {
@@ -475,8 +903,8 @@
     try {
       const mode = await call("GetMode");
       if (mode === "free" || mode === "batch") state.mode = mode;
-    } catch (error) {
-      // Stay on the default mode; the first drop will report the real error.
+    } catch (_) {
+      // Keep the default; the first drop reports the real error.
     }
 
     try {
@@ -484,6 +912,7 @@
     } catch (error) {
       showToast(errorText(error));
     }
+    renderMode();
 
     try {
       await loadItems();
@@ -491,13 +920,13 @@
       showToast(errorText(error));
     }
 
-    if (state.keys.length === 0) openSheet();
+    if (state.keys.length === 0) openKeys("free");
 
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);
     }
 
-    // Keep "Batch 대기 · N분 경과" current without a backend round trip.
+    // Keep "기다리는 중 · N분" current without a backend round trip.
     setInterval(() => {
       if (state.items.some((item) => item.State === "batch_waiting")) renderItems();
     }, 30000);

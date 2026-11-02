@@ -57,7 +57,7 @@ func configDir(xdg, appdata, home string, windows bool) (string, error) {
 	}
 	if base == "" {
 		if strings.TrimSpace(home) == "" {
-			return "", errors.New("설정 폴더를 찾을 수 없습니다")
+			return "", errors.New("설정 폴더를 찾지 못했어요")
 		}
 		base = filepath.Join(home, ".config")
 	}
@@ -253,7 +253,7 @@ func (c *Config) Mode() string {
 // SetMode stores and immediately persists the processing mode.
 func (c *Config) SetMode(mode string) error {
 	if mode != "free" && mode != "batch" {
-		return fmt.Errorf("알 수 없는 처리 방식입니다: %s", mode)
+		return fmt.Errorf("알 수 없는 처리 방식이에요: %s", mode)
 	}
 	previous := c.mode
 	c.mode = mode
@@ -316,7 +316,7 @@ func EnvKey() *Key {
 func (c *Config) AddKey(label, tier, apiKey string) (Key, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return Key{}, errors.New("API 키가 비어 있습니다")
+		return Key{}, errors.New("API 키가 비어 있어요")
 	}
 	tier = normalizeTier(tier)
 	label = strings.TrimSpace(label)

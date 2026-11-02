@@ -48,6 +48,18 @@ build/nalmeok --version
 
 실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 프로세스 여러 개가 같은 `items.json`을 동시에 쓰지 않게 하기 위해서다.
 
+### 화면 미리보기 (스크린샷용)
+
+`NALMEOK_UI_PREVIEW=1`이면 GUI가 실제 실행기 대신 `StubRunner`를 쓴다. 저장된 `items.json` 상태가 그대로 남고 네트워크를 쓰지 않는다. 키 확인도 건너뛰므로 가짜 키를 넣은 임시 설정으로 화면을 볼 수 있다.
+
+```bash
+XDG_CONFIG_HOME=/tmp/uiseed NALMEOK_UI_PREVIEW=1 build/nalmeok
+#   NALMEOK_UI_APPEARANCE=light|dark   창 모양을 고정한다
+#   NALMEOK_UI_PREVIEW_JS='...'        DOM이 준비되고 1초 뒤 실행할 JS (시트 열기, 검색어 넣기 등)
+```
+
+창만 찍는다. 창 번호는 `CGWindowListCopyWindowInfo`를 PID로 걸러 얻고 `screencapture -x -o -l<창 번호>`로 저장한다. 화면 전체는 찍지 않는다.
+
 ## 프로젝트 구조 (기존 Python 앱)
 
 ```text

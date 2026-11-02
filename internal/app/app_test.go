@@ -199,7 +199,7 @@ func TestValidateKeyHookBlocksSave(t *testing.T) {
 	if err == nil {
 		t.Fatal("AddKey succeeded despite a rejected key")
 	}
-	if !strings.Contains(err.Error(), "키를 확인하지 못했습니다") {
+	if !strings.Contains(err.Error(), "키가 올바르지 않아요") {
 		t.Fatalf("error = %q", err)
 	}
 	if !called {
@@ -317,5 +317,118 @@ func TestOutputActionsReportMissingFile(t *testing.T) {
 	}
 	if err := ta.app.OpenOutput("missing"); err == nil {
 		t.Fatal("OpenOutput accepted a missing ID")
+	}
+}
+
+func TestAddKeyAutoLabels(t *testing.T) {
+	ta := newTestApp(t)
+	for _, add := range []struct{ tier, key string }{
+		{"free", "AIzaFAKE-free-0001"},
+		{"free", "AIzaFAKE-free-0002"},
+		{"paid", "AIzaFAKE-paid-0001"},
+	} {
+		if err := ta.app.AddKey("", add.tier, add.key); err != nil {
+			t.Fatalf("AddKey(%s): %v", add.tier, err)
+		}
+	}
+	// Re-adding a saved key keeps its label instead of taking a new number.
+	if err := ta.app.AddKey("  ", "free", "AIzaFAKE-free-0001"); err != nil {
+		t.Fatal(err)
+	}
+	var labels []string
+	for _, key := range ta.app.Keys() {
+		labels = append(labels, key.Label)
+	}
+	if got := strings.Join(labels, ","); got != "무료 1,무료 2,유료 1" {
+		t.Fatalf("labels = %s", got)
+	}
+
+	// A freed number is reused.
+	first := ta.app.Keys()[0]
+	if err := ta.app.DeleteKey(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.AddKey("", "free", "AIzaFAKE-free-0003"); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, key := range ta.app.Keys() {
+		if key.Label == "무료 1" && key.Masked == "••••0003" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("freed label not reused: %+v", ta.app.Keys())
+	}
+}
+
+func TestRenameDoneItemMovesOutput(t *testing.T) {
+	ta := newTestApp(t)
+	out := filepath.Join(ta.dir, "강의09.md")
+	if err := os.WriteFile(out, []byte("본문"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	taken := filepath.Join(ta.dir, "선형대수.md")
+	if err := os.WriteFile(taken, []byte("다른 파일"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := ta.app.store
+	if err := st.Add(store.Item{ID: "done-1", Name: "강의09.m4a", State: "done", Output: out}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ta.app.Rename("done-1", " 선형대수.md "); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	item, _ := st.Get("done-1")
+	want := filepath.Join(ta.dir, "선형대수 (2).md")
+	if item.Output != want || item.Name != "선형대수 (2)" {
+		t.Fatalf("item after rename = %+v", item)
+	}
+	if data, err := os.ReadFile(want); err != nil || string(data) != "본문" {
+		t.Fatalf("renamed file = %q, %v", data, err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old output still exists: %v", err)
+	}
+	if data, _ := os.ReadFile(taken); string(data) != "다른 파일" {
+		t.Fatal("rename overwrote an existing file")
+	}
+
+	// Renaming to the current name is a no-op, not "(3)".
+	if err := ta.app.Rename("done-1", "선형대수 (2)"); err != nil {
+		t.Fatal(err)
+	}
+	if item, _ := st.Get("done-1"); item.Output != want {
+		t.Fatalf("same-name rename moved the file: %s", item.Output)
+	}
+}
+
+func TestRenameRejectsBadNames(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.store.Add(store.Item{ID: "item-1", Name: "a.m4a", State: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "   ", ".md", "..", "a/b", `a\b`, "a:b"} {
+		if err := ta.app.Rename("item-1", name); err == nil {
+			t.Errorf("Rename(%q) succeeded", name)
+		}
+	}
+	if err := ta.app.Rename("missing", "x"); err == nil {
+		t.Error("Rename accepted a missing ID")
+	}
+}
+
+func TestRenameUnfinishedItemOnlyChangesName(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.store.Add(store.Item{ID: "run-1", Name: "a.m4a", State: "running", Source: "/x/a.m4a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.Rename("run-1", "1주차"); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := ta.app.store.Get("run-1")
+	if item.Name != "1주차" || item.Output != "" || item.Source != "/x/a.m4a" {
+		t.Fatalf("item = %+v", item)
 	}
 }

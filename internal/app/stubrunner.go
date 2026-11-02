@@ -28,7 +28,7 @@ func (r *StubRunner) Start(context.Context) {}
 // Add records each path as a failed item with a placeholder reason.
 func (r *StubRunner) Add(paths []string, mode string) error {
 	if r.store == nil {
-		return errors.New("저장소가 준비되지 않았습니다")
+		return errors.New("아직 준비 중이에요")
 	}
 	if mode != "free" && mode != "batch" {
 		mode = "free"
@@ -86,7 +86,7 @@ func (r *StubRunner) SendToBatch(id string) error {
 // Remove checks that the item exists; the stub has no work folder to delete.
 func (r *StubRunner) Remove(id string) error {
 	if r.store == nil {
-		return errors.New("저장소가 준비되지 않았습니다")
+		return errors.New("아직 준비 중이에요")
 	}
 	if _, ok := r.store.Get(id); !ok {
 		return store.ErrNotFound
@@ -96,7 +96,7 @@ func (r *StubRunner) Remove(id string) error {
 
 func (r *StubRunner) update(id string, fn func(*store.Item)) error {
 	if r.store == nil {
-		return errors.New("저장소가 준비되지 않았습니다")
+		return errors.New("아직 준비 중이에요")
 	}
 	return r.store.Update(id, fn)
 }

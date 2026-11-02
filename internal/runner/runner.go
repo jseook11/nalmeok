@@ -218,12 +218,12 @@ func (r *Runner) Start(ctx context.Context) {
 // Add creates one item per path and queues them.
 func (r *Runner) Add(paths []string, mode string) error {
 	if r.opts.Store == nil {
-		return errors.New("저장소가 준비되지 않았습니다")
+		return errors.New("아직 준비 중이에요")
 	}
 	keys := r.opts.Keys()
 	free, paid := splitKeys(keys)
 	if len(free) == 0 && len(paid) == 0 {
-		return errors.New("API 키를 먼저 등록해 주세요")
+		return errors.New("API 키가 필요해요")
 	}
 	if mode != "batch" {
 		mode = "free"
@@ -277,7 +277,7 @@ func (r *Runner) Cancel(id string) error {
 		r.mu.Unlock()
 		return r.update(id, func(it *store.Item) {
 			it.State = StateCanceled
-			it.Detail = "취소했습니다"
+			it.Detail = "취소됨"
 		})
 	case StateBatchWaiting:
 		r.pollMu.Lock()
@@ -300,13 +300,13 @@ func (r *Runner) Cancel(id string) error {
 		}
 		return r.update(id, func(it *store.Item) {
 			it.State = StateCanceled
-			it.Detail = "취소했습니다"
+			it.Detail = "취소됨"
 			if it.Batch != nil {
 				it.Batch.Name = ""
 			}
 		})
 	default:
-		return errors.New("진행 중인 항목만 취소할 수 있습니다")
+		return errors.New("진행 중인 항목만 취소할 수 있어요")
 	}
 }
 
@@ -358,7 +358,7 @@ func (r *Runner) Retry(id string) error {
 	switch item.State {
 	case StateFailed, StateCanceled, StateFreeExhausted:
 	default:
-		return errors.New("실패하거나 취소한 항목만 다시 시도할 수 있습니다")
+		return errors.New("실패하거나 취소한 항목만 다시 시도할 수 있어요")
 	}
 	mode := item.Mode
 	free, paid := splitKeys(r.opts.Keys())
@@ -386,15 +386,15 @@ func (r *Runner) SendToBatch(id string) error {
 		return store.ErrNotFound
 	}
 	if item.State != StateFreeExhausted && item.State != StateFailed && item.State != StateCanceled {
-		return errors.New("무료 한도가 소진된 항목만 유료 Batch로 보낼 수 있습니다")
+		return errors.New("무료 사용량을 다 쓴 항목만 유료로 이어 갈 수 있어요")
 	}
 	if _, paid := splitKeys(r.opts.Keys()); len(paid) == 0 {
-		return errors.New("유료 키를 먼저 등록해 주세요")
+		return errors.New("유료 키가 필요해요")
 	}
 	if err := r.update(id, func(it *store.Item) {
 		it.Mode = "batch"
 		it.State = StateRunning
-		it.Detail = "Batch 준비 중"
+		it.Detail = "준비 중"
 	}); err != nil {
 		return err
 	}
@@ -556,7 +556,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		pieces = append(pieces, ps...)
 	}
 	if len(pieces) == 0 {
-		return item, userError{errors.New("전사할 오디오가 없습니다")}
+		return item, userError{errors.New("전사할 오디오가 없어요")}
 	}
 	if input.PDF != "" {
 		if err := copyFile(input.PDF, filepath.Join(dir, pdfName)); err != nil {
@@ -647,11 +647,11 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 			return err
 		}
 		unit := item.Units[i]
-		r.setDetail(id, fmt.Sprintf("전사 중 (%d/%d)", i+1, len(item.Units)))
+		r.setDetail(id, "전사 중")
 
 		free, _ := splitKeys(r.opts.Keys())
 		if len(free) == 0 {
-			return userError{errors.New("무료 키가 없습니다")}
+			return userError{errors.New("무료 키가 없어요")}
 		}
 		start := r.takeFreeStart(len(free))
 		limited := 0
@@ -679,7 +679,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		}
 		if !done {
 			if limited == 0 {
-				return userError{errors.New("무료 키가 올바르지 않습니다. 키 설정을 확인해 주세요")}
+				return userError{errors.New("무료 키가 올바르지 않아요")}
 			}
 			remaining := 0.0
 			for _, u := range item.Units {
@@ -775,16 +775,16 @@ func keyFailure(err error) (keyOutcome, bool) {
 
 func checkText(text, finish string) error {
 	if finish == gemini.FinishMaxTokens {
-		return userError{errors.New("전사 결과가 길이 제한에 걸려 잘렸습니다")}
+		return userError{errors.New("결과가 너무 길어서 잘렸어요")}
 	}
 	if strings.TrimSpace(text) == "" {
 		if finish != "" && finish != gemini.FinishStop {
-			return userError{fmt.Errorf("전사 결과가 비었습니다 (%s)", finish)}
+			return userError{fmt.Errorf("결과가 비어 있어요 (%s)", finish)}
 		}
-		return userError{errors.New("전사 결과가 비었습니다")}
+		return userError{errors.New("결과가 비어 있어요")}
 	}
 	if finish != "" && finish != gemini.FinishStop {
-		return userError{fmt.Errorf("전사가 정상 종료되지 않았습니다 (%s)", finish)}
+		return userError{fmt.Errorf("전사가 중간에 멈췄어요 (%s)", finish)}
 	}
 	return nil
 }
@@ -922,7 +922,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	id := item.ID
 	_, paid := splitKeys(r.opts.Keys())
 	if len(paid) == 0 {
-		return userError{errors.New("유료 키가 없습니다. 키 설정을 확인해 주세요")}
+		return userError{errors.New("유료 키가 없어요")}
 	}
 	key := paid[0]
 	client, err := r.client(key)
@@ -956,7 +956,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	for _, u := range pending {
 		need = append(need, u.Files...)
 	}
-	r.setDetail(id, "Batch 업로드 중")
+	r.setDetail(id, "업로드 중")
 	for _, path := range need {
 		if _, ok := uploads[path]; ok {
 			continue
@@ -992,7 +992,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r.setDetail(id, "Batch 제출 중")
+	r.setDetail(id, "요청 보내는 중")
 	var name string
 	err = r.retryTransient(ctx, func() error {
 		var serr error
@@ -1060,18 +1060,18 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 		return
 	}
 	if item.Batch == nil || item.Batch.Name == "" {
-		r.fail(id, "Batch 정보가 없습니다. 다시 시도해 주세요")
+		r.fail(id, "요청 정보가 없어요")
 		return
 	}
 	client, err := r.clientForKeyID(item.Batch.KeyID)
 	if err != nil {
-		r.fail(id, "Batch를 보낸 유료 키를 찾을 수 없습니다")
+		r.fail(id, "요청을 보낸 유료 키가 없어요")
 		return
 	}
 	state, err := client.BatchStatus(ctx, item.Batch.Name)
 	if err != nil {
 		if gemini.IsAuth(err) {
-			r.fail(id, "유료 키가 올바르지 않습니다")
+			r.fail(id, "유료 키가 올바르지 않아요")
 			return
 		}
 		r.logf("item %s batch status: %v", id, r.redact(err))
@@ -1081,13 +1081,13 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 	case gemini.BatchPending, gemini.BatchRunning:
 		return
 	case gemini.BatchFailed:
-		r.batchFail(id, "Batch 처리가 실패했습니다")
+		r.batchFail(id, "서버에서 처리하지 못했어요")
 		return
 	case gemini.BatchCancelled:
-		r.batchFail(id, "Batch가 취소되었습니다")
+		r.batchFail(id, "서버에서 취소됐어요")
 		return
 	case gemini.BatchExpired:
-		r.batchFail(id, "Batch가 기한 안에 끝나지 않아 만료되었습니다")
+		r.batchFail(id, "기한 안에 끝나지 않았어요")
 		return
 	}
 
@@ -1107,7 +1107,7 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 			reason := ""
 			switch {
 			case !ok:
-				reason = "결과가 없습니다"
+				reason = "결과가 없어요"
 			case res.Error != "":
 				reason = res.Error
 			default:
@@ -1132,7 +1132,7 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 	}
 	if failed > 0 {
 		r.logf("item %s batch: %d units failed (%s)", id, failed, firstReason)
-		r.batchFail(id, fmt.Sprintf("Batch에서 %d개 조각이 실패했습니다. 다시 시도하면 그 조각만 보냅니다", failed))
+		r.batchFail(id, fmt.Sprintf("%d개 조각을 받지 못했어요", failed))
 		return
 	}
 	if err := r.finish(id); err != nil {
@@ -1165,17 +1165,17 @@ func (r *Runner) finish(id string) error {
 	texts := make([]string, 0, len(item.Units))
 	for _, u := range item.Units {
 		if u.Text == "" {
-			return userError{errors.New("완료되지 않은 조각이 있습니다")}
+			return userError{errors.New("끝나지 않은 조각이 있어요")}
 		}
 		texts = append(texts, u.Text)
 	}
 	merged := output.Merge(texts)
 	if merged == "" {
-		return userError{errors.New("전사 결과가 비었습니다")}
+		return userError{errors.New("결과가 비어 있어요")}
 	}
 	target := output.UniquePath(output.TargetPath(item.Source, item.Kind))
 	if err := output.Write(target, merged); err != nil {
-		return userError{fmt.Errorf("결과 파일을 저장하지 못했습니다: %v", err)}
+		return userError{fmt.Errorf("결과 파일을 저장하지 못했어요: %v", err)}
 	}
 	if err := r.update(id, func(it *store.Item) {
 		it.State = StateDone
@@ -1190,7 +1190,7 @@ func (r *Runner) finish(id string) error {
 	}
 	_ = os.RemoveAll(r.workDir(id))
 	r.logf("item %s done: %s", id, target)
-	r.opts.Notify("날먹", item.Name+" 전사를 마쳤습니다")
+	r.opts.Notify("날먹", item.Name+" 전사 완료")
 	return nil
 }
 
@@ -1314,18 +1314,18 @@ func userMessage(err error) string {
 	case errors.As(err, &ue):
 		return clip(ue.Error())
 	case gemini.IsAuth(err):
-		return "API 키가 올바르지 않습니다"
+		return "API 키가 올바르지 않아요"
 	case gemini.Is429(err):
-		return "요청 한도에 걸렸습니다. 잠시 뒤 다시 시도해 주세요"
+		return "요청이 몰려 있어요. 잠시 뒤 다시 시도하세요"
 	case gemini.IsTransient(err):
-		return "네트워크 오류로 실패했습니다. 다시 시도해 주세요"
+		return "네트워크 오류"
 	case errors.Is(err, os.ErrNotExist):
-		return "파일을 찾을 수 없습니다"
+		return "파일이 없어요"
 	}
 	if hasHangul(err.Error()) {
 		return clip(err.Error())
 	}
-	return "처리 중 오류가 발생했습니다"
+	return "처리하지 못했어요"
 }
 
 func hasHangul(s string) bool {

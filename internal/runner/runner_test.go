@@ -535,7 +535,7 @@ func TestMaxTokensFailsUnit(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if !strings.Contains(failed.Detail, "잘렸습니다") {
+	if !strings.Contains(failed.Detail, "잘렸어요") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	if _, err := os.Stat(filepath.Join(h.dir, "src", "lec.md")); !errors.Is(err, os.ErrNotExist) {
@@ -551,7 +551,7 @@ func TestEmptyTextFailsUnit(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if !strings.Contains(failed.Detail, "비었습니다") {
+	if !strings.Contains(failed.Detail, "비어 있어요") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 }

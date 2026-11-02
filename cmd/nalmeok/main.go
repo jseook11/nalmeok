@@ -26,6 +26,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // version is overridden at build time with
@@ -103,8 +104,31 @@ func runGUI() {
 		log.Fatal(err)
 	}
 
-	application := app.New(cfg, history, engine)
-	application.ValidateKey = gemini.ValidateKey
+	var application *app.App
+	var onDomReady func(context.Context)
+	appearance := mac.DefaultAppearance
+	if os.Getenv("NALMEOK_UI_PREVIEW") == "1" {
+		// Screenshot mode: the saved items stay as they are and nothing
+		// touches the network. See docs/development.md.
+		application = app.New(cfg, history, app.NewStubRunner(history))
+		switch os.Getenv("NALMEOK_UI_APPEARANCE") {
+		case "light":
+			appearance = mac.NSAppearanceNameAqua
+		case "dark":
+			appearance = mac.NSAppearanceNameDarkAqua
+		}
+		if js := os.Getenv("NALMEOK_UI_PREVIEW_JS"); js != "" {
+			onDomReady = func(ctx context.Context) {
+				go func() {
+					time.Sleep(time.Second)
+					wailsruntime.WindowExecJS(ctx, js)
+				}()
+			}
+		}
+	} else {
+		application = app.New(cfg, history, engine)
+		application.ValidateKey = gemini.ValidateKey
+	}
 
 	assets, err := fs.Sub(frontend.Assets, "dist")
 	if err != nil {
@@ -125,9 +149,10 @@ func runGUI() {
 		},
 		Mac: &mac.Options{
 			TitleBar:   mac.TitleBarDefault(),
-			Appearance: mac.DefaultAppearance,
+			Appearance: appearance,
 		},
 		OnStartup:  application.Startup,
+		OnDomReady: onDomReady,
 		OnShutdown: application.Shutdown,
 		Bind:       []interface{}{application},
 	})
@@ -149,7 +174,7 @@ func runCLI(args []string) int {
 	flags := flag.NewFlagSet("nalmeok", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.Usage = func() { printUsage(flags.Output()) }
-	batch := flags.Bool("batch", false, "유료 Batch로 처리")
+	batch := flags.Bool("batch", false, "유료로 처리")
 	free := flags.Bool("free", false, "무료로 처리")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -158,7 +183,7 @@ func runCLI(args []string) int {
 		return 2
 	}
 	if *batch && *free {
-		fmt.Fprintln(os.Stderr, "--batch와 --free는 함께 쓸 수 없습니다")
+		fmt.Fprintln(os.Stderr, "--batch와 --free는 함께 쓸 수 없어요")
 		return 2
 	}
 	paths := flags.Args()
@@ -197,7 +222,7 @@ func runCLI(args []string) int {
 		}
 	}
 	if len(ids) == 0 {
-		fmt.Fprintln(os.Stderr, "추가된 항목이 없습니다")
+		fmt.Fprintln(os.Stderr, "추가된 항목이 없어요")
 		return 1
 	}
 	return watch(history, engine, ids, cancel)
@@ -225,7 +250,7 @@ func watch(history *store.Store, engine *runner.Runner, ids []string, cancel con
 				fmt.Println(line)
 				if item.State == runner.StateFreeExhausted && !hinted[id] {
 					hinted[id] = true
-					fmt.Println("유료 Batch로 넘기려면 --batch로 다시 실행하세요")
+					fmt.Println("유료로 이어 가려면 --batch로 다시 실행하세요")
 				}
 			}
 			switch item.State {
@@ -277,9 +302,9 @@ func statusLine(item store.Item) string {
 		}
 		return fmt.Sprintf("%s: %s", name, item.Detail)
 	case runner.StateBatchWaiting:
-		return fmt.Sprintf("%s: Batch 대기 (%d분)", name, elapsedMinutes(item))
+		return fmt.Sprintf("%s: 기다리는 중 · %d분", name, elapsedMinutes(item))
 	case runner.StateFreeExhausted:
-		return fmt.Sprintf("%s: 무료 한도 소진", name)
+		return fmt.Sprintf("%s: 오늘 무료 사용량을 다 썼어요", name)
 	case runner.StateDone:
 		return fmt.Sprintf("%s: 완료 → %s", name, item.Output)
 	case runner.StateFailed:
@@ -360,7 +385,7 @@ func runDoctor() int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "테스트·AI 에이전트용 CLI입니다. 일반 사용은 앱 창(인자 없이 실행)을 쓰세요.")
+	fmt.Fprintln(w, "테스트·AI 에이전트용 CLI예요. 보통은 인자 없이 실행해 앱 창을 쓰세요.")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "사용법:")
 	fmt.Fprintln(w, "  nalmeok [--batch|--free] <파일 또는 폴더>...")

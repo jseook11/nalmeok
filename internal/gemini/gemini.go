@@ -98,7 +98,7 @@ type client struct {
 func New(apiKey string) (Client, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return nil, errors.New("API 키가 비어 있습니다")
+		return nil, errors.New("API 키가 비어 있어요")
 	}
 	timeout := requestTimeout
 	c, err := genai.NewClient(context.Background(), &genai.ClientConfig{
@@ -154,7 +154,7 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 		return store.Upload{}, err
 	}
 	if file == nil || file.Name == "" {
-		return store.Upload{}, errors.New("파일 업로드 응답이 불완전합니다")
+		return store.Upload{}, errors.New("업로드 응답이 불완전해요")
 	}
 	uploadedAt := time.Now()
 
@@ -164,10 +164,10 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 			if file.Error != nil && file.Error.Message != "" {
 				msg = file.Error.Message
 			}
-			return store.Upload{}, fmt.Errorf("업로드한 파일을 처리하지 못했습니다: %s", msg)
+			return store.Upload{}, fmt.Errorf("업로드한 파일을 처리하지 못했어요: %s", msg)
 		}
 		if time.Since(uploadedAt) > 10*time.Minute {
-			return store.Upload{}, errors.New("업로드한 파일 처리가 너무 오래 걸립니다")
+			return store.Upload{}, errors.New("업로드한 파일 처리가 너무 오래 걸려요")
 		}
 		select {
 		case <-ctx.Done():
@@ -180,7 +180,7 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 		}
 	}
 	if file.URI == "" {
-		return store.Upload{}, errors.New("파일 업로드 응답에 URI가 없습니다")
+		return store.Upload{}, errors.New("업로드 응답에 URI가 없어요")
 	}
 	return store.Upload{URI: file.URI, MIME: mime, UploadedAt: uploadedAt}, nil
 }
@@ -216,7 +216,7 @@ func responseText(resp *genai.GenerateContentResponse) (string, string) {
 
 func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayName string) (string, error) {
 	if len(reqs) == 0 {
-		return "", errors.New("보낼 요청이 없습니다")
+		return "", errors.New("보낼 요청이 없어요")
 	}
 	if len(displayName) > 120 {
 		displayName = truncateUTF8(displayName, 120)
@@ -243,7 +243,7 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 		return "", err
 	}
 	if job == nil || job.Name == "" {
-		return "", errors.New("Batch 생성 응답에서 ID를 받지 못했습니다")
+		return "", errors.New("요청 ID를 받지 못했어요")
 	}
 	return job.Name, nil
 }
@@ -285,7 +285,7 @@ func (c *client) uploadJSONL(ctx context.Context, reqs []BatchRequest) (string, 
 		return "", err
 	}
 	if file == nil || file.Name == "" {
-		return "", errors.New("Batch 요청 파일 업로드 응답이 불완전합니다")
+		return "", errors.New("업로드 응답이 불완전해요")
 	}
 	return file.Name, nil
 }
@@ -322,7 +322,7 @@ func (c *client) BatchResults(ctx context.Context, name string) (map[string]Resu
 		return nil, err
 	}
 	if job.Dest == nil {
-		return nil, errors.New("완료된 Batch에 결과가 없습니다")
+		return nil, errors.New("서버 결과가 비어 있어요")
 	}
 	if len(job.Dest.InlinedResponses) > 0 {
 		var srcKeys []string
@@ -358,7 +358,7 @@ func (c *client) BatchResults(ctx context.Context, name string) (map[string]Resu
 		}
 		return ParseResultsJSONL(data)
 	}
-	return nil, errors.New("완료된 Batch의 결과 위치를 찾을 수 없습니다")
+	return nil, errors.New("서버 결과 위치를 찾지 못했어요")
 }
 
 func inlinedResult(r *genai.InlinedResponse) Result {
@@ -389,7 +389,7 @@ func ParseResultsJSONL(data []byte) (map[string]Result, error) {
 			Response *genai.GenerateContentResponse `json:"response"`
 		}
 		if err := json.Unmarshal(line, &row); err != nil {
-			return nil, fmt.Errorf("결과 %d행을 읽지 못했습니다: %w", i+1, err)
+			return nil, fmt.Errorf("결과 %d행을 읽지 못했어요: %w", i+1, err)
 		}
 		key := row.Key
 		if key == "" {

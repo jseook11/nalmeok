@@ -102,7 +102,7 @@ func ValidateKey(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if err := c.Validate(ctx); err != nil && IsAuth(err) {
-		return errors.New("올바르지 않은 키입니다")
+		return errors.New("올바르지 않은 키예요")
 	}
 	return nil
 }

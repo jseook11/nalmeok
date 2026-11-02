@@ -8,87 +8,105 @@
 </head>
 <body>
 <div id="app" class="is-empty">
-  <button class="drop-zone" id="drop-zone" type="button" aria-label="음성 파일이나 폴더 선택">
-    <svg class="wave-icon" width="64" height="32" viewBox="0 0 64 32" fill="none" aria-hidden="true">
-      <rect x="4" y="12" width="4" height="8" rx="2" fill="currentColor"/>
-      <rect x="13" y="8" width="4" height="16" rx="2" fill="currentColor"/>
-      <rect x="22" y="3" width="4" height="26" rx="2" fill="currentColor"/>
-      <rect x="31" y="6" width="4" height="20" rx="2" fill="currentColor"/>
-      <rect x="40" y="2" width="4" height="28" rx="2" fill="currentColor"/>
-      <rect x="49" y="10" width="4" height="12" rx="2" fill="currentColor"/>
-      <rect x="58" y="13" width="4" height="6" rx="2" fill="currentColor"/>
+  <header class="chrome">
+    <div class="topbar">
+      <div class="segmented" id="mode-toggle" role="tablist" aria-label="처리 방식" hidden>
+        <button type="button" role="tab" data-mode="free" aria-selected="true">무료</button>
+        <button type="button" role="tab" data-mode="batch" aria-selected="false">유료</button>
+      </div>
+      <button class="tool-button add-button" id="add" type="button" aria-label="파일 추가" title="파일 추가">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M8 3v10M3 8h10"/>
+        </svg>
+      </button>
+    </div>
+    <label class="search">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.6"/>
+        <path d="m10.5 10.5 3 3"/>
+      </svg>
+      <input id="search" type="search" placeholder="검색" autocomplete="off" spellcheck="false" aria-label="검색">
+    </label>
+  </header>
+
+  <main class="list" id="list"></main>
+
+  <button class="empty" id="empty" type="button" aria-label="음성 파일이나 폴더 선택">
+    <svg class="empty-glyph" width="56" height="28" viewBox="0 0 64 32" fill="none" aria-hidden="true">
+      <rect x="4" y="12" width="3.4" height="8" rx="1.7" fill="currentColor"/>
+      <rect x="13" y="8" width="3.4" height="16" rx="1.7" fill="currentColor"/>
+      <rect x="22" y="3" width="3.4" height="26" rx="1.7" fill="currentColor"/>
+      <rect x="31" y="6" width="3.4" height="20" rx="1.7" fill="currentColor"/>
+      <rect x="40" y="2" width="3.4" height="28" rx="1.7" fill="currentColor"/>
+      <rect x="49" y="10" width="3.4" height="12" rx="1.7" fill="currentColor"/>
+      <rect x="58" y="13" width="3.4" height="6" rx="1.7" fill="currentColor"/>
     </svg>
-    <span class="drop-title">음성 파일이나 폴더를 놓으세요</span>
+    <span>음성 파일이나 폴더를 놓으세요</span>
   </button>
 
-  <div class="mode-toggle" id="mode-toggle" role="tablist" aria-label="처리 방식">
-    <button class="segment" id="mode-free" type="button" role="tab" data-mode="free" aria-selected="true">
-      <span class="segment-label">무료</span>
-      <span class="segment-caption">무료 · 바로</span>
+  <footer class="footer">
+    <button class="round-button" id="help" type="button" aria-label="도움말" title="도움말">?</button>
+    <button class="round-button" id="gear" type="button" aria-label="API 키" title="API 키">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.9 4.6 1.7 1.7 0 0 0 9.93 3.04V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.9c.2.62.78 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.7 0-1.3.4-1.51 1.07Z"/>
+      </svg>
     </button>
-    <button class="segment" id="mode-batch" type="button" role="tab" data-mode="batch" aria-selected="false">
-      <span class="segment-label">유료 Batch</span>
-      <span class="segment-caption">약 74원/시간 · 10분~1시간</span>
-    </button>
-  </div>
-  <p class="empty-hint" id="empty-hint">완료된 전사본은 원본 옆에 .md로 저장됩니다</p>
-
-  <div class="search-wrap">
-    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="7"/>
-      <path d="m20 20-3.5-3.5"/>
-    </svg>
-    <input class="search-input" id="search" type="search" placeholder="전사한 파일 검색"
-           autocomplete="off" spellcheck="false" aria-label="전사한 파일 검색">
-  </div>
-
-  <main class="item-list" id="item-list"></main>
-
-  <button class="gear" id="gear" type="button" aria-label="키 설정" title="키 설정">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.9 4.6 1.7 1.7 0 0 0 9.93 3.04V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.9c.2.62.78 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.7 0-1.3.4-1.51 1.07Z"/>
-    </svg>
-  </button>
+  </footer>
 </div>
 
-<div class="sheet-overlay" id="sheet" hidden>
-  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-    <header class="sheet-head">
-      <h2 id="sheet-title">키 설정</h2>
-      <button class="icon-button" id="sheet-close" type="button" aria-label="닫기" title="닫기">✕</button>
-    </header>
-
-    <p class="sheet-intro" id="sheet-intro" hidden>전사하려면 Gemini API 키를 먼저 등록하세요.</p>
-
+<div class="sheet" id="keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title" hidden>
+  <header class="sheet-head">
+    <h2 id="keys-title">API 키</h2>
+    <button class="text-button" type="button" data-close>닫기</button>
+  </header>
+  <div class="sheet-body">
+    <p class="sheet-intro" id="keys-intro" hidden>
+      Gemini API 키가 필요해요.
+      <button class="text-button" id="key-source" type="button">키 받는 곳</button>
+    </p>
     <div class="key-list" id="key-list"></div>
-
     <form class="key-form" id="key-form" novalidate>
-      <h3>키 추가</h3>
-      <label class="field">
-        <span>이름</span>
-        <input id="key-label" type="text" placeholder="예: 무료 키" autocomplete="off">
-      </label>
-      <label class="field">
-        <span>등급</span>
-        <select id="key-tier">
-          <option value="free">무료</option>
-          <option value="paid">유료</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>API 키</span>
-        <input id="key-value" type="password" placeholder="API 키" autocomplete="new-password" spellcheck="false">
-      </label>
+      <div class="segmented segmented-small" id="key-tier" role="tablist" aria-label="등급">
+        <button type="button" role="tab" data-tier="free" aria-selected="true">무료</button>
+        <button type="button" role="tab" data-tier="paid" aria-selected="false">유료</button>
+      </div>
+      <input class="field" id="key-value" type="password" placeholder="API 키 붙여넣기"
+             autocomplete="new-password" spellcheck="false" aria-label="API 키">
       <p class="form-error" id="key-error" role="alert" hidden></p>
       <button class="primary-button" id="key-save" type="submit">저장</button>
     </form>
-  </section>
+  </div>
 </div>
 
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sheet" id="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+  <header class="sheet-head">
+    <h2 id="help-title">도움말</h2>
+    <button class="text-button" type="button" data-close>닫기</button>
+  </header>
+  <div class="sheet-body">
+    <dl class="help">
+      <dt>결과</dt>
+      <dd>원본 옆에 .md로 저장돼요. 폴더를 놓으면 하나로 합쳐요.</dd>
+      <dt>무료</dt>
+      <dd>바로 전사해요. 하루 사용량이 정해져 있어요.</dd>
+      <dt>유료</dt>
+      <dd>1시간에 약 74원. 결과까지 보통 10분~1시간 걸려요. 앱을 닫아도 진행돼요.</dd>
+      <dt>지원 형식</dt>
+      <dd>m4a, mp4, mp3, wav · 폴더 안 PDF는 용어 참고자료로 써요.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="menu" id="menu" role="menu" hidden></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toast-text"></span>
+  <button class="toast-action" id="toast-action" type="button" hidden>실행 취소</button>
+</div>
 
 <script src="app.js"></script>
 </body>
