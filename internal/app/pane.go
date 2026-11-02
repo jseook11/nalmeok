@@ -65,8 +65,15 @@ func (a *App) ReadOutput(id string) (OutputText, error) {
 	out := OutputText{}
 	if len(data) > MaxOutputRead {
 		data = data[:MaxOutputRead]
-		for len(data) > 0 && !utf8.Valid(data) {
-			data = data[:len(data)-1]
+		// Drop only a rune the limit split (at most UTFMax-1 bytes); bytes
+		// that were invalid anyway stay, as in an untruncated read.
+		for i := 1; i < utf8.UTFMax && i <= len(data); i++ {
+			if utf8.RuneStart(data[len(data)-i]) {
+				if !utf8.FullRune(data[len(data)-i:]) {
+					data = data[:len(data)-i]
+				}
+				break
+			}
 		}
 		out.Truncated = true
 	}

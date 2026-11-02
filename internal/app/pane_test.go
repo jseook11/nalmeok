@@ -60,6 +60,28 @@ func TestReadOutputIsBounded(t *testing.T) {
 	}
 }
 
+// A stray invalid byte inside the kept part (a transcript re-saved in
+// another encoding) must not make the cut walk back to it: only a rune split
+// by the limit is dropped.
+func TestReadOutputCutKeepsTextBeforeLimit(t *testing.T) {
+	ta := newTestApp(t)
+	path := filepath.Join(ta.dir, "odd.md")
+	data := []byte(strings.Repeat("a", MaxOutputRead-4000))
+	data = append(data, 0xff)
+	data = append(data, strings.Repeat("b", 8000)...)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id := addDone(t, ta, path)
+	got, err := ta.app.ReadOutput(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Truncated || len(got.Text) != MaxOutputRead {
+		t.Fatalf("Truncated = %v, len = %d, want %d", got.Truncated, len(got.Text), MaxOutputRead)
+	}
+}
+
 func TestSetPaneRemembersChoice(t *testing.T) {
 	ta := newTestApp(t)
 	if ta.app.PaneOpen() {
