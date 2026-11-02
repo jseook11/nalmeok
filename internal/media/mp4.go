@@ -1,14 +1,12 @@
 package media
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -29,12 +27,14 @@ var adtsSampleRates = []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 220
 type mp4Track struct {
 	timescale uint32
 	edited    float64 // presentation length from the edit list (0 if none)
-	profile   int     // ADTS profile = AAC object type - 1
-	srIndex   int
-	channels  int
-	sizes     []uint32
-	offsets   []int64
-	deltas    []uint32
+	// sampleEntry is the source mp4a box (with esds), copied verbatim into pieces.
+	sampleEntry []byte
+	profile     int // ADTS profile = AAC object type - 1
+	srIndex     int
+	channels    int
+	sizes       []uint32
+	offsets     []int64
+	deltas      []uint32
 }
 
 func (t *mp4Track) ticks() uint64 {
@@ -322,6 +322,7 @@ func parseAudioTrak(trak []byte) (*mp4Track, error) {
 	if err := t.parseMP4A(entries[0].body); err != nil {
 		return nil, err
 	}
+	t.sampleEntry = mp4Box("mp4a", entries[0].body)
 	if err := t.parseSampleTable(stbl); err != nil {
 		return nil, err
 	}
@@ -639,17 +640,6 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 	return nil
 }
 
-func (t *mp4Track) adtsHeader(h []byte, size int) {
-	length := size + 7
-	h[0] = 0xFF
-	h[1] = 0xF1 // MPEG-4, layer 0, no CRC
-	h[2] = byte(t.profile<<6 | t.srIndex<<2 | (t.channels>>2)&1)
-	h[3] = byte((t.channels&3)<<6 | (length>>11)&3)
-	h[4] = byte(length >> 3)
-	h[5] = byte((length&7)<<5 | 0x1F)
-	h[6] = 0xFC
-}
-
 // windowReader serves sample reads from a sliding buffer so interleaved,
 // mostly sequential samples cost few syscalls.
 type windowReader struct {
@@ -676,62 +666,4 @@ func (w *windowReader) at(off int64, size int) ([]byte, error) {
 	}
 	w.start, w.n = off, n
 	return w.buf[:size], nil
-}
-
-func prepareMP4(path, dir string, maxSeconds float64) ([]Piece, error) {
-	t, err := parseMP4(path)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	reader := &windowReader{f: f, buf: make([]byte, 1<<20)}
-	limit := uint64(1<<63 - 1)
-	if maxSeconds > 0 {
-		limit = uint64(maxSeconds * float64(t.timescale))
-	}
-
-	var pieces []Piece
-	var header [7]byte
-	for i := 0; i < len(t.sizes); {
-		piece := Piece{Path: piecePath(dir, path, len(pieces)+1, ".aac"), MIME: "audio/aac"}
-		pw, err := createPiece(piece.Path)
-		if err != nil {
-			return nil, err
-		}
-		bw := bufio.NewWriterSize(pw, 256<<10)
-		var ticks uint64
-		for ; i < len(t.sizes); i++ {
-			if ticks > 0 && ticks+uint64(t.deltas[i]) > limit {
-				break
-			}
-			size := int(t.sizes[i])
-			if size+7 > 0x1FFF {
-				pw.abort()
-				return nil, errMP4("AAC 프레임이 너무 큽니다")
-			}
-			data, err := reader.at(t.offsets[i], size)
-			if err != nil {
-				pw.abort()
-				return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-			}
-			t.adtsHeader(header[:], size)
-			bw.Write(header[:])
-			bw.Write(data)
-			ticks += uint64(t.deltas[i])
-		}
-		if err := bw.Flush(); err != nil {
-			pw.abort()
-			return nil, err
-		}
-		if err := pw.commit(); err != nil {
-			return nil, err
-		}
-		piece.Seconds = float64(ticks) / float64(t.timescale)
-		pieces = append(pieces, piece)
-	}
-	return pieces, nil
 }

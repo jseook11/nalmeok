@@ -75,29 +75,14 @@ func fixtures(t *testing.T) string {
 	return fixtureDir
 }
 
-var (
-	afinfoDurationRE = regexp.MustCompile(`estimated duration: ([0-9.]+) sec`)
-	afinfoPacketsRE  = regexp.MustCompile(`audio packets: ([0-9]+)`)
-	afinfoRateRE     = regexp.MustCompile(`Data format:\s+\d+ ch,\s+(\d+) Hz`)
-)
+var afinfoDurationRE = regexp.MustCompile(`estimated duration: ([0-9.]+) sec`)
 
-// afinfoDuration runs afinfo (which must succeed). For ADTS, afinfo's
-// "estimated duration" is a bitrate guess even for Apple's own files, so the
-// length is taken from the parsed packet count instead.
+// afinfoDuration runs afinfo (which must succeed) and returns its duration.
 func afinfoDuration(t *testing.T, path string) float64 {
 	t.Helper()
 	out, err := exec.Command("afinfo", path).CombinedOutput()
 	if err != nil {
 		t.Fatalf("afinfo %s: %v\n%s", filepath.Base(path), err, out)
-	}
-	if strings.HasSuffix(path, ".aac") {
-		pm, rm := afinfoPacketsRE.FindSubmatch(out), afinfoRateRE.FindSubmatch(out)
-		if pm == nil || rm == nil {
-			t.Fatalf("afinfo %s: packets 없음\n%s", filepath.Base(path), out)
-		}
-		packets, _ := strconv.Atoi(string(pm[1]))
-		rate, _ := strconv.Atoi(string(rm[1]))
-		return float64(packets*1024) / float64(rate)
 	}
 	m := afinfoDurationRE.FindSubmatch(out)
 	if m == nil {
@@ -262,12 +247,6 @@ func TestNonAACMP4(t *testing.T) {
 	}
 }
 
-func mp4Box(typ string, body ...[]byte) []byte {
-	b := bytes.Join(body, nil)
-	out := binary.BigEndian.AppendUint32(nil, uint32(8+len(b)))
-	return append(append(out, typ...), b...)
-}
-
 func TestFragmentedMP4(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string][]byte{
@@ -285,36 +264,6 @@ func TestFragmentedMP4(t *testing.T) {
 			t.Errorf("%s: Prepare should fail", name)
 		}
 	}
-}
-
-// adtsFrames walks an ADTS file and returns the frame count, checking every
-// header against the expected fields.
-func adtsFrames(t *testing.T, path string, wantProfile, wantSR, wantCh int) int {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	frames := 0
-	for off := 0; off < len(data); {
-		h := data[off:]
-		if len(h) < 7 || h[0] != 0xFF || h[1]&0xF6 != 0xF0 {
-			t.Fatalf("%s: frame %d: bad sync at %d", filepath.Base(path), frames, off)
-		}
-		profile := int(h[2] >> 6)
-		sr := int(h[2]>>2) & 0xF
-		ch := int(h[2]&1)<<2 | int(h[3]>>6)
-		length := int(h[3]&3)<<11 | int(h[4])<<3 | int(h[5]>>5)
-		if profile != wantProfile || sr != wantSR || ch != wantCh {
-			t.Fatalf("frame %d: profile %d sr %d ch %d", frames, profile, sr, ch)
-		}
-		if length < 7 || off+length > len(data) {
-			t.Fatalf("frame %d: length %d overflows", frames, length)
-		}
-		off += length
-		frames++
-	}
-	return frames
 }
 
 func checkPieces(t *testing.T, pieces []Piece, total, maxSeconds float64, mime string) {
@@ -358,25 +307,126 @@ func TestPrepareMP4(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			checkPieces(t, pieces, total, 2, "audio/aac")
-			frames := 0
+			checkPieces(t, pieces, total, 2, "audio/m4a")
 			for _, p := range pieces {
-				if filepath.Ext(p.Path) != ".aac" || filepath.Dir(p.Path) != dir {
+				if filepath.Dir(p.Path) != dir {
 					t.Errorf("path = %s", p.Path)
 				}
-				// say → 22050 Hz mono AAC-LC: profile 1, index 7, 1 channel
-				frames += adtsFrames(t, p.Path, 1, 7, 1)
 			}
-			if frames != len(track.sizes) {
-				t.Errorf("ADTS frames %d, samples %d", frames, len(track.sizes))
-			}
+			checkM4A(t, src, pieces)
 
 			whole, err := Prepare(Track{Path: src, Format: FormatAACMP4}, t.TempDir(), 0)
 			if err != nil || len(whole) != 1 || !near(whole[0].Seconds, total, 1e-9) {
 				t.Fatalf("unlimited Prepare = %+v, %v", whole, err)
 			}
+			checkM4A(t, src, whole)
 		})
 	}
+}
+
+// checkM4A verifies remuxed pieces: .m4a, faststart layout with one audio
+// track, the source sample entry verbatim, the source AAC frames byte for
+// byte in order, and decodable by afconvert.
+func checkM4A(t *testing.T, src string, pieces []Piece) {
+	t.Helper()
+	srcTrack, err := parseMP4(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcData := mustRead(t, src)
+	next := 0
+	for i, p := range pieces {
+		if filepath.Ext(p.Path) != ".m4a" || p.MIME != "audio/m4a" {
+			t.Errorf("piece %d: path %s MIME %s", i, p.Path, p.MIME)
+		}
+		data := mustRead(t, p.Path)
+		top, err := childBoxes(data)
+		if err != nil {
+			t.Fatalf("piece %d: %v", i, err)
+		}
+		var order []string
+		for _, b := range top {
+			order = append(order, b.typ)
+		}
+		if !slices.Equal(order, []string{"ftyp", "moov", "mdat"}) {
+			t.Errorf("piece %d: boxes %v", i, order)
+		}
+		moov, _ := findBox(data, "moov")
+		traks := 0
+		inner, _ := childBoxes(moov)
+		for _, b := range inner {
+			if b.typ == "trak" {
+				traks++
+			}
+		}
+		if traks != 1 {
+			t.Errorf("piece %d: %d traks", i, traks)
+		}
+		pt, err := parseMP4(p.Path)
+		if err != nil {
+			t.Fatalf("piece %d: %v", i, err)
+		}
+		if pt.timescale != srcTrack.timescale || !bytes.Equal(pt.sampleEntry, srcTrack.sampleEntry) {
+			t.Errorf("piece %d: timescale/sample entry differ", i)
+		}
+		if !near(pt.seconds(), p.Seconds, 1e-9) || !near(pt.playSeconds(), p.Seconds, 1e-9) {
+			t.Errorf("piece %d: coded %v, played %v, Seconds %v", i, pt.seconds(), pt.playSeconds(), p.Seconds)
+		}
+		for k := range pt.sizes {
+			s := next + k
+			a := data[pt.offsets[k] : pt.offsets[k]+int64(pt.sizes[k])]
+			b := srcData[srcTrack.offsets[s] : srcTrack.offsets[s]+int64(srcTrack.sizes[s])]
+			if !bytes.Equal(a, b) || pt.deltas[k] != srcTrack.deltas[s] {
+				t.Fatalf("piece %d sample %d differs from source sample %d", i, k, s)
+			}
+		}
+		next += len(pt.sizes)
+		// Without gapless metadata afinfo assumes the standard AAC encoder
+		// delay of 2112 samples, so it reports exactly that much less.
+		priming := 2112 / float64(srcTrack.timescale)
+		if got := afinfoDuration(t, p.Path); !near(got, p.Seconds-priming, 0.001) {
+			t.Errorf("piece %d: afinfo %.4f, want Seconds %.4f - priming %.4f", i, got, p.Seconds, priming)
+		}
+		wav := filepath.Join(t.TempDir(), "out.wav")
+		if out, err := exec.Command("afconvert", "-f", "WAVE", "-d", "LEI16", p.Path, wav).CombinedOutput(); err != nil {
+			t.Errorf("piece %d: afconvert decode failed: %v\n%s", i, err, out)
+		}
+	}
+	if next != len(srcTrack.sizes) {
+		t.Errorf("pieces carry %d samples, source has %d", next, len(srcTrack.sizes))
+	}
+}
+
+// TestPrepareDropsVideo adds a (fake) video track before the audio track and
+// checks that the pieces carry only the audio.
+func TestPrepareDropsVideo(t *testing.T) {
+	fx := fixtures(t)
+	orig := filepath.Join(fx, "x.mp4")
+	data := moovAtEnd(t, mustRead(t, orig)) // moov last: growing it moves no chunk
+	top, _ := childBoxes(data)
+	last := top[len(top)-1]
+	if last.typ != "moov" {
+		t.Fatal("moov should be last")
+	}
+	hdlr := slices.Concat([]byte{0, 0, 0, 0}, []byte("vide"), make([]byte, 12), []byte("VideoHandler\x00"))
+	video := mp4Box("trak", mp4Box("mdia", fullBox("hdlr", 0, 0, hdlr)))
+	children, _ := childBoxes(last.body)
+	var body []byte
+	body = append(body, mp4Box(children[0].typ, children[0].body)...) // mvhd
+	body = append(body, video...)
+	for _, c := range children[1:] {
+		body = append(body, mp4Box(c.typ, c.body)...)
+	}
+	moovLen := len(mp4Box("moov", last.body))
+	data = slices.Concat(data[:len(data)-moovLen], mp4Box("moov", body))
+	src := filepath.Join(t.TempDir(), "video.mp4")
+	os.WriteFile(src, data, 0o644)
+
+	pieces, err := Prepare(Track{Path: src, Format: FormatAACMP4}, t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkM4A(t, src, pieces)
 }
 
 func TestPrepareWAV(t *testing.T) {
