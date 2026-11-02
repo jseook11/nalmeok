@@ -860,7 +860,7 @@ class KeyRegistryTests(unittest.TestCase):
                 self.assertEqual(app.key_for_tier("paid"), "legacy-secret")
                 self.assertEqual(app.paid_key_for_batch("free-secret"),
                                  "legacy-secret")
-                self.assertEqual(app.key_summary(), "무료 1 · 유료 2")
+                self.assertEqual(app.key_summary(), "무료 키 1개 · 유료 키 2개")
                 self.assertTrue(app.mask_key("paid-secret").endswith("cret"))
 
                 self.assertTrue(app.delete_key_entry(free["id"]))
@@ -1243,6 +1243,18 @@ class FreeOnlyRunTests(unittest.TestCase):
             self.assertTrue(state["finished"])
 
 
+class StatusBarTests(unittest.TestCase):
+    def test_success_state_is_silent(self):
+        with mock.patch.object(app, "key_entries", return_value=[{"id": "1"}]), \
+             mock.patch.object(app, "current_key", return_value="key"):
+            self.assertEqual(app.status_bar_line(), "")
+
+    def test_missing_key_warns(self):
+        with mock.patch.object(app, "key_entries", return_value=[]), \
+             mock.patch.object(app, "current_key", return_value=None):
+            self.assertIn("키 없음", app.status_bar_line())
+
+
 class PackagingTests(unittest.TestCase):
     def test_version_matches_pyproject(self):
         text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
@@ -1583,6 +1595,56 @@ class PackagingSDKTests(unittest.TestCase):
         self.assertEqual(calls[0],
                          [sys.executable, "-m", "venv",
                           str(Path("/tmp/app/.venv"))])
+
+
+class WaitRetryTests(unittest.TestCase):
+    class _Batch:
+        def __init__(self, state):
+            self.state = type("State", (), {"name": state})()
+
+    class _Client:
+        def __init__(self, outcomes):
+            self.outcomes = list(outcomes)
+            self.calls = 0
+            outer = self
+
+            class Batches:
+                def get(self, name):
+                    outer.calls += 1
+                    outcome = outer.outcomes.pop(0)
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+                    return outcome
+
+            self.batches = Batches()
+
+    def test_transient_error_classification(self):
+        self.assertTrue(app._transient_api_error(TimeoutError("late")))
+        self.assertFalse(app._transient_api_error(ValueError("bad")))
+
+    def test_retries_transient_poll_errors(self):
+        client = self._Client([
+            TimeoutError("late"),
+            TimeoutError("late"),
+            self._Batch("JOB_STATE_SUCCEEDED"),
+        ])
+        with mock.patch.object(app, "wait_target", return_value="batches/1"), \
+             mock.patch.object(app, "vt_supported", return_value=False), \
+             mock.patch.object(app, "_wait_for_key", return_value=None), \
+             mock.patch.object(app, "log"), \
+             mock.patch.object(app, "format_state", side_effect=lambda s: s):
+            _, state, detached = app.wait_for_completion(
+                Path("/tmp/folder"), {}, client)
+        self.assertEqual(state, "JOB_STATE_SUCCEEDED")
+        self.assertFalse(detached)
+        self.assertEqual(client.calls, 3)
+
+    def test_non_transient_error_propagates(self):
+        client = self._Client([ValueError("bad")])
+        with mock.patch.object(app, "wait_target", return_value="batches/1"), \
+             mock.patch.object(app, "vt_supported", return_value=False):
+            with self.assertRaises(ValueError):
+                app.wait_for_completion(Path("/tmp/folder"), {}, client)
 
 
 class RestartTests(unittest.TestCase):

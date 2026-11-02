@@ -36,24 +36,21 @@ from . import update  # noqa: F401
 
 
 def status_bar_line(key=None, extra=""):
-    """하단 상태 한 줄을 문자열로 만듭니다."""
-    caps = app.capabilities()
-    entries = app.key_entries()
-    has_key = bool(key or entries or app.current_key())
-    label = f"API {app.accent('✓') if has_key else app.warn('✗')}"
-    if entries:
-        label += f" {app.key_summary(entries)}"
-    parts = [label,
-             f"ffmpeg {app.accent('✓') if caps['ffmpeg'] else app.warn('✗')}",
-             f"SDK {app.accent('✓') if caps['sdk'] else app.warn('✗')}"]
+    """막는 문제만 한 줄로 만듭니다. 정상이면 빈 문자열입니다."""
+    has_key = bool(key or app.key_entries() or app.current_key())
+    parts = []
+    if not has_key:
+        parts.append(f"{app.warn('키 없음')} {app.dim('· k로 추가')}")
     if extra:
         parts.append(extra)
-    return f"  {app.dim(' · '.join(parts))}"
+    return f"  {' · '.join(parts)}" if parts else ""
 
 
 def status_bar(key=None, extra=""):
-    """하단 한 줄. 화면마다 키·ffmpeg·SDK 상태를 같은 자리에 보여줍니다."""
-    print(app.status_bar_line(key, extra))
+    """하단 한 줄. 정상일 때는 아무것도 그리지 않습니다."""
+    line = app.status_bar_line(key, extra)
+    if line:
+        print(line)
 
 
 def _count_media(folder):
@@ -415,7 +412,7 @@ def browse_folder(start=None):
             info.append(("안내", "이 폴더에는 MP4/M4A가 없습니다. 하위 폴더를 열어 보세요."))
         answer = app.select_menu(
             "폴더 열기", options, info, allow_back=True, left_up=True,
-            footer="↑↓ 이동 · ← 상위 · Enter 열기 · Esc 나가기")
+            footer="↑↓ 이동 · ← 상위 · Enter 열기 · Esc 뒤로")
         if answer is app.BACK or answer == "__cancel__":
             return None
         if answer is app.UP or answer == "__up__":
@@ -454,7 +451,7 @@ def add_key_flow(default_tier=None):
     answer = app.select_menu(
         "키 등급", options,
         [("API 키", "GEMINI_API_KEY 환경변수도 사용할 수 있습니다")],
-        heading="키 추가", subtitle="free / paid", allow_back=True)
+        heading="키 추가", subtitle="무료 / 유료", allow_back=True)
     if answer is app.BACK or answer == "back":
         return None
     tier = answer
@@ -513,7 +510,7 @@ def manage_keys(key=None):
         ]
         answer = app.select_menu(
             "API 키 관리", options, info, allow_back=True,
-            heading="API 키", subtitle="free / paid")
+            heading="API 키", subtitle="무료 / 유료")
         if answer is app.BACK or answer == "back":
             return app.current_key()
         if answer == "add":
@@ -534,7 +531,7 @@ def manage_keys(key=None):
                 allow_back=True, heading="키 삭제", subtitle=target["label"])
             if confirmed == "yes":
                 app.delete_key_entry(identifier)
-                app.notice(f"{target['label']} 키를 삭제했습니다.")
+                app.notice(f"{target['label']} 키를 삭제했습니다.", level="ok")
                 app.wait()
 
 
@@ -582,6 +579,7 @@ def run_with_client(key, action, purpose="작업", tier=None):
             try:
                 return key, action(client)
             except APIError as exc:
+                app.log_exception(f"{purpose} API 오류 ({exc.code})", exc)
                 if exc.code in (401, 403):
                     app.notice(f"API 키 오류 ({exc.code}): {exc}")
                     failed = key
@@ -716,7 +714,7 @@ def _archive_job(folder):
 def new_job_flow(folder):
     facts = app.inspect_folder(folder)
     if facts["stage"] in ("ready", "empty", "missing"):
-        app.notice("이미 새 작업을 시작할 수 있는 상태입니다.")
+        app.notice("이미 새 작업을 시작할 수 있는 상태입니다.", level="info")
         app.wait()
         return
     info = [("폴더", app.short_path(folder)),
@@ -933,7 +931,7 @@ def refresh_remote(folders, key):
         if facts["submitted"] and not facts["output"]:
             targets.append(folder)
     if not targets:
-        app.notice("확인할 제출 작업이 없습니다.")
+        app.notice("확인할 제출 작업이 없습니다.", level="info")
         app.wait()
         return key
     key = app.ensure_paid_key(key)
@@ -980,11 +978,12 @@ def home_lines(entries, cursor, key, folder_count):
         lines.append(f"  {app.dim('작업')}")
         lines.append("")
     else:
-        lines.append(f"  {app.dim('최근 작업이 없습니다. [새 전사]로 시작하세요.')}")
+        lines.append(f"  {app.dim('아직 작업이 없습니다. Enter를 눌러 폴더를 고르세요.')}")
         lines.append("")
     for index, entry in enumerate(entries):
         if entry is None:
-            lines.append(f"  {app.dim('─' * app.WIDTH)}")
+            if folder_count:
+                lines.append(f"  {app.dim('─' * app.WIDTH)}")
             continue
         label, desc, faded = entry[1], entry[2], entry[3]
         text = app.pad(app.clip(label, label_width), label_width)
@@ -997,8 +996,10 @@ def home_lines(entries, cursor, key, folder_count):
         else:
             lines.append(f"    {text}   {tail}")
     lines.append("")
-    lines.append(app.status_bar_line(key))
-    lines.append(f"  {app.dim('↑↓ 이동 · Enter 선택 · d 드롭 · v 업데이트 · k 키 · u 사용량 · s 설정 · m 유료 일괄 · q 종료')}")
+    bar = app.status_bar_line(key)
+    if bar:
+        lines.append(bar)
+    lines.append(f"  {app.dim('↑↓ 선택 · Enter 열기 · d 드롭 · ? 도움말')}")
     return lines
 
 
@@ -1012,17 +1013,19 @@ def help_screen():
     app.header("도움말", "날먹 v" + app.__version__)
     for label, desc in (
         ("Enter", "선택 · 전사"),
+        ("Tab", "무료 live ↔ 유료 Batch 전환"),
         ("d", "드롭 · 붙여넣기 (폴더/MP4/M4A)"),
-        ("v", "업데이트 확인 (패키징 설치)"),
+        ("v", "업데이트 확인"),
         ("Esc / ←", "뒤로"),
         ("k", "API 키 변경"),
         ("s", "설정 · 환경 점검"),
-        ("m", "여러 폴더 유료 Batch"),
+        ("m", "여러 폴더 제출"),
         ("u", "사용량 · 누적 비용"),
         ("r", "제출한 Batch 원격 상태 새로고침"),
         ("a", "고급 메뉴 (재시도 · 보관 · 상태)"),
-        ("l", "무료 live 전사 (Batch 없이)"),
-        ("b", "대기 중 백그라운드로 전환"),
+        ("e", "예상 비용 상세 (준비 화면)"),
+        ("c", "비용 상세 (완료 화면)"),
+        ("b", "폴더 내용 (준비 화면) · 대기 중 백그라운드"),
         ("?", "이 도움말"),
         ("q", "종료"),
     ):
@@ -1058,7 +1061,7 @@ def home_screen(key):
             None,
             ("open", "새 전사", "폴더를 고르거나 경로를 붙여넣기"),
             ("drop", "드롭 · 붙여넣기", "끌어다 놓으면 바로 전사 · 직접 입력도 가능"),
-            ("multi", "여러 폴더 유료 Batch", f"{candidates}개 준비됨", not candidates),
+            ("multi", "여러 폴더 제출", f"{candidates}개 준비됨", not candidates),
             ("refresh", "원격 상태 새로고침", "제출한 Batch 상태 확인",
              not has_remote),
             ("stats", "사용량", "지금까지 쓴 금액과 평균"),
@@ -1147,7 +1150,7 @@ def folder_menu(folder, facts):
         options.append(("start", "제출 이어서 하기", "이미 준비된 작업을 제출합니다"))
     elif stage == "live":
         if facts.get("mixed"):
-            label = ("혼합 이어서 하기" if facts.get("paid_groups")
+            label = ("무료 + 유료 이어서" if facts.get("paid_groups")
                      else "무료 전사 이어서 하기")
         else:
             label = "live 이어서 하기"
@@ -1281,7 +1284,8 @@ def folder_session(folder, key):
                     app.notice(str(exc))
                 else:
                     app.notice("감시를 중단했습니다." if terminated
-                           else "PID 파일을 정리했습니다.")
+                           else "PID 파일을 정리했습니다.",
+                           level="info")
                 app.wait()
         elif answer == "merge":
             key = app.merge_flow(folder, key)
@@ -1297,8 +1301,10 @@ def folder_session(folder, key):
             app.open_result_action(folder)
         elif answer == "copy":
             path = str(app.output_path(folder))
-            app.notice("경로를 복사했습니다." if app.copy_to_clipboard(path)
-                   else "클립보드 도구를 찾지 못했습니다.")
+            copied = app.copy_to_clipboard(path)
+            app.notice("경로를 복사했습니다." if copied
+                   else "클립보드 도구를 찾지 못했습니다.",
+                   level="ok" if copied else "warn")
             app.log(f"  {path}")
             app.wait()
         elif answer == "cost":
@@ -1339,7 +1345,7 @@ def multi_submit(key):
     if chosen is app.BACK:
         return key
     if not chosen:
-        app.notice("선택한 폴더가 없습니다.")
+        app.notice("선택한 폴더가 없습니다.", level="info")
         app.wait()
         return key
     selected = [Path(value) for value in chosen]
@@ -1449,7 +1455,7 @@ def settings_menu(key):
         if env:
             info.append(("환경변수", app.key_row_desc(env)))
         answer = app.select_menu("설정", [
-            ("keys", "API 키 관리", f"{app.key_summary(entries)} · free / paid"),
+            ("keys", "API 키 관리", f"{app.key_summary(entries)} · 무료 / 유료"),
             ("recent", "최근 작업 목록 비우기", f"{len(app.recent_folders())}개",
              not app.recent_folders()),
             ("diag", "진단 정보", "환경과 경로를 자세히 봅니다"),
@@ -1461,7 +1467,7 @@ def settings_menu(key):
             key = app.manage_keys(key)
         elif answer == "recent":
             app.clear_recent()
-            app.notice("최근 작업 목록을 비웠습니다.")
+            app.notice("최근 작업 목록을 비웠습니다.", level="info")
             app.wait()
         elif answer == "diag":
             app.show_lines("진단 정보", app.short_path(Path.cwd()), app.diagnostics_lines())
@@ -1484,20 +1490,43 @@ def message_screen(folder, title, lines, hint="Enter 돌아가기"):
 
 
 def start_screen(folder, facts, key):
-    """화면 3-1. 무료 계획을 먼저 보여주고 Enter 로 시작을 받습니다."""
+    """화면 3-1. 기본은 무료 live, Tab 으로 유료 Batch를 고릅니다."""
     if facts["mp4"] and not app.find_tool("ffmpeg"):
         app.ensure_ffmpeg()
-    free_keys = app.key_entries_for_tier("free")
-    paid_keys = app.key_entries_for_tier("paid")
     prepared = facts["stage"] == "prepared"
-    lines = []
-    error = ""
-    if not free_keys or prepared:
-        try:
-            lines = app.estimate_lines(folder, app.folder_model(folder))
-        except (RuntimeError, OSError) as exc:
-            error = str(exc)
+    mode = "paid" if prepared else "free"
+    summaries = {}
+
+    def free_summary():
+        if "free" not in summaries:
+            try:
+                summaries["free"] = app.mixed_preview_lines(
+                    folder, app.folder_model(folder), paid_keys=[])
+            except (RuntimeError, OSError, ValueError):
+                summaries["free"] = []
+        return summaries["free"]
+
+    def paid_summary():
+        if "paid" not in summaries:
+            try:
+                values = app.estimate_values(folder, app.folder_model(folder))
+                text = app.duration_text(values["seconds"])
+                if values.get("cost") is not None:
+                    text += f" · 유료 Batch {app.money(values['cost'])}"
+                summaries["paid"] = [text]
+            except (RuntimeError, OSError, ValueError):
+                summaries["paid"] = []
+        return summaries["paid"]
+
     while True:
+        free_keys = app.key_entries_for_tier("free")
+        paid_keys = app.key_entries_for_tier("paid")
+        if prepared:
+            mode = "paid"
+        elif mode == "free" and not free_keys:
+            mode = "paid"
+        elif mode == "paid" and not paid_keys:
+            mode = "free"
         app.header("전사", app.short_path(folder))
         detail = f"오디오 {facts['m4a'] + facts['mp4']}개"
         if facts["pdf"]:
@@ -1506,77 +1535,50 @@ def start_screen(folder, facts, key):
             detail += " · MP4 먼저 변환"
         print(f"  {app.dim(detail)}")
         print()
-        if lines:
-            for line in lines:
+        summary = paid_summary() if mode == "paid" else free_summary()
+        if summary:
+            for line in summary:
                 print(f"  {line}")
-        elif not free_keys or prepared:
-            app.notice("예상 비용을 계산하지 못했습니다.")
-            if error:
-                print(f"  {app.dim(app.clip(error, app.WIDTH - 4))}")
-        preview = []
-        overflow = False
-        if free_keys and not prepared:
-            try:
-                preview = app.mixed_preview_lines(folder, app.folder_model(folder),
-                                              paid_keys=[])
-            except (RuntimeError, OSError, ValueError):
-                preview = []
-            overflow = any("유료 키 필요" in line for line in preview)
-        if preview:
-            print()
-            for line in preview:
-                print(f"  {line}")
-        elif free_keys and not prepared:
-            app.notice("무료 계획을 계산하지 못했습니다. e로 예상 비용을 확인하세요.")
-        print(f"  {app.dim('l 무료 live · 첫 번째 무료 키 · 130분 그룹 · 자동 간격')}")
-        print()
-        app.status_bar(key)
-        if prepared:
-            app.footer("Enter 제출 이어서 하기 · p 유료 Batch · l 무료 live · "
-                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
-        elif free_keys and overflow:
-            app.footer("Enter 무료 키만으론 부족 · p 유료 Batch 포함 · "
-                   "k 키 관리 · e 비용 · b 파일 · a 고급 · Esc 뒤로")
-        elif free_keys:
-            app.footer("Enter 무료 전사 · p 유료 Batch 포함 · l 무료 live · "
-                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
         else:
-            app.footer("Enter 무료 키 추가 · p 유료 Batch · "
-                   "e 비용 · b 파일 · a 고급 · Esc 뒤로")
+            app.notice("예상 비용을 계산하지 못했습니다. e로 다시 확인하세요.",
+                       level="info")
+        overflow = any("유료 키 필요" in line for line in summary)
+        if prepared:
+            app.footer("Enter 제출 이어서 · Esc 뒤로 · a 고급 · ? 도움말")
+        else:
+            hint = "Enter 무료 전사" if mode == "free" else "Enter 유료 Batch"
+            if free_keys and paid_keys:
+                hint += " · Tab " + ("유료 Batch" if mode == "free" else "무료 live")
+            hint += " · Esc 뒤로 · ? 도움말"
+            app.footer(hint)
         pressed = app.read_key()
+        if pressed == "tab":
+            if free_keys and paid_keys and not prepared:
+                mode = "paid" if mode == "free" else "free"
+            continue
         if pressed in ("enter", "right"):
             if prepared:
                 return "start"
-            if not free_keys:
-                return "keys"
-            if overflow:
-                print()
-                app.notice("무료 키 용량을 넘는 분량이 있습니다. p를 눌러 "
-                       "유료 Batch를 포함하거나 k에서 무료 키를 추가하세요.")
-                app.wait()
-                continue
-            return "mixed_free"
-        if pressed == "p":
-            if prepared:
-                return "start"
+            if mode == "free":
+                if not free_keys:
+                    return "keys"
+                if overflow:
+                    print()
+                    app.notice("무료 키 용량을 넘는 분량이 있습니다. "
+                           "Tab으로 유료 Batch를 고르거나 "
+                           "k에서 무료 키를 추가하세요.")
+                    app.wait()
+                    continue
+                return "mixed_free"
             if not paid_keys:
                 print()
-                app.notice("유료 Batch에 사용할 유료 키가 없습니다. 설정에서 "
-                       "유료 키를 추가하거나 Enter로 무료 전사를 실행하세요.")
+                app.notice("유료 Batch에 사용할 유료 키가 없습니다. "
+                           "k에서 유료 키를 추가하세요.")
                 app.wait()
                 continue
-            if not free_keys:
-                return "start"
-            return "mixed_paid"
+            return "start"
         if pressed in ("esc", "left"):
             return "back"
-        if pressed == "l":
-            if not free_keys:
-                print()
-                app.notice("무료 live에는 무료 키가 필요합니다. k에서 키를 추가하세요.")
-                app.wait()
-                continue
-            return "live"
         if pressed == "k":
             return "keys"
         if pressed == "a":
@@ -1585,6 +1587,8 @@ def start_screen(folder, facts, key):
             app.estimate_action(folder)
         elif pressed == "b":
             app.file_list_screen(folder)
+        elif pressed in ("?", "h"):
+            app.help_screen()
 
 
 def upload_session(folder, key, model=None):
@@ -1617,13 +1621,20 @@ def exhausted_free_session(folder, key):
         app.notice(f"유료 예상 비용을 계산하지 못했습니다: {exc}")
         app.wait()
         return app.folder_session(folder, key)
-    answer = app.select_menu("무료 키가 모두 제한되었습니다. 유료 키로 진행할까요?", [
-        ("paid", "유료 새 작업", "기존 기록을 보관하고 폴더 전체를 다시 전사합니다"),
-        ("stop", "중단", "무료 작업 기록을 유지합니다"),
-    ], [("범위", "폴더 전체 · 무료 완료분도 다시 전사"),
+    cost = values.get("cost")
+    cost_text = app.money(cost) if cost is not None else "계산 불가"
+    paid_desc = "폴더 전체를 다시 전사합니다"
+    if cost is not None:
+        paid_desc = f"폴더 전체 재전사 · {app.money(cost)}"
+    answer = app.select_menu("무료 키 한도", [
+        ("stop", "나중에 이어서",
+         "완료된 부분은 저장됩니다 · 한도가 풀리면 이어서 할 수 있습니다"),
+        ("paid", "지금 유료로 끝내기", paid_desc),
+    ], [("", "무료 키가 모두 한도에 걸렸습니다. 완료된 부분은 저장되어 있습니다."),
+        ("범위", "유료 선택 시 폴더 전체 · 무료 완료분도 다시 전사"),
         ("오디오", f"{values['files']}개 · {app.duration_text(values['seconds'])}"),
-        ("예상 Batch 비용", app.money(values["cost"]))], allow_back=True,
-        heading="무료 키 제한", subtitle=folder.name)
+        ("예상 Batch 비용", cost_text)], allow_back=True,
+        heading="무료 키 한도", subtitle=folder.name)
     if answer != "paid":
         return app.folder_session(folder, key)
     paid_key = app.paid_key_for_batch(key)
@@ -1652,7 +1663,7 @@ def mixed_session(folder, key, include_paid=True):
     paid_keys = app.key_entries_for_tier("paid") if include_paid else []
     show_paid = include_paid and (
         bool(state.get("paid")) if resume else bool(paid_keys))
-    app.header("자동 전사" if show_paid else "무료 전사", folder.name)
+    app.header("무료 + 유료 전사" if show_paid else "무료 전사", folder.name)
     if show_paid:
         print(f"  {app.dim('무료 키를 먼저 쓰고, 남는 오디오는 유료 Batch로 보냅니다.')}")
     else:
@@ -1685,7 +1696,7 @@ def mixed_session(folder, key, include_paid=True):
                      else any("유료 Batch" in line for line in plan))
     if include_paid and will_use_paid and not resume:
         print()
-        app.footer("Enter 유료 Batch 포함 실행 · Esc 취소")
+        app.footer("Enter 유료 Batch 포함 실행 · Esc 뒤로")
         if app.read_key() not in ("enter", "right"):
             return app.folder_session(folder, key)
     print()
@@ -1768,6 +1779,9 @@ def wait_session(folder, key):
     key = app.ensure_paid_key(key)
     if not key:
         return key
+    app.header("완료 대기", folder.name)
+    print(f"  {app.dim('보통 10분~1시간 걸립니다 · Esc로 백그라운드 전환')}")
+    print()
 
     def action(client):
         try:
@@ -1791,8 +1805,9 @@ def wait_session(folder, key):
         return "back" if result == "back" else "done"
 
     key, outcome = app.run_with_client(key, action, "완료 대기", "paid")
-    sys.stdout.write("\r\033[K")
-    sys.stdout.flush()
+    if outcome is not None:
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
     if outcome == "detach":
         _, message = app.start_watcher(folder, key)
         app.message_screen(folder, "백그라운드 전환", [
@@ -1804,6 +1819,12 @@ def wait_session(folder, key):
     elif outcome == "error":
         app.message_screen(folder, "완료되지 않음", [
             "고급 메뉴(a)에서 상태를 확인하거나 재시도할 수 있습니다.",
+        ])
+    elif outcome is None:
+        app.message_screen(folder, "완료 대기 실패", [
+            "네트워크 또는 API 오류로 대기를 멈췄습니다.",
+            "다시 들어가면 제출된 작업을 이어서 기다립니다.",
+            f"원인은 {app.short_path(app.debug_log_path())}에 남았습니다.",
         ])
     return key
 
@@ -1835,12 +1856,12 @@ def done_screen(folder, key):
     """완료·변경·비어 있음 등 마무리 상태를 한 화면에서 처리합니다."""
     while True:
         facts = app.inspect_folder(folder)
-        app.header("완료" if facts["output"] else "상태", app.short_path(folder))
-        if facts["output"]:
+        output = facts["output"]
+        app.header("완료" if output else "확인 필요", app.short_path(folder))
+        if output:
             print(f"  {app.accent('✓')} {app.bold(app.output_path(folder).name)}")
-            print()
-        print(f"  {app.pad('상태', app.LABEL_WIDTH)}  {app.stage_label(facts)}")
-        print(f"  {app.pad('폴더', app.LABEL_WIDTH)}  {app.short_path(folder)}")
+        else:
+            print(f"  {app.stage_label(facts)}")
         lines = []
         job = app.read_json_object(app.state_path(folder))
         if job is None:
@@ -1850,17 +1871,17 @@ def done_screen(folder, key):
                 lines = app.cost_lines(folder, job)
             except (RuntimeError, OSError, ValueError):
                 lines = []
-        if lines:
-            print()
-            for line in lines:
-                print(f"  {line}")
-        print()
-        app.status_bar(key)
-        app.footer("Enter 결과 열기 · c 비용 · d 폴더 · n 새 작업 · a 고급 · Esc 뒤로")
+        summary = next((line.strip() for line in lines if "실제 비용" in line), "")
+        if summary:
+            print(f"  {app.dim(summary)}")
+        if output:
+            app.footer("Enter 결과 열기 · n 새 작업 · a 고급 · ? 도움말")
+        else:
+            app.footer("a 고급 · Esc 뒤로 · ? 도움말")
         pressed = app.read_key()
         if pressed in ("esc", "left", "q"):
             return key
-        if pressed in ("enter", "right") and facts["output"]:
+        if pressed in ("enter", "right") and output:
             app.open_result_action(folder)
         elif pressed == "c":
             app.show_lines("비용", folder.name, lines or ["아직 비용 기록이 없습니다."])
@@ -1871,6 +1892,8 @@ def done_screen(folder, key):
             return key
         elif pressed == "a":
             return app.folder_session(folder, key)
+        elif pressed in ("?", "h"):
+            app.help_screen()
 
 
 def session_screen(folder, key):
@@ -1922,6 +1945,7 @@ def session_screen(folder, key):
         if not done:
             app.message_screen(folder, "제출하지 못했습니다", [
                 "업로드가 끝나지 않았습니다. 다시 시도하거나 고급 메뉴(a)를 쓰세요.",
+                f"원인은 {app.short_path(app.debug_log_path())}에 남았습니다.",
             ])
             return key
         return app.wait_session(folder, key)
@@ -1965,7 +1989,7 @@ def show_drop_summary(results):
     if copied:
         print(f"  결과 폴더  {app.short_path(app.documents_dir())}")
         print()
-    app.wait("Enter 닫기")
+    app.wait("Enter 돌아가기")
 
 
 def drop_paths_screen():

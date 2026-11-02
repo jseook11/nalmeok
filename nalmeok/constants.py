@@ -10,7 +10,7 @@ import nalmeok as app  # noqa: E402
 같은 모델을 일반 API로 부르면 두 배, gpt-4o-transcribe로 하면 약 7배가 됩니다.
 
 사용법:
-  nalmeok                           # 키 → 작업 → 진행 3화면
+  nalmeok                           # 키 → 대시보드 → 진행
   nalmeok estimate ./lecture        # 길이·토큰·예상 비용
   nalmeok convert ./lecture         # MP4 -> M4A (ffmpeg, 원본 유지)
   nalmeok upload ./lecture          # M4A 없으면 자동 변환 후 Batch 제출
@@ -22,7 +22,7 @@ import nalmeok as app  # noqa: E402
   nalmeok stats                     # 지금까지 쓴 금액 합계와 평균
   nalmeok drop ./lecture ./week1.mp4 # 드롭한 폴더·파일 전사 후 Documents\nalmeok
 
-인자 없이 실행하면 키 → 작업 → 진행 3화면으로 이어집니다. 키가 없을 때만 첫 화면에서
+인자 없이 실행하면 키 → 대시보드 → 진행 순서로 이어집니다. 키가 없을 때만 첫 화면에서
 물어보고, Enter 를 누르면 과금 없이 확인한 뒤 저장해 다음 실행부터는 묻지 않습니다
 (~/.config/nalmeok/config.json). 폴더를 고르면 상태에 맞는 작업이 한 화면에서 이어지고,
 대기 중 Esc 또는 b 를 누르면 백그라운드로 전환되어 메뉴로 돌아옵니다. 여러 폴더를 골라
@@ -218,7 +218,8 @@ ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 BACK = object()
 UP = object()
 ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left",
-          "OA": "up", "OB": "down", "OC": "right", "OD": "left"}
+          "OA": "up", "OB": "down", "OC": "right", "OD": "left",
+          "[Z": "tab"}
 WIN_ARROWS = {"H": "up", "P": "down", "K": "left", "M": "right"}
 
 

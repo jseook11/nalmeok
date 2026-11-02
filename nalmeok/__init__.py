@@ -390,6 +390,7 @@ _MAP = {
     'background_entry': 'cli',
     'main': 'cli',
     '_api_error_class': 'engine',
+    '_transient_api_error': 'engine',
     'cli': 'cli',
 }
 

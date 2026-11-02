@@ -1550,50 +1550,80 @@ def wait_for_completion(folder, job, client, interval=app.POLL_SECONDS,
         app.write_watch_status(folder, reset=True, state="STARTING", label="대기 시작",
                            started=started_wall)
     with app.cbreak_keys() as keys:
-        view = {"state": "JOB_STATE_PENDING", "elapsed": 0, "frame": 0}
+        view = {"state": "JOB_STATE_PENDING", "elapsed": 0, "frame": 0,
+                "retry": 0}
 
         def draw():
             if not live:
                 return
             view["frame"] += 1
             frame = frames[view["frame"] % len(frames)]
-            hint = "b 백그라운드" if (keys and allow_detach) else "Ctrl+C 중단"
+            view["elapsed"] = int(time.monotonic() - started)
+            hint = "Esc 백그라운드" if (keys and allow_detach) else "Ctrl+C 중단"
+            if view["retry"]:
+                hint = f"재연결 {view['retry']}/3 · {hint}"
             sys.stdout.write(
                 f"\r\033[K  {app.accent(frame)} {app.format_state(view['state'])}"
                 f"   {app.clock_text(view['elapsed'])}   {app.pulse_bar(14, view['frame'])}"
                 f"   {app.dim(hint)}")
             sys.stdout.flush()
 
+        batch = None
+        failures = 0
         while True:
-            batch = client.batches.get(name=target)
-            state = app.batch_state(batch)
+            retry = False
+            try:
+                batch = client.batches.get(name=target)
+            except Exception as exc:
+                # 제출 직후 404·5xx·네트워크 오류는 잠시 뒤 풀리는 경우가 있습니다.
+                if not _transient_api_error(exc) or failures >= 3:
+                    raise
+                failures += 1
+                retry = True
+                state = view["state"]
+                error_text = str(exc)
+            else:
+                failures = 0
+                state = app.batch_state(batch)
             elapsed = int(time.monotonic() - started)
             clock = f"{elapsed // 60}분 {elapsed % 60:02d}초"
-            view["state"], view["elapsed"] = state, elapsed
+            view["state"], view["elapsed"], view["retry"] = state, elapsed, failures
             if track:
-                app.write_watch_status(folder, state=state, label=app.format_state(state),
-                                   elapsed=elapsed, started=started_wall)
+                if retry:
+                    app.write_watch_status(folder, state=state, label="연결 재시도",
+                                       elapsed=elapsed, started=started_wall,
+                                       error=error_text)
+                else:
+                    app.write_watch_status(folder, state=state,
+                                       label=app.format_state(state),
+                                       elapsed=elapsed, started=started_wall)
             if live:
                 draw()
+            elif retry:
+                app.log(f"연결 재시도 {failures}/3 · {error_text}")
             elif state != last:
                 app.log(f"{app.format_state(state)} · 경과 {clock}")
-            last = state
-            if state in app.TERMINAL_STATES:
-                if live:
-                    sys.stdout.write(f"\r\033[K  {app.accent('●')} "
-                                     f"{app.format_state(state)} · 총 {app.clock_text(elapsed)}\n")
-                    sys.stdout.flush()
-                if track:
-                    app.write_watch_status(folder, state=state, label=app.format_state(state),
-                                       elapsed=elapsed, finished=time.time())
-                return batch, state, False
-            pressed = app._wait_for_key(interval, allow_detach and keys, tick=draw)
+            if not retry:
+                last = state
+                if state in app.TERMINAL_STATES:
+                    if live:
+                        sys.stdout.write(f"\r\033[K  {app.accent('●')} "
+                                         f"{app.format_state(state)} · 총 {app.clock_text(elapsed)}\n")
+                        sys.stdout.flush()
+                    if track:
+                        app.write_watch_status(folder, state=state,
+                                           label=app.format_state(state),
+                                           elapsed=elapsed, finished=time.time())
+                    return batch, state, False
+            wait = min(interval, 5) if retry else interval
+            pressed = app._wait_for_key(wait, allow_detach and keys, tick=draw)
             if pressed in ("b", "esc"):
                 if live:
                     sys.stdout.write("\n")
                     sys.stdout.flush()
                 if track:
-                    app.write_watch_status(folder, state=state, label=app.format_state(state),
+                    app.write_watch_status(folder, state=state,
+                                       label=app.format_state(state),
                                        elapsed=elapsed, detached=True)
                 return batch, state, True
 
@@ -1680,3 +1710,12 @@ def _api_error_class():
         return APIError
     except ImportError:
         return None
+
+
+def _transient_api_error(exc):
+    """Batch 폴링 중 잠시 뒤 다시 시도할 만한 오류인지 판단합니다."""
+    api_error = app._api_error_class()
+    if api_error is not None and isinstance(exc, api_error):
+        code = getattr(exc, "code", None)
+        return code in (404, 408, 429) or (isinstance(code, int) and code >= 500)
+    return isinstance(exc, (ConnectionError, TimeoutError))

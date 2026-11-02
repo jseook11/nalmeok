@@ -221,7 +221,7 @@ def main():
                 preview = app.estimate_lines(folder, args.model)
             except (RuntimeError, OSError) as exc:
                 preview = [f"예상 비용을 계산하지 못했습니다: {exc}"]
-        app.section("자동 전사", str(folder))
+        app.section("무료 + 유료 전사", str(folder))
         for line in preview:
             app.log(line)
         if any("유료 키 필요" in line for line in preview):

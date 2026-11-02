@@ -138,8 +138,7 @@ def ensure_paid_key(key=None):
     candidate = app.paid_key_for_batch(key)
     if candidate:
         return candidate
-    app.notice("유료 Batch에는 유료 API 키가 필요합니다. 설정에서 유료 키를 추가하거나 "
-           "l(무료 live)로 실행하세요.")
+    app.notice("유료 Batch에는 유료 API 키가 필요합니다. k에서 유료 키를 추가하세요.")
     app.wait()
     return None
 LABEL_WIDTH = 11
@@ -316,7 +315,7 @@ def header(title="", subtitle=""):
 
 def footer(hint):
     print()
-    print(f"  {app.dim(hint)}")
+    print(f"  {app.dim(app.clip(hint, app.WIDTH - 2))}")
 
 
 def pulse_bar(width, step, size=3):
@@ -354,8 +353,16 @@ def screen(title="", subtitle=""):
         app.banner()
 
 
-def notice(message):
-    print(f"  {app.warn('!')} {message}")
+def notice(message, level="warn"):
+    """알림 한 줄. level 은 ok·info·warn·error 이고 기본은 warn 입니다."""
+    marks = {
+        "ok": ("✓", app.accent),
+        "info": ("·", app.dim),
+        "warn": ("!", app.warn),
+        "error": ("✗", app.warn),
+    }
+    mark, paint = marks.get(level, marks["warn"])
+    print(f"  {paint(mark)} {message}")
 
 
 def clip(text, width):
@@ -478,6 +485,8 @@ def map_windows_key(char, next_char=None):
         return app.WIN_ARROWS.get(next_char, "other")
     if char in ("\r", "\n"):
         return "enter"
+    if char == "\t":
+        return "tab"
     if char == "\x03":
         raise KeyboardInterrupt
     if char == "\x04":
@@ -568,6 +577,8 @@ def read_key():
             char = os.read(fd, 1).decode("utf-8", "ignore")
             if char in ("\r", "\n"):
                 return "enter"
+            if char == "\t":
+                return "tab"
             if char == "\x03":
                 raise KeyboardInterrupt
             if char == "\x04":
@@ -811,7 +822,7 @@ def select_many(title, options, info=(), heading=None, subtitle=""):
 def choose_retry(count):
     answer = app.select_menu("재시도 방식", [
         ("live", "live", "지금 재요청 (일반 API 요금, 최대 3회)"),
-        ("batch", "batch", "실패한 파일만 새 Batch로 제출"),
+        ("batch", "Batch", "실패한 파일만 새 Batch로 제출"),
         ("none", "none", "재시도하지 않음"),
         None,
         ("back", "이전", "", True),

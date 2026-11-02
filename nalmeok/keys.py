@@ -301,9 +301,9 @@ def key_summary(entries=None):
         return "없음"
     parts = []
     if free:
-        parts.append(f"무료 {free}")
+        parts.append(f"무료 키 {free}개")
     if paid:
-        parts.append(f"유료 {paid}")
+        parts.append(f"유료 키 {paid}개")
     return " · ".join(parts)
 
 
