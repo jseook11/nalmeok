@@ -1,9 +1,11 @@
 // Package output merges transcription chunks and writes .md files next to
-// their source without ever overwriting an existing result.
+// their source without ever overwriting an existing result (see WriteNew).
 package output
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,4 +112,40 @@ func Write(path, text string) error {
 	}
 	_ = os.Remove(tmpName)
 	return lastErr
+}
+
+// WriteNew writes text to path, or to "name (2).md", "name (3).md"... when
+// that name is taken, and returns the path it used. The name is reserved with
+// an exclusive create before the text goes in, so two writers never pick the
+// same file and an existing file is never replaced.
+func WriteNew(path, text string) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for i := 1; i <= 9999; i++ {
+		candidate := path
+		if i > 1 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			_ = os.Remove(candidate)
+			return "", err
+		}
+		// The reserved empty file is replaced atomically by the full text.
+		if err := Write(candidate, text); err != nil {
+			_ = os.Remove(candidate)
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("이름을 정하지 못했어요: %s", filepath.Base(path))
 }

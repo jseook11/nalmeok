@@ -1418,8 +1418,8 @@ func (r *Runner) finish(id string) error {
 	if merged == "" {
 		return userError{errors.New("결과가 비어 있어요")}
 	}
-	target := output.UniquePath(output.TargetPath(item.Source, item.Kind))
-	if err := output.Write(target, merged); err != nil {
+	target, err := output.WriteNew(output.TargetPath(item.Source, item.Kind), merged)
+	if err != nil {
 		return userError{fmt.Errorf("결과 파일을 저장하지 못했어요: %v", err)}
 	}
 	if err := r.update(id, func(it *store.Item) {
