@@ -38,10 +38,12 @@ type Item struct {
 	Batch     *BatchRef `json:"Batch"`
 }
 
-// Unit is one transcription request and its result.
+// Unit is one transcription request and its result. MIMEs runs parallel to
+// Files so uploads keep the MIME the media package chose (audio/m4a etc.).
 type Unit struct {
 	Index   int      `json:"Index"`
 	Files   []string `json:"Files"`
+	MIMEs   []string `json:"MIMEs,omitempty"`
 	Seconds float64  `json:"Seconds"`
 	Text    string   `json:"Text"`
 }

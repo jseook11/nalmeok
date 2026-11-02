@@ -75,7 +75,7 @@ TUI 전체, 작업 단계 9종, 여러 폴더 제출, 원격 새로고침, 감�
 go.mod                      module github.com/jseook11/nalmeok
 cmd/nalmeok/main.go         Wails 앱 진입. frontend/dist를 embed
 internal/config/            경로, config.json(키·설정) 읽기·쓰기
-internal/media/             입력 스캔, 오디오 길이, AAC→ADTS 추출, 분할
+internal/media/             입력 스캔, 오디오 길이, AAC→M4A 리먹스, 분할
 internal/plan/              입력 → 조각(Unit) 계획, 예상 비용 (순수 함수)
 internal/gemini/            업로드, live 호출(키 순환), Batch 제출·조회·결과
 internal/store/             items.json(목록·상태), 검색
@@ -129,7 +129,7 @@ type Upload struct { URI, MIME string; UploadedAt time.Time }
 - 모델 `gemini-3.8-flash`, `thinking_level=low`. 프롬프트는 `nalmeok/constants.py`의 `PROMPT`와 `LIVE_PROMPT`를 글자 그대로 옮긴다(`internal/gemini/prompt.go`, 테스트가 일치를 검사한다). 요청에 오디오 파트가 둘 이상이면 `LIVE_PROMPT`, 하나면 `PROMPT`를 쓴다.
 - 요청 하나의 구성: 프롬프트 텍스트 + (PDF가 있으면 PDF 파일 파트) + 오디오 파일 파트들(시간 순서).
 - **조각 계획**: 오디오를 순서대로 요청당 최대 **130분**으로 묶는다. 한 파일이 130분을 넘으면 130분 단위로 자른다. 오디오 토큰은 초당 32로 계산한다(무료 TPM 250k 기준). 이 규칙은 `plan` 패키지의 순수 함수로 두고 테스트한다.
-- **오디오 준비**: m4a/mp4는 AAC 프레임을 꺼내 **ADTS(.aac, `audio/aac`)** 로 저장한다(재인코딩 없음). 분할은 ADTS 프레임 경계에서 한다. mp3는 `audio/mp3`로 그대로 올리고 분할은 프레임 경계, wav는 `audio/wav`로 그대로 올리고 분할은 샘플 경계에서 한다.
+- **오디오 준비**: m4a/mp4는 AAC 프레임을 꺼내 **M4A(MP4 컨테이너, `audio/m4a`)** 로 리먹스한다(재인코딩 없음). 분할은 AAC 프레임 경계에서 한다. mp3는 `audio/mp3`로 그대로 올리고 분할은 프레임 경계, wav는 `audio/wav`로 그대로 올리고 분할은 샘플 경계에서 한다.
 - **업로드는 키별**이다. 파일 URI는 올린 키의 프로젝트에서만 쓸 수 있으므로 키를 바꾸면 다시 올린다.
 - **무료 live**: 무료 키를 순서대로 쓴다. 429를 받으면 다음 키로 넘긴다. 요청 시작 간격은 최소 12초(키별). 일시 오류(5xx, 네트워크)는 지수 백오프로 3회 재시도한다. 모든 무료 키가 429면 `free_exhausted`.
 - **유료 Batch**: 유료 키로 미완 조각마다 요청 하나를 만든다. 요청 키(`key`)는 `unit-<index>`다. JSONL 파일을 올리거나 inline 요청으로 Batch를 만든다. 성공하면 결과를 키로 맞춰 `Unit.Text`에 넣고, 실패한 요청이 있으면 `failed`로 두고 "다시 시도"에서 그 조각만 다시 보낸다.
@@ -166,7 +166,7 @@ func (a *App) DeleteKey(id string) error
 | 단계 | 담당 | 내용 |
 |---|---|---|
 | 1 | dlaude | 골격: go.mod·의존성, `cmd`, `config`, `store`, `output`, `app` 바인딩 껍데기, 프런트(시안 기준), 빌드 스크립트. 테스트 포함 |
-| 2a | Opus 서브에이전트 | `media`(ADTS 추출·분할·길이)와 `plan`. 테스트 음원은 macOS `afconvert`·`say`로 만든다 |
+| 2a | Opus 서브에이전트 | `media`(M4A 리먹스·분할·길이)와 `plan`. 테스트 음원은 macOS `afconvert`·`say`로 만든다 |
 | 2b | Opus 서브에이전트 | `gemini`와 `runner`(live 키 순환, Batch, `free_exhausted`, 재개). 가짜 클라이언트로 테스트 |
 | 3 | 오케스트레이터 | 통합, 짧은 실제 음원으로 무료·Batch 실측, `.app` 빌드, 문서 정리 |
 

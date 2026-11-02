@@ -50,11 +50,11 @@ func (m *fakeMedia) Prepare(t Track, dir string, maxSeconds float64) ([]Piece, e
 	}
 	var out []Piece
 	for i := 0; i < n; i++ {
-		p := filepath.Join(dir, fmt.Sprintf("%s.%03d.aac", filepath.Base(t.Path), i+1))
+		p := filepath.Join(dir, fmt.Sprintf("%s.%03d.m4a", filepath.Base(t.Path), i+1))
 		if err := os.WriteFile(p, []byte(fmt.Sprintf("piece-%d", i)), 0o600); err != nil {
 			return nil, err
 		}
-		out = append(out, Piece{Path: p, MIME: "audio/aac", Seconds: 60})
+		out = append(out, Piece{Path: p, MIME: "audio/m4a", Seconds: 60})
 	}
 	return out, nil
 }
@@ -77,6 +77,7 @@ type fakeClient struct {
 
 	mu        sync.Mutex
 	uploads   []string
+	mimes     []string
 	generates int
 	gen       genFunc
 }
@@ -85,6 +86,7 @@ func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Uploa
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.uploads = append(c.uploads, filepath.Base(path))
+	c.mimes = append(c.mimes, mime)
 	return store.Upload{URI: c.key + ":" + filepath.Base(path), MIME: mime, UploadedAt: time.Now()}, nil
 }
 
@@ -103,7 +105,7 @@ func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (string,
 func answer(parts []gemini.Part) string {
 	var names []string
 	for _, p := range parts {
-		if strings.HasSuffix(p.FileURI, ".aac") {
+		if strings.HasSuffix(p.FileURI, ".m4a") {
 			names = append(names, p.FileURI[strings.Index(p.FileURI, ":")+1:])
 		}
 	}
@@ -320,7 +322,7 @@ func TestFreeSuccessAcrossTwoUnits(t *testing.T) {
 		t.Fatalf("Output = %q, want %q", done.Output, want)
 	}
 	got := readFile(t, want)
-	if got != "T(강의09.m4a.001.aac)\n\nT(강의09.m4a.002.aac)\n" {
+	if got != "T(강의09.m4a.001.m4a)\n\nT(강의09.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q", got)
 	}
 	if done.Progress != 1 || done.Units != nil || done.Batch != nil {
@@ -332,6 +334,11 @@ func TestFreeSuccessAcrossTwoUnits(t *testing.T) {
 	c := h.world.client("AIza-f1")
 	if c.generatesNow() != 2 || c.uploadCount() != 2 {
 		t.Errorf("generates=%d uploads=%d", c.generatesNow(), c.uploadCount())
+	}
+	for _, mime := range c.mimesNow() {
+		if mime != "audio/m4a" {
+			t.Errorf("upload MIME = %q, want audio/m4a", mime)
+		}
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if strings.Contains(logData, "AIza-") {
@@ -373,7 +380,7 @@ func TestFree429RotatesToSecondKey(t *testing.T) {
 	item := h.addOne(h.source("lec.m4a"), "free")
 
 	done := h.wait(item.ID, StateDone)
-	if got := readFile(t, done.Output); got != "T(lec.m4a.001.aac)\n\nT(lec.m4a.002.aac)\n" {
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nT(lec.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q (uploads must come from the key that answered)", got)
 	}
 	if h.world.client("AIza-f2").generatesNow() != 2 {
@@ -422,7 +429,7 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
 	done := h.wait(item.ID, StateDone)
-	if got := readFile(t, done.Output); got != "T(lec.m4a.001.aac)\n\nBT(lec.m4a.002.aac)\n" {
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nBT(lec.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q", got)
 	}
 }
@@ -459,7 +466,7 @@ func TestBatchPartialFailureThenRetry(t *testing.T) {
 	}
 	h.r.PollOnce(h.ctx)
 	done := h.wait(item.ID, StateDone)
-	want := "BT(lec.m4a.001.aac)\n\nBT(lec.m4a.002.aac)\n\nBT(lec.m4a.003.aac)\n"
+	want := "BT(lec.m4a.001.m4a)\n\nBT(lec.m4a.002.m4a)\n\nBT(lec.m4a.003.m4a)\n"
 	if got := readFile(t, done.Output); got != want {
 		t.Fatalf("output = %q", got)
 	}
@@ -472,8 +479,8 @@ func TestResumeRunningItemAfterRestart(t *testing.T) {
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	p0 := filepath.Join(work, "lec.m4a.001.aac")
-	p1 := filepath.Join(work, "lec.m4a.002.aac")
+	p0 := filepath.Join(work, "lec.m4a.001.m4a")
+	p1 := filepath.Join(work, "lec.m4a.002.m4a")
 	for _, p := range []string{p0, p1} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -495,7 +502,7 @@ func TestResumeRunningItemAfterRestart(t *testing.T) {
 	h.r = h.newRunner()
 	h.r.Start(h.ctx)
 	done := h.wait("item-1", StateDone)
-	if got := readFile(t, done.Output); got != "이미 끝남\n\nT(lec.m4a.002.aac)\n" {
+	if got := readFile(t, done.Output); got != "이미 끝남\n\nT(lec.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q", got)
 	}
 	c := h.world.client("AIza-f1")
@@ -510,11 +517,11 @@ func TestResumeRunningItemAfterRestart(t *testing.T) {
 func TestResumeBatchWaitingPollsOnStart(t *testing.T) {
 	h := newHarness(t, paidKey("p1"))
 	src := h.source("lec.m4a")
-	h.world.batches["batches/old"] = []gemini.BatchRequest{{Key: "unit-0", Parts: []gemini.Part{{FileURI: "AIza-p1:x.aac"}}}}
+	h.world.batches["batches/old"] = []gemini.BatchRequest{{Key: "unit-0", Parts: []gemini.Part{{FileURI: "AIza-p1:x.m4a"}}}}
 	h.world.setBatchState(gemini.BatchSucceeded)
 	err := h.st.Add(store.Item{
 		ID: "item-b", Source: src, Kind: "file", Name: "lec.m4a", Mode: "batch",
-		State: StateBatchWaiting, Units: []store.Unit{{Index: 0, Files: []string{"/gone.aac"}, Seconds: 60}},
+		State: StateBatchWaiting, Units: []store.Unit{{Index: 0, Files: []string{"/gone.m4a"}, Seconds: 60}},
 		Batch: &store.BatchRef{KeyID: "p1", Name: "batches/old", SubmittedAt: time.Now()},
 	})
 	if err != nil {
@@ -522,7 +529,7 @@ func TestResumeBatchWaitingPollsOnStart(t *testing.T) {
 	}
 	h.r.Start(h.ctx)
 	done := h.wait("item-b", StateDone)
-	if got := readFile(t, done.Output); got != "BT(x.aac)\n" {
+	if got := readFile(t, done.Output); got != "BT(x.m4a)\n" {
 		t.Fatalf("output = %q", got)
 	}
 }
@@ -638,6 +645,12 @@ func (c *fakeClient) uploadCount() int {
 	return len(c.uploads)
 }
 
+func (c *fakeClient) mimesNow() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.mimes...)
+}
+
 func (c *fakeClient) setGen(g genFunc) {
 	c.mu.Lock()
 	c.gen = g
@@ -731,7 +744,7 @@ func TestRemoveCancelsAndDeletesWorkDir(t *testing.T) {
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(work, "piece.aac"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "piece.m4a"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.st.Add(store.Item{

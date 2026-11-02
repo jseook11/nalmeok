@@ -50,6 +50,7 @@ const (
 	freeRPM               = 5
 	rateTokensPerSecond   = 32
 	pdfName               = "reference.pdf"
+	mimePDF               = "application/pdf"
 )
 
 // Input, Track, Piece and UnitPlan mirror the media and plan packages so the
@@ -568,10 +569,12 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 	var total float64
 	for i, p := range plans {
 		files := make([]string, 0, len(p.Pieces))
+		mimes := make([]string, 0, len(p.Pieces))
 		for _, piece := range p.Pieces {
 			files = append(files, piece.Path)
+			mimes = append(mimes, piece.MIME)
 		}
-		units = append(units, store.Unit{Index: i, Files: files, Seconds: p.Seconds})
+		units = append(units, store.Unit{Index: i, Files: files, MIMEs: mimes, Seconds: p.Seconds})
 		total += p.Seconds
 	}
 	// The plan is deterministic, so finished texts survive a re-prepare when
@@ -731,7 +734,7 @@ func (r *Runner) freeAttempt(ctx context.Context, key config.Key, unit store.Uni
 	if err != nil {
 		return "", keyRejected, nil
 	}
-	parts, err := r.uploadParts(ctx, client, key.ID, unit.Files, pdf)
+	parts, err := r.uploadParts(ctx, client, key.ID, unit, pdf)
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
 			return "", outcome, nil
@@ -843,18 +846,21 @@ func (r *Runner) retryTransient(ctx context.Context, fn func() error) error {
 
 // uploadParts builds [prompt, pdf?, audio...] for one key, uploading files
 // that are not yet uploaded for that key or are close to the 48 h expiry.
-func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID string, files []string, pdf string) ([]gemini.Part, error) {
+func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID string, unit store.Unit, pdf string) ([]gemini.Part, error) {
 	prompt := gemini.Prompt
-	if len(files) > 1 {
+	if len(unit.Files) > 1 {
 		prompt = gemini.LivePrompt
 	}
 	parts := []gemini.Part{{Text: prompt}}
-	all := files
 	if pdf != "" {
-		all = append([]string{pdf}, files...)
+		up, err := r.cachedUpload(ctx, client, keyID, pdf, mimePDF)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, gemini.Part{FileURI: up.URI, MIME: up.MIME})
 	}
-	for _, path := range all {
-		up, err := r.cachedUpload(ctx, client, keyID, path)
+	for i, path := range unit.Files {
+		up, err := r.cachedUpload(ctx, client, keyID, path, unitMIME(unit, i))
 		if err != nil {
 			return nil, err
 		}
@@ -863,7 +869,7 @@ func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID st
 	return parts, nil
 }
 
-func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, path string) (store.Upload, error) {
+func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, path, mime string) (store.Upload, error) {
 	cacheKey := keyID + "\x00" + path
 	r.mu.Lock()
 	up, ok := r.uploads[cacheKey]
@@ -871,7 +877,7 @@ func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, 
 	if ok && r.opts.Now().Sub(up.UploadedAt) < uploadMaxAge {
 		return up, nil
 	}
-	up, err := r.upload(ctx, client, path)
+	up, err := r.upload(ctx, client, path, mime)
 	if err != nil {
 		return up, err
 	}
@@ -881,18 +887,18 @@ func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, 
 	return up, nil
 }
 
-func (r *Runner) upload(ctx context.Context, client gemini.Client, path string) (store.Upload, error) {
+func (r *Runner) upload(ctx context.Context, client gemini.Client, path, mime string) (store.Upload, error) {
 	var up store.Upload
 	err := r.retryTransient(ctx, func() error {
 		var uerr error
-		up, uerr = client.Upload(ctx, path, mimeFor(path))
+		up, uerr = client.Upload(ctx, path, mime)
 		return uerr
 	})
 	if err != nil {
 		return up, err
 	}
 	if up.MIME == "" {
-		up.MIME = mimeFor(path)
+		up.MIME = mime
 	}
 	if up.UploadedAt.IsZero() {
 		up.UploadedAt = r.opts.Now()
@@ -900,18 +906,28 @@ func (r *Runner) upload(ctx context.Context, client gemini.Client, path string) 
 	return up, nil
 }
 
-func mimeFor(path string) string {
+// unitMIME is the MIME recorded when the piece was prepared. Unit entries
+// written by older versions lack MIMEs, so fall back to the extension.
+func unitMIME(unit store.Unit, i int) string {
+	if i < len(unit.MIMEs) && unit.MIMEs[i] != "" {
+		return unit.MIMEs[i]
+	}
+	if i < len(unit.Files) {
+		return mimeForPath(unit.Files[i])
+	}
+	return "application/octet-stream"
+}
+
+func mimeForPath(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".aac":
-		return "audio/aac"
 	case ".mp3":
 		return "audio/mp3"
 	case ".wav":
 		return "audio/wav"
 	case ".pdf":
-		return "application/pdf"
+		return mimePDF
 	case ".m4a", ".mp4":
-		return "audio/mp4"
+		return "audio/m4a"
 	}
 	return "application/octet-stream"
 }
@@ -949,23 +965,26 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		}
 	}
 	pdf := r.pdfPath(id)
-	need := []string{}
+	type needFile struct{ path, mime string }
+	need := []needFile{}
 	if pdf != "" {
-		need = append(need, pdf)
+		need = append(need, needFile{pdf, mimePDF})
 	}
 	for _, u := range pending {
-		need = append(need, u.Files...)
+		for i, path := range u.Files {
+			need = append(need, needFile{path, unitMIME(u, i)})
+		}
 	}
 	r.setDetail(id, "업로드 중")
-	for _, path := range need {
-		if _, ok := uploads[path]; ok {
+	for _, f := range need {
+		if _, ok := uploads[f.path]; ok {
 			continue
 		}
-		up, err := r.upload(ctx, client, path)
+		up, err := r.upload(ctx, client, f.path, f.mime)
 		if err != nil {
 			return err
 		}
-		uploads[path] = up
+		uploads[f.path] = up
 		saved := cloneUploads(uploads)
 		if err := r.update(id, func(it *store.Item) {
 			it.Batch = &store.BatchRef{KeyID: key.ID, Uploads: saved}

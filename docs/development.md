@@ -21,7 +21,7 @@
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
 internal/config     설정 폴더, config.json(키·gui.mode)
 internal/store      items.json(처리 목록), 검색
-internal/media      입력 스캔, MP4 AAC→ADTS 추출·분할, MP3·WAV 분할 (표준 라이브러리만)
+internal/media      입력 스캔, MP4 AAC→M4A 리먹스·분할, MP3·WAV 분할 (표준 라이브러리만)
 internal/plan       조각 계획(130분), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
