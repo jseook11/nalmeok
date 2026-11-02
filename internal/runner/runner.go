@@ -142,7 +142,6 @@ type Runner struct {
 	clients   map[string]gemini.Client
 	uploads   map[string]store.Upload // keyID + "\x00" + path
 	lastStart map[string]time.Time
-	nextFree  int
 
 	pollMu sync.Mutex // serializes Batch polling with Batch cancellation
 }
@@ -227,8 +226,10 @@ func (r *Runner) Start(ctx context.Context) {
 	go r.poller(ctx)
 }
 
-// Add creates one item per path and queues them.
-func (r *Runner) Add(paths []string, mode string) error {
+// Add creates one item per path and queues them. A non-empty keyID pins the
+// items to that key, and the key's tier decides the mode (free key → free,
+// paid key → batch). An empty keyID picks keys by priority.
+func (r *Runner) Add(paths []string, mode, keyID string) error {
 	if r.opts.Store == nil {
 		return errors.New("아직 준비 중이에요")
 	}
@@ -244,6 +245,13 @@ func (r *Runner) Add(paths []string, mode string) error {
 		mode = "batch"
 	} else if mode == "batch" && len(paid) == 0 {
 		mode = "free"
+	}
+	if keyID != "" {
+		key, ok := findKey(keys, keyID)
+		if !ok {
+			return errPinnedMissing
+		}
+		mode = modeForTier(key.Tier)
 	}
 
 	for _, path := range paths {
@@ -262,11 +270,16 @@ func (r *Runner) Add(paths []string, mode string) error {
 			Mode:   mode,
 			State:  StateRunning,
 			Detail: "대기 중",
+			KeyID:  keyID,
 		}
 		if err := r.opts.Store.Add(item); err != nil {
 			return err
 		}
-		r.logf("item %s added: %s (%s)", item.ID, path, mode)
+		if keyID != "" {
+			r.logf("item %s added: %s (%s, key %s)", item.ID, path, mode, keyID)
+		} else {
+			r.logf("item %s added: %s (%s)", item.ID, path, mode)
+		}
 		r.enqueue(item.ID)
 	}
 	return nil
@@ -373,8 +386,17 @@ func (r *Runner) Retry(id string) error {
 		return errors.New("실패하거나 취소한 항목만 다시 시도할 수 있어요")
 	}
 	mode := item.Mode
-	free, paid := splitKeys(r.opts.Keys())
-	if mode == "free" && len(free) == 0 && len(paid) > 0 {
+	keys := r.opts.Keys()
+	free, paid := splitKeys(keys)
+	if item.KeyID != "" {
+		// A pinned key decides the mode. A deleted key is reported now rather
+		// than silently switching to another (possibly paid) key.
+		key, ok := findKey(keys, item.KeyID)
+		if !ok {
+			return errPinnedMissing
+		}
+		mode = modeForTier(key.Tier)
+	} else if mode == "free" && len(free) == 0 && len(paid) > 0 {
 		mode = "batch"
 	} else if mode == "batch" && len(paid) == 0 && len(free) > 0 {
 		mode = "free"
@@ -400,10 +422,22 @@ func (r *Runner) SendToBatch(id string) error {
 	if item.State != StateFreeExhausted && item.State != StateFailed && item.State != StateCanceled {
 		return errors.New("무료 사용량을 다 쓴 항목만 유료로 이어 갈 수 있어요")
 	}
-	if _, paid := splitKeys(r.opts.Keys()); len(paid) == 0 {
+	keys := r.opts.Keys()
+	if _, paid := splitKeys(keys); len(paid) == 0 {
 		return errors.New("유료 키가 필요해요")
 	}
+	// Continuing on paid is an explicit switch, so a pin to a free (or deleted)
+	// key is dropped and the highest-priority paid key takes over.
+	keepPin := false
+	if item.KeyID != "" {
+		if key, ok := findKey(keys, item.KeyID); ok && key.Tier != "free" {
+			keepPin = true
+		}
+	}
 	if err := r.update(id, func(it *store.Item) {
+		if !keepPin {
+			it.KeyID = ""
+		}
 		it.Mode = "batch"
 		it.State = StateRunning
 		it.Detail = "준비 중"
@@ -667,16 +701,15 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		unit := item.Units[i]
 		r.setDetail(id, "전사 중")
 
-		free, _ := splitKeys(r.opts.Keys())
-		if len(free) == 0 {
-			return userError{errors.New("무료 키가 없어요")}
+		candidates, err := r.freeCandidates(item.KeyID, unit.Seconds)
+		if err != nil {
+			return err
 		}
-		start := r.takeFreeStart(len(free))
 		limited := 0
 		var text string
 		done := false
-		for k := 0; k < len(free) && !done; k++ {
-			key := free[(start+k)%len(free)]
+		for k := 0; k < len(candidates) && !done; k++ {
+			key := candidates[k]
 			t, outcome, err := r.freeAttempt(ctx, id, key, unit, pdf)
 			if err != nil {
 				return err
@@ -685,9 +718,6 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 			case keyOK:
 				text = t
 				done = true
-				r.mu.Lock()
-				r.nextFree = (start + k + 1) % len(free)
-				r.mu.Unlock()
 			case keyLimited:
 				limited++
 				r.logf("item %s unit %d: key %s limited (429)", id, unit.Index, key.ID)
@@ -733,13 +763,40 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 	return r.finish(id)
 }
 
-func (r *Runner) takeFreeStart(n int) int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if n <= 0 {
-		return 0
+// freeCandidates returns the free keys to try for one unit, in order.
+//
+// A pinned item gets only its key, so a 429 ends in free_exhausted instead of
+// moving to another key. Otherwise keys follow the priority order (config
+// order, environment key first). Items run one at a time, so strict priority
+// would make every unit wait out the 12 s+ gap on the first key while others
+// sit idle; keys whose gap has already passed therefore go first, each group
+// still in priority order. Every key is still tried before giving up.
+func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, error) {
+	keys := r.opts.Keys()
+	if pinned != "" {
+		key, ok := findKey(keys, pinned)
+		if !ok {
+			return nil, errPinnedMissing
+		}
+		if key.Tier != "free" {
+			return nil, userError{errors.New("선택한 키는 무료 키가 아니에요")}
+		}
+		return []config.Key{key}, nil
 	}
-	return r.nextFree % n
+	free, _ := splitKeys(keys)
+	if len(free) == 0 {
+		return nil, userError{errors.New("무료 키가 없어요")}
+	}
+	ready := make([]config.Key, 0, len(free))
+	waiting := make([]config.Key, 0, len(free))
+	for _, key := range free {
+		if r.gapLeft(key.ID, seconds) > 0 {
+			waiting = append(waiting, key)
+		} else {
+			ready = append(ready, key)
+		}
+	}
+	return append(ready, waiting...), nil
 }
 
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
@@ -848,17 +905,26 @@ func (r *Runner) gap(seconds float64) time.Duration {
 }
 
 func (r *Runner) waitGap(ctx context.Context, keyID string, seconds float64) error {
+	left := r.gapLeft(keyID, seconds)
+	if left <= 0 {
+		return nil
+	}
+	return r.opts.Sleep(ctx, left)
+}
+
+// gapLeft is how long keyID must still wait before its next request start.
+func (r *Runner) gapLeft(keyID string, seconds float64) time.Duration {
 	g := r.gap(seconds)
 	if g <= 0 {
-		return nil
+		return 0
 	}
 	r.mu.Lock()
 	last, ok := r.lastStart[keyID]
 	r.mu.Unlock()
 	if !ok {
-		return nil
+		return 0
 	}
-	return r.opts.Sleep(ctx, g-r.opts.Now().Sub(last))
+	return g - r.opts.Now().Sub(last)
 }
 
 func (r *Runner) retryTransient(ctx context.Context, onRetry func(int), fn func() error) error {
@@ -988,11 +1054,10 @@ func mimeForPath(path string) string {
 
 func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	id := item.ID
-	_, paid := splitKeys(r.opts.Keys())
-	if len(paid) == 0 {
-		return userError{errors.New("유료 키가 없어요")}
+	key, err := r.batchKey(item.KeyID)
+	if err != nil {
+		return err
 	}
-	key := paid[0]
 	client, err := r.client(key)
 	if err != nil {
 		return err
@@ -1084,6 +1149,26 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		return err
 	}
 	return nil
+}
+
+// batchKey is the pinned paid key, or the highest-priority paid key.
+func (r *Runner) batchKey(pinned string) (config.Key, error) {
+	keys := r.opts.Keys()
+	if pinned != "" {
+		key, ok := findKey(keys, pinned)
+		if !ok {
+			return config.Key{}, errPinnedMissing
+		}
+		if key.Tier == "free" {
+			return config.Key{}, userError{errors.New("선택한 키는 유료 키가 아니에요")}
+		}
+		return key, nil
+	}
+	_, paid := splitKeys(keys)
+	if len(paid) == 0 {
+		return config.Key{}, userError{errors.New("유료 키가 없어요")}
+	}
+	return paid[0], nil
 }
 
 func unitKey(index int) string { return fmt.Sprintf("unit-%d", index) }
@@ -1324,6 +1409,25 @@ func (r *Runner) clientForKeyID(keyID string) (gemini.Client, error) {
 		}
 	}
 	return nil, errors.New("key not found")
+}
+
+// errPinnedMissing is shown when an item's chosen key was deleted.
+var errPinnedMissing = userError{errors.New("선택한 키가 없어요")}
+
+func findKey(keys []config.Key, id string) (config.Key, bool) {
+	for _, k := range keys {
+		if k.ID == id {
+			return k, true
+		}
+	}
+	return config.Key{}, false
+}
+
+func modeForTier(tier string) string {
+	if tier == "free" {
+		return "free"
+	}
+	return "batch"
 }
 
 func splitKeys(keys []config.Key) (free, paid []config.Key) {

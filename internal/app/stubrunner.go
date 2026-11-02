@@ -26,7 +26,7 @@ func NewStubRunner(st *store.Store) *StubRunner {
 func (r *StubRunner) Start(context.Context) {}
 
 // Add records each path as a failed item with a placeholder reason.
-func (r *StubRunner) Add(paths []string, mode string) error {
+func (r *StubRunner) Add(paths []string, mode, keyID string) error {
 	if r.store == nil {
 		return errors.New("아직 준비 중이에요")
 	}
@@ -45,6 +45,7 @@ func (r *StubRunner) Add(paths []string, mode string) error {
 			Mode:   mode,
 			State:  "failed",
 			Detail: "전사 엔진 준비 중",
+			KeyID:  keyID,
 		})
 		if err != nil {
 			return err

@@ -36,6 +36,9 @@ type Item struct {
 	UpdatedAt time.Time `json:"UpdatedAt"`
 	Units     []Unit    `json:"Units"`
 	Batch     *BatchRef `json:"Batch"`
+	// KeyID pins the item to one saved key. Empty means automatic: keys are
+	// tried in priority order.
+	KeyID string `json:"KeyID"`
 }
 
 // Unit is one transcription request and its result. MIMEs runs parallel to

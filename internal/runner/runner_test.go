@@ -310,7 +310,7 @@ func (h *harness) source(name string) string {
 
 func (h *harness) addOne(path, mode string) store.Item {
 	h.t.Helper()
-	if err := h.r.Add([]string{path}, mode); err != nil {
+	if err := h.r.Add([]string{path}, mode, ""); err != nil {
 		h.t.Fatalf("Add: %v", err)
 	}
 	items := h.st.List("")
@@ -879,7 +879,7 @@ func TestModeFallsBackToAvailableKeyTier(t *testing.T) {
 
 func TestAddWithoutKeys(t *testing.T) {
 	h := newHarness(t)
-	if err := h.r.Add([]string{h.source("a.m4a")}, "free"); err == nil {
+	if err := h.r.Add([]string{h.source("a.m4a")}, "free", ""); err == nil {
 		t.Error("Add without keys must fail")
 	}
 }

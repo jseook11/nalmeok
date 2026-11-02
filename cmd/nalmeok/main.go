@@ -195,6 +195,7 @@ func runCLI(args []string) int {
 	flags.Usage = func() { printUsage(flags.Output()) }
 	batch := flags.Bool("batch", false, "유료로 처리")
 	free := flags.Bool("free", false, "무료로 처리")
+	keyID := flags.String("key", "", "이 키 ID로만 처리 (등급이 처리 방식을 정해요)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -229,7 +230,7 @@ func runCLI(args []string) int {
 	defer cancel()
 	engine.Start(ctx)
 
-	if err := engine.Add(paths, mode); err != nil {
+	if err := engine.Add(paths, mode, strings.TrimSpace(*keyID)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -407,7 +408,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "테스트·AI 에이전트용 CLI예요. 보통은 인자 없이 실행해 앱 창을 쓰세요.")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "사용법:")
-	fmt.Fprintln(w, "  nalmeok [--batch|--free] <파일 또는 폴더>...")
+	fmt.Fprintln(w, "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...")
 	fmt.Fprintln(w, "  nalmeok --version")
 	fmt.Fprintln(w, "  nalmeok doctor")
 }
