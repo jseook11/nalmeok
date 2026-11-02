@@ -366,6 +366,35 @@ func TestCancelAfterSubmitCancelsJob(t *testing.T) {
 	}
 }
 
+// SendToBatch on a running free item races the same way: when the free run
+// finished in between, the done item must not be reopened and sent to Batch
+// (its units are gone, so the whole audio would be paid for again).
+func TestSendToBatchAfterFinishKeepsDone(t *testing.T) {
+	h := newHarness(t, freeKey("f1"), paidKey("p1"))
+	item := h.addOne(h.source("lec.m4a"), "free") // not started: stays queued
+
+	h.r.mu.Lock()
+	errc := make(chan error, 1)
+	go func() { errc <- h.r.SendToBatch(item.ID) }()
+	time.Sleep(100 * time.Millisecond)
+	if err := h.st.Update(item.ID, func(it *store.Item) {
+		it.State = StateDone
+		it.Output = "/tmp/lec.md"
+		it.Units = nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.r.mu.Unlock()
+	<-errc
+	got, _ := h.st.Get(item.ID)
+	if got.State != StateDone || got.Mode != "free" {
+		t.Fatalf("state = %q, mode = %q; want done, free", got.State, got.Mode)
+	}
+	if q := h.r.lanes["batch"].queue; len(q) != 0 {
+		t.Fatalf("batch lane queue = %v, want empty", q)
+	}
+}
+
 // ---- a stop that lands while a run is starting -------------------------------
 
 // Cancel, Remove and SendToBatch stop the active run before they change the

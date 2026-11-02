@@ -548,10 +548,7 @@ func (r *Runner) SendToBatch(id string) error {
 	if !ok {
 		return store.ErrNotFound
 	}
-	switch {
-	case item.State == StateFreeExhausted, item.State == StateFailed, item.State == StateCanceled:
-	case item.State == StateRunning && item.Mode != "batch":
-	default:
+	if !canSendToBatch(item) {
 		return i18n.Error("error.batchOnlyFree")
 	}
 	keys := r.opts.Keys()
@@ -574,7 +571,14 @@ func (r *Runner) SendToBatch(id string) error {
 			keepPin = true
 		}
 	}
+	movable := true
 	if err := r.update(id, func(it *store.Item) {
+		// The free run may have finished since the read above; a done item
+		// has no units left and must not be sent (and paid for) again.
+		if !canSendToBatch(*it) {
+			movable = false
+			return
+		}
 		if !keepPin {
 			it.KeyID = ""
 		}
@@ -584,8 +588,23 @@ func (r *Runner) SendToBatch(id string) error {
 	}); err != nil {
 		return err
 	}
+	if !movable {
+		return nil
+	}
 	r.enqueue(id, "batch")
 	return nil
+}
+
+// canSendToBatch reports whether "continue on paid" applies to item: a free
+// item that ran out of free use, failed, was canceled, or is still running.
+func canSendToBatch(item store.Item) bool {
+	switch {
+	case item.State == StateFreeExhausted, item.State == StateFailed, item.State == StateCanceled:
+		return true
+	case item.State == StateRunning && item.Mode != "batch":
+		return true
+	}
+	return false
 }
 
 // ---- lanes -----------------------------------------------------------------
