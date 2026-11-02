@@ -1,6 +1,6 @@
-![날먹 소개 그림](assets/readme-banner.png)
+![Nalmeok 소개 그림](assets/readme-banner.png)
 
-# 날먹 (nalmeok)
+# Nalmeok (nalmeok)
 
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
@@ -13,7 +13,7 @@
 
 [Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
 
-**macOS** — `날먹.app`을 Applications 폴더로 옮기고 열어요. 서명·공증된 앱이라 경고 없이 열려요.
+**macOS** — `Nalmeok.app`을 Applications 폴더로 옮기고 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
 **Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러요.
 

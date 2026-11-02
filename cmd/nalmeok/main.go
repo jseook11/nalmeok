@@ -137,7 +137,7 @@ func runGUI() {
 	}
 
 	err = wails.Run(&options.App{
-		Title:     "날먹",
+		Title:     "Nalmeok",
 		Width:     480,
 		Height:    680,
 		MinWidth:  420,
@@ -395,7 +395,7 @@ func runDoctor() int {
 		}
 	}
 
-	fmt.Printf("날먹 %s\n", version)
+	fmt.Printf("Nalmeok %s\n", version)
 	fmt.Printf("OS/아키텍처: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("설정 폴더: %s\n", dir)
 	fmt.Printf("키: 무료 %d개, 유료 %d개\n", free, paid)

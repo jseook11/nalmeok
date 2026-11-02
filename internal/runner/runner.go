@@ -1271,7 +1271,7 @@ func (r *Runner) finish(id string) error {
 	}
 	_ = os.RemoveAll(r.workDir(id))
 	r.logf("item %s done: %s", id, target)
-	r.opts.Notify("날먹", item.Name+" 전사 완료")
+	r.opts.Notify("Nalmeok", item.Name+" 전사 완료")
 	return nil
 }
 

@@ -33,7 +33,7 @@ frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
 ```bash
 go test ./...
 go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
-scripts/build_mac_app.sh                                            # build/날먹.app (자격 환경변수가 있으면 서명·공증)
+scripts/build_mac_app.sh                                            # build/Nalmeok.app (자격 환경변수가 있으면 서명·공증)
 ```
 
 ### CLI: 테스트·AI 에이전트용

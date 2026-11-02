@@ -11,7 +11,7 @@ cd "$ROOT"
 
 VERSION="${VERSION:-0.7.0}"
 BIN="build/nalmeok"
-APP="build/날먹.app"
+APP="build/Nalmeok.app"
 CONTENTS="$APP/Contents"
 
 mkdir -p build
@@ -29,9 +29,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>날먹</string>
+	<string>Nalmeok</string>
 	<key>CFBundleDisplayName</key>
-	<string>날먹</string>
+	<string>Nalmeok</string>
 	<key>CFBundleIdentifier</key>
 	<string>kr.nalmeok.app</string>
 	<key>CFBundleExecutable</key>
@@ -58,7 +58,7 @@ if [ -n "${NALMEOK_SIGN_IDENTITY:-}" ]; then
 	echo "서명했습니다: $APP"
 
 	if [ -n "${NALMEOK_NOTARY_PROFILE:-}" ]; then
-		ZIP="build/날먹.zip"
+		ZIP="build/Nalmeok.zip"
 		rm -f "$ZIP"
 		ditto -c -k --keepParent "$APP" "$ZIP"
 		xcrun notarytool submit "$ZIP" \
