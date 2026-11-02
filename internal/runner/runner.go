@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
@@ -181,7 +182,7 @@ func New(opts Options) *Runner {
 	}
 	r := &Runner{
 		opts:      opts,
-		lanes:     map[string]*lane{"free": newLane(), "batch": newLane()},
+		lanes:     map[string]*lane{"free": newLane("free"), "batch": newLane("batch")},
 		pollNow:   make(chan struct{}, 1),
 		clients:   make(map[string]gemini.Client),
 		uploads:   make(map[string]store.Upload),
@@ -333,11 +334,8 @@ func (r *Runner) Cancel(id string) error {
 		r.mu.Lock()
 		for _, l := range r.lanes {
 			l.remove(id)
-			if l.active == id {
-				l.canceled = true
-				l.cancel()
-			}
 		}
+		r.stopActiveLocked(id)
 		r.mu.Unlock()
 		return r.update(id, func(it *store.Item) {
 			it.State = StateCanceled
@@ -353,19 +351,30 @@ func (r *Runner) Cancel(id string) error {
 		if current.State != StateBatchWaiting {
 			return nil
 		}
+		// The job name is kept unless the server accepted the cancel, so a
+		// later retry waits for that job instead of paying for a new one.
+		forget := false
 		if current.Batch != nil && current.Batch.Name != "" {
 			if client, err := r.clientForKeyID(current.Batch.KeyID); err == nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
 				if err := client.CancelBatch(ctx, current.Batch.Name); err != nil {
-					r.logf("item %s cancel batch: %v", id, err)
+					r.logf("item %s cancel batch: %v", id, r.redact(err))
+					// Too late to cancel: the job is done and paid for. Keep
+					// its results instead of throwing them away.
+					if state, serr := client.BatchStatus(ctx, current.Batch.Name); serr == nil && state == gemini.BatchSucceeded {
+						r.collectLocked(ctx, id, client, current.Batch.Name)
+						return nil
+					}
+				} else {
+					forget = true
 				}
-				cancel()
 			}
 		}
 		return r.update(id, func(it *store.Item) {
 			it.State = StateCanceled
 			it.Detail = "취소됨"
-			if it.Batch != nil {
+			if forget && it.Batch != nil {
 				it.Batch.Name = ""
 			}
 		})
@@ -449,18 +458,30 @@ func (r *Runner) Retry(id string) error {
 	return nil
 }
 
-// SendToBatch moves the unfinished units of a free_exhausted item to Batch.
+// SendToBatch moves the unfinished units of a free item to Batch: one that
+// ran out of free use, failed, was canceled, or is still running.
 func (r *Runner) SendToBatch(id string) error {
 	item, ok := r.opts.Store.Get(id)
 	if !ok {
 		return store.ErrNotFound
 	}
-	if item.State != StateFreeExhausted && item.State != StateFailed && item.State != StateCanceled {
-		return errors.New("무료 사용량을 다 쓴 항목만 유료로 이어 갈 수 있어요")
+	switch {
+	case item.State == StateFreeExhausted, item.State == StateFailed, item.State == StateCanceled:
+	case item.State == StateRunning && item.Mode != "batch":
+	default:
+		return errors.New("무료 항목만 유료로 이어 갈 수 있어요")
 	}
 	keys := r.opts.Keys()
 	if _, paid := splitKeys(keys); len(paid) == 0 {
 		return errors.New("유료 키가 필요해요")
+	}
+	if item.State == StateRunning {
+		// Stop the free run (live call or retry wait); finished units stay.
+		// enqueue below moves a queued item, or queues an active one once its
+		// run has stopped.
+		r.mu.Lock()
+		r.stopActiveLocked(id)
+		r.mu.Unlock()
 	}
 	// Continuing on paid is an explicit switch, so a pin to a free (or deleted)
 	// key is dropped and the highest-priority paid key takes over.
@@ -491,16 +512,40 @@ func (r *Runner) SendToBatch(id string) error {
 // share upload bandwidth, and the poller takes over once a job is submitted.
 // Every field is guarded by Runner.mu.
 type lane struct {
+	mode     string // the item mode this lane runs
 	queue    []string
 	queued   map[string]bool
 	active   string
-	cancel   context.CancelFunc // cancels the active item
-	canceled bool               // the user canceled the active item
-	wake     chan struct{}
+	cancel   context.CancelFunc // cancels the active item; nil while it starts
+	canceled bool               // the active item was stopped on purpose
+	// again is the mode to queue the active item in once it has stopped: a
+	// retry or a move to paid that arrived while the old run was unwinding.
+	again string
+	wake  chan struct{}
 }
 
-func newLane() *lane {
-	return &lane{queued: make(map[string]bool), wake: make(chan struct{}, 1)}
+func newLane(mode string) *lane {
+	return &lane{mode: mode, queued: make(map[string]bool), wake: make(chan struct{}, 1)}
+}
+
+// laneFor returns the lane that runs items of mode.
+func (r *Runner) laneFor(mode string) *lane {
+	if l, ok := r.lanes[mode]; ok {
+		return l
+	}
+	return r.lanes["free"]
+}
+
+// stopActiveLocked cancels id's current run, if any. Callers hold r.mu.
+func (r *Runner) stopActiveLocked(id string) {
+	for _, l := range r.lanes {
+		if l.active == id {
+			l.canceled = true
+			if l.cancel != nil {
+				l.cancel()
+			}
+		}
+	}
 }
 
 func (l *lane) remove(id string) {
@@ -517,16 +562,13 @@ func (l *lane) remove(id string) {
 }
 
 // enqueue puts id at the back of the lane for mode. An item that is still
-// active in a lane is not queued again.
+// active in a lane is queued once that run has stopped.
 func (r *Runner) enqueue(id, mode string) {
-	target, ok := r.lanes[mode]
-	if !ok {
-		target = r.lanes["free"]
-	}
+	target := r.laneFor(mode)
 	r.mu.Lock()
 	for _, l := range r.lanes {
 		if l.active == id {
-			l.canceled = false
+			l.again = target.mode
 			r.mu.Unlock()
 			return
 		}
@@ -565,6 +607,9 @@ func (r *Runner) next(l *lane) (string, bool) {
 	id := l.queue[0]
 	l.queue = l.queue[1:]
 	delete(l.queued, id)
+	// Taking the active slot under the same lock means an enqueue racing
+	// with the start never queues the item a second time.
+	l.active = id
 	return id, true
 }
 
@@ -584,27 +629,28 @@ func (r *Runner) worker(ctx context.Context, l *lane) {
 }
 
 func (r *Runner) runItem(parent context.Context, l *lane, id string) {
-	item, ok := r.opts.Store.Get(id)
-	if !ok || item.State != StateRunning {
-		return
-	}
 	ctx, cancel := context.WithCancel(parent)
 	r.mu.Lock()
-	l.active = id
 	l.cancel = cancel
 	r.mu.Unlock()
 	defer func() {
 		cancel()
 		r.mu.Lock()
+		again := l.again
 		l.active = ""
 		l.cancel = nil
 		l.canceled = false
+		l.again = ""
 		r.mu.Unlock()
+		if again != "" {
+			r.enqueue(id, again)
+		}
 	}()
 
-	// A cancel or remove may land between the first read and taking the active
-	// slot. Re-read so canceled items never start fresh work.
-	if current, ok := r.opts.Store.Get(id); !ok || current.State != StateRunning {
+	// A cancel, remove or move to the other lane may land before the run
+	// starts. Only a running item of this lane's mode starts work.
+	current, ok := r.opts.Store.Get(id)
+	if !ok || current.State != StateRunning || r.laneFor(current.Mode) != l {
 		return
 	}
 
@@ -652,13 +698,40 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 	if !ok {
 		return item, store.ErrNotFound
 	}
+	sig := sourceSig(item.Source)
+	if item.SourceSig != "" && sig != "" && sig != item.SourceSig {
+		// The audio changed since its pieces were made: finished texts and
+		// uploads belong to the old audio.
+		r.logf("item %s source changed, starting over", id)
+		if err := r.update(id, func(it *store.Item) {
+			it.Units = nil
+			it.Batch = nil
+			it.Progress = 0
+		}); err != nil {
+			return item, err
+		}
+		_ = os.RemoveAll(r.workDir(id))
+		item.Units = nil
+		item.Batch = nil
+	}
 	if len(item.Units) > 0 && unitsReady(item.Units) {
+		if item.SourceSig == "" && sig != "" {
+			_ = r.update(id, func(it *store.Item) { it.SourceSig = sig })
+		}
 		return item, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return item, err
 	}
 	r.setDetail(id, "오디오 준비 중")
+	// Fresh pieces are written below, so uploads of the old ones are useless.
+	if err := r.update(id, func(it *store.Item) {
+		if it.Batch != nil && it.Batch.Name == "" {
+			it.Batch.Uploads = nil
+		}
+	}); err != nil {
+		return item, err
+	}
 
 	input, err := r.opts.Media.Scan(item.Source)
 	if err != nil {
@@ -706,7 +779,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		total += p.Seconds
 	}
 	// The plan is deterministic, so finished texts survive a re-prepare when
-	// the unit layout is unchanged.
+	// the unit layout is unchanged (the source itself is checked above).
 	if len(item.Units) == len(units) {
 		for i := range units {
 			if math.Abs(item.Units[i].Seconds-units[i].Seconds) < 1 {
@@ -724,12 +797,59 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		it.Units = units
 		it.AudioSec = total
 		it.Progress = doneRatio(units)
+		it.SourceSig = sig
 	})
 	if err != nil {
 		return item, err
 	}
 	item, _ = r.opts.Store.Get(id)
 	return item, nil
+}
+
+// audioExts are the files whose change makes earlier results stale.
+var audioExts = map[string]bool{".m4a": true, ".mp4": true, ".mp3": true, ".wav": true, ".pdf": true}
+
+// sourceSig fingerprints a dropped file, or the audio and PDF files directly
+// inside a dropped folder, by name, size and modification time. It is "" when
+// the source cannot be read.
+func sourceSig(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() {
+		return fileSig(info)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || !audioExts[strings.ToLower(filepath.Ext(name))] {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(path, name))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		b.WriteString(name + ":" + fileSig(info) + ";")
+	}
+	return b.String()
+}
+
+func fileSig(info os.FileInfo) string {
+	return fmt.Sprintf("%d@%d", info.Size(), info.ModTime().UnixNano())
+}
+
+// fileStamp is fileSig for a path, or "" when it cannot be read.
+func fileStamp(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fileSig(info)
 }
 
 func unitsReady(units []store.Unit) bool {
@@ -817,7 +937,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 			minutes := int(math.Ceil(remaining / 60))
 			r.logf("item %s free keys exhausted, %d min left", id, minutes)
 			return r.update(id, func(it *store.Item) {
-				if it.State != StateRunning {
+				if it.State != StateRunning || it.Mode == "batch" {
 					return
 				}
 				it.State = StateFreeExhausted
@@ -904,6 +1024,11 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		r.mu.Unlock()
 		var genErr error
 		text, finish, genErr = client.Generate(ctx, parts)
+		if genErr == nil && strings.TrimSpace(text) == "" && (finish == "" || finish == gemini.FinishStop) {
+			// An empty answer with no reason comes from an overloaded
+			// server; the same request usually works when sent again.
+			genErr = &gemini.EmptyResponseError{Finish: finish, Usage: "no usage"}
+		}
 		return genErr
 	})
 	if err != nil {
@@ -1067,7 +1192,9 @@ func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID st
 }
 
 func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, path, mime string) (store.Upload, error) {
-	cacheKey := keyID + "\x00" + path
+	// Piece files are rewritten in place when an item is prepared again, so
+	// the file's size and time are part of the key.
+	cacheKey := keyID + "\x00" + path + "\x00" + fileStamp(path)
 	r.mu.Lock()
 	up, ok := r.uploads[cacheKey]
 	r.mu.Unlock()
@@ -1133,6 +1260,18 @@ func mimeForPath(path string) string {
 
 func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	id := item.ID
+	if item.Batch != nil && item.Batch.Name != "" {
+		// A job was submitted and is not known to be over (a cancel the
+		// server did not confirm, or a status check that failed). It is paid
+		// for already, so wait for it again instead of submitting anew.
+		r.logf("item %s waits again for %s", id, item.Batch.Name)
+		return r.update(id, func(it *store.Item) {
+			if it.State == StateRunning {
+				it.State = StateBatchWaiting
+				it.Detail = ""
+			}
+		})
+	}
 	key, err := r.batchKey(item.KeyID)
 	if err != nil {
 		return err
@@ -1150,6 +1289,41 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	}
 	if len(pending) == 0 {
 		return r.finish(id)
+	}
+
+	if item.Batch != nil && item.Batch.Marker != "" {
+		// The last creation got no answer. The job may exist anyway.
+		bkey := key
+		if item.Batch.KeyID != "" && item.Batch.KeyID != key.ID {
+			if k, ok := findKey(r.opts.Keys(), item.Batch.KeyID); ok {
+				bkey = k
+			}
+		}
+		bclient, err := r.client(bkey)
+		if err != nil {
+			return err
+		}
+		r.setDetail(id, "요청 확인 중")
+		name, err := bclient.FindBatch(ctx, item.Batch.Marker)
+		if err != nil {
+			return err
+		}
+		if name != "" {
+			r.logf("item %s found earlier batch %s", id, name)
+			return r.update(id, func(it *store.Item) {
+				if it.Batch == nil {
+					it.Batch = &store.BatchRef{}
+				}
+				it.Batch.KeyID = bkey.ID
+				it.Batch.Name = name
+				it.Batch.Marker = ""
+				it.Batch.SubmittedAt = r.opts.Now()
+				if it.State == StateRunning {
+					it.State = StateBatchWaiting
+					it.Detail = ""
+				}
+			})
+		}
 	}
 
 	uploads := map[string]store.Upload{}
@@ -1208,26 +1382,46 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		return err
 	}
 	r.setDetail(id, "요청 보내는 중")
-	var name string
-	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail) }, func() error {
-		var serr error
-		name, serr = client.SubmitBatch(ctx, reqs, item.Name)
-		return serr
-	})
+	// Creating a job is never repeated automatically: when the answer is lost
+	// the job may exist, and a second one would be billed again. The marker
+	// is saved first so a retry can look the job up.
+	marker := batchDisplayName(item.Name, store.NewID())
+	if err := r.update(id, func(it *store.Item) {
+		it.Batch = &store.BatchRef{KeyID: key.ID, Uploads: cloneUploads(uploads), Marker: marker}
+	}); err != nil {
+		return err
+	}
+	name, err := client.SubmitBatch(ctx, reqs, marker)
 	if err != nil {
+		r.logf("item %s batch create (%s): %v", id, marker, r.redact(err))
 		return err
 	}
 	r.logf("item %s batch submitted: %s (%d requests)", id, name, len(reqs))
 	saved := cloneUploads(uploads)
-	if err := r.update(id, func(it *store.Item) {
-		it.State = StateBatchWaiting
-		it.Detail = ""
+	return r.update(id, func(it *store.Item) {
+		// A cancel during creation keeps its state; the name is kept so a
+		// retry waits for this job.
+		if it.State == StateRunning {
+			it.State = StateBatchWaiting
+			it.Detail = ""
+		}
 		it.Progress = doneRatio(it.Units)
 		it.Batch = &store.BatchRef{KeyID: key.ID, Name: name, SubmittedAt: r.opts.Now(), Uploads: saved}
-	}); err != nil {
-		return err
+	})
+}
+
+// batchDisplayName names a job after the item plus a unique marker, so a job
+// whose creation answer was lost can be found again. The item name is cut so
+// the marker always fits the server's limit.
+func batchDisplayName(name, token string) string {
+	const maxName = 80
+	if len(name) > maxName {
+		name = name[:maxName]
+		for len(name) > 0 && !utf8.ValidString(name) {
+			name = name[:len(name)-1]
+		}
 	}
-	return nil
+	return name + " #" + token
 }
 
 // batchKey is the pinned paid key, or the highest-priority paid key.
@@ -1305,11 +1499,7 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 	}
 	state, err := client.BatchStatus(ctx, item.Batch.Name)
 	if err != nil {
-		if gemini.IsAuth(err) {
-			r.fail(id, "유료 키가 올바르지 않아요")
-			return
-		}
-		r.logf("item %s batch status: %v", id, r.redact(err))
+		r.pollError(ctx, id, "status", err)
 		return
 	}
 	switch state {
@@ -1325,10 +1515,33 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 		r.batchFail(id, "기한 안에 끝나지 않았어요")
 		return
 	}
+	r.collectLocked(ctx, id, client, item.Batch.Name)
+}
 
-	results, err := client.BatchResults(ctx, item.Batch.Name)
+// pollError decides what a failed status or results call means. Network
+// trouble, timeouts and rate limits keep waiting on the same job. A job the
+// server does not know ends the wait. Other refusals mark the item failed
+// but keep the job name, so a retry checks the same job again rather than
+// paying for a new one.
+func (r *Runner) pollError(ctx context.Context, id, what string, err error) {
+	r.logf("item %s batch %s: %v", id, what, r.redact(err))
+	switch {
+	case ctx.Err() != nil, gemini.IsTransient(err), gemini.Is429(err):
+	case gemini.IsAuth(err):
+		r.fail(id, "유료 키가 올바르지 않아요")
+	case gemini.IsNotFound(err):
+		r.batchFail(id, "서버에 요청이 없어요")
+	default:
+		r.fail(id, "요청 상태를 확인하지 못했어요")
+	}
+}
+
+// collectLocked stores the results of a finished job and writes the output.
+// The caller holds pollMu.
+func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Client, name string) {
+	results, err := client.BatchResults(ctx, name)
 	if err != nil {
-		r.logf("item %s batch results: %v", id, r.redact(err))
+		r.pollError(ctx, id, "results", err)
 		return
 	}
 	failed := 0
@@ -1582,6 +1795,8 @@ func userMessage(err error) string {
 	switch {
 	case errors.As(err, &be):
 		return blockedMessage
+	case gemini.IsEmptyResponse(err):
+		return "결과가 비어 있어요"
 	case errors.As(err, &ue):
 		return clip(ue.Error())
 	case gemini.IsAuth(err):

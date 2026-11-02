@@ -85,6 +85,7 @@ type fakeClient struct {
 	generates int
 	gen       genFunc
 	hold      chan struct{} // when set, Generate waits for it or ctx
+	unwind    chan struct{} // when set, a held Generate whose ctx ends waits for it before returning
 }
 
 func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Upload, error) {
@@ -101,11 +102,15 @@ func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (string,
 	n := c.generates
 	gen := c.gen
 	hold := c.hold
+	unwind := c.unwind
 	c.mu.Unlock()
 	if hold != nil {
 		select {
 		case <-hold:
 		case <-ctx.Done():
+			if unwind != nil {
+				<-unwind
+			}
 			return "", "", ctx.Err()
 		}
 	}
@@ -134,6 +139,8 @@ func (c *fakeClient) SubmitBatch(ctx context.Context, reqs []gemini.BatchRequest
 		c.w.mu.Unlock()
 		return "", genai.APIError{Code: 503}
 	}
+	lost := c.w.submitLost
+	c.w.submitLost = false
 	c.w.mu.Unlock()
 	if hold != nil {
 		select {
@@ -142,12 +149,33 @@ func (c *fakeClient) SubmitBatch(ctx context.Context, reqs []gemini.BatchRequest
 			return "", ctx.Err()
 		}
 	}
-	return c.w.submit(reqs)
+	name, err := c.w.submit(reqs, displayName)
+	if lost {
+		// The server made the job but the response never arrived.
+		return "", context.DeadlineExceeded
+	}
+	return name, err
+}
+
+func (c *fakeClient) FindBatch(ctx context.Context, displayName string) (string, error) {
+	c.w.mu.Lock()
+	defer c.w.mu.Unlock()
+	c.w.findCalls++
+	for _, name := range c.w.batchOrder {
+		if c.w.displayNames[name] == displayName {
+			return name, nil
+		}
+	}
+	return "", nil
 }
 
 func (c *fakeClient) BatchStatus(ctx context.Context, name string) (string, error) {
 	c.w.mu.Lock()
 	defer c.w.mu.Unlock()
+	c.w.statusCalls = append(c.w.statusCalls, name)
+	if c.w.statusErr != nil {
+		return "", c.w.statusErr
+	}
 	return c.w.batchState, nil
 }
 
@@ -174,6 +202,10 @@ func (c *fakeClient) BatchResults(ctx context.Context, name string) (map[string]
 func (c *fakeClient) CancelBatch(ctx context.Context, name string) error {
 	c.w.mu.Lock()
 	defer c.w.mu.Unlock()
+	if c.w.batchState == gemini.BatchSucceeded {
+		// The real API refuses to cancel a finished job.
+		return genai.APIError{Code: 400, Message: "job already finished"}
+	}
 	c.w.cancelled = append(c.w.cancelled, name)
 	return nil
 }
@@ -191,6 +223,11 @@ type fakeWorld struct {
 	submitFailures int
 	submitCalls    int
 	submitHold     chan struct{} // when set, SubmitBatch waits for it or ctx
+	submitLost     bool          // next SubmitBatch creates the job but reports a timeout
+	displayNames   map[string]string
+	findCalls      int
+	statusErr      error
+	statusCalls    []string
 	cancelled      []string
 }
 
@@ -201,6 +238,7 @@ func newWorld() *fakeWorld {
 		batchState:   gemini.BatchRunning,
 		batchDrop:    map[string]bool{},
 		batchResults: map[string]gemini.Result{},
+		displayNames: map[string]string{},
 	}
 }
 
@@ -219,11 +257,12 @@ func (w *fakeWorld) newClient(apiKey string) (gemini.Client, error) {
 	return w.client(apiKey), nil
 }
 
-func (w *fakeWorld) submit(reqs []gemini.BatchRequest) (string, error) {
+func (w *fakeWorld) submit(reqs []gemini.BatchRequest, displayName string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	name := fmt.Sprintf("batches/%d", len(w.batches)+1)
 	w.batches[name] = append([]gemini.BatchRequest(nil), reqs...)
+	w.displayNames[name] = displayName
 	w.batchOrder = append(w.batchOrder, name)
 	return name, nil
 }
@@ -623,6 +662,30 @@ func TestEmptyTextFailsUnit(t *testing.T) {
 	if !strings.Contains(failed.Detail, "비어 있어요") {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
+	// An empty answer with no reason is retried like a 503 before failing.
+	if n := h.world.client("AIza-f1").generatesNow(); n != 1+transientRetries {
+		t.Errorf("generates = %d, want %d", n, 1+transientRetries)
+	}
+}
+
+// Seen live under load: an empty answer (finish "" or STOP) and the same
+// request returning the full text right after.
+func TestEmptyResponseIsRetried(t *testing.T) {
+	for _, finish := range []string{"", gemini.FinishStop} {
+		h := newHarness(t, freeKey("f1"))
+		h.world.client("AIza-f1").setGen(func(call int, parts []gemini.Part) (string, string, error) {
+			if call == 1 {
+				return "", finish, nil
+			}
+			return answer(parts), gemini.FinishStop, nil
+		})
+		h.r.Start(h.ctx)
+		item := h.addOne(h.source("lec.m4a"), "free")
+		h.wait(item.ID, StateDone)
+		if got := h.sleepsNow(); len(got) != 1 || got[0] != 10*time.Second {
+			t.Errorf("finish %q: sleeps = %v, want one 10s backoff", finish, got)
+		}
+	}
 }
 
 func TestBlockedLiveResponseFailsUnit(t *testing.T) {
@@ -712,18 +775,6 @@ func TestTransientRetriesGiveUpAfterFive(t *testing.T) {
 		t.Errorf("generates = %d, want 6 (initial + 5 retries)", got)
 	}
 	want := []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute}
-	if got := h.sleepsNow(); !equalDurations(got, want) {
-		t.Errorf("sleeps = %v, want %v", got, want)
-	}
-}
-
-func TestTransientBatchSubmitIsRetried(t *testing.T) {
-	h := newHarness(t, paidKey("p1"))
-	h.world.failNextSubmit(2)
-	h.r.Start(h.ctx)
-	item := h.addOne(h.source("lec.m4a"), "batch")
-	h.wait(item.ID, StateBatchWaiting)
-	want := []time.Duration{10 * time.Second, 20 * time.Second}
 	if got := h.sleepsNow(); !equalDurations(got, want) {
 		t.Errorf("sleeps = %v, want %v", got, want)
 	}

@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"regexp"
@@ -58,11 +59,43 @@ func IsAuth(err error) bool {
 	return false
 }
 
-// IsTransient reports errors worth retrying: 5xx, 408, timeouts and broken
-// connections. Context cancellation is never transient.
+// EmptyResponseError is a live response with no text and no reason: no
+// block, no MAX_TOKENS, finish reason empty or STOP. It shows up when the
+// server is overloaded, and the same request usually works when sent again,
+// so it counts as transient. Usage holds token counts for the log.
+type EmptyResponseError struct {
+	Finish string
+	Usage  string
+}
+
+func (e *EmptyResponseError) Error() string {
+	finish := e.Finish
+	if finish == "" {
+		finish = "none"
+	}
+	return fmt.Sprintf("empty response (finish %s, %s)", finish, e.Usage)
+}
+
+// IsEmptyResponse reports an EmptyResponseError.
+func IsEmptyResponse(err error) bool {
+	var e *EmptyResponseError
+	return errors.As(err, &e)
+}
+
+// IsNotFound reports a 404: the server does not know the resource.
+func IsNotFound(err error) bool {
+	return StatusCode(err) == 404
+}
+
+// IsTransient reports errors worth retrying: 5xx, 408, timeouts, broken
+// connections and empty live responses. Context cancellation is never
+// transient.
 func IsTransient(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false
+	}
+	if IsEmptyResponse(err) {
+		return true
 	}
 	code := StatusCode(err)
 	if code == 408 || code >= 500 {

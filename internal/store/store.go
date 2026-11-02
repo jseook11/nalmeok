@@ -43,6 +43,10 @@ type Item struct {
 	// KeyID pins the item to one saved key. Empty means automatic: keys are
 	// tried in priority order.
 	KeyID string `json:"KeyID"`
+	// SourceSig is the size and modification time of the source audio when
+	// its pieces were prepared. A change means finished units and uploads
+	// belong to old audio.
+	SourceSig string `json:"SourceSig,omitempty"`
 }
 
 // Unit is one transcription request and its result. MIMEs runs parallel to
@@ -61,6 +65,10 @@ type BatchRef struct {
 	Name        string            `json:"Name"`
 	SubmittedAt time.Time         `json:"SubmittedAt"`
 	Uploads     map[string]Upload `json:"Uploads"`
+	// Marker is the display name of a job whose creation was sent but whose
+	// name never came back. The job may exist, so it is looked up before
+	// another one is created.
+	Marker string `json:"Marker,omitempty"`
 }
 
 // Upload records a file uploaded for a Batch job.

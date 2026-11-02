@@ -64,6 +64,10 @@ type Client interface {
 	Generate(ctx context.Context, parts []Part) (text string, finish string, err error)
 	// SubmitBatch creates a Batch job with one request per BatchRequest.
 	SubmitBatch(ctx context.Context, reqs []BatchRequest, displayName string) (name string, err error)
+	// FindBatch returns the name of a Batch job with exactly this display
+	// name, or "" when there is none. It finds a job whose creation response
+	// was lost, so it is not created twice.
+	FindBatch(ctx context.Context, displayName string) (name string, err error)
 	// BatchStatus returns pending|running|succeeded|failed|cancelled|expired.
 	BatchStatus(ctx context.Context, name string) (state string, err error)
 	// BatchResults returns results keyed by BatchRequest.Key.
@@ -195,7 +199,19 @@ func (c *client) Generate(ctx context.Context, parts []Part) (string, string, er
 		return "", "", err
 	}
 	text, finish := responseText(resp)
+	if strings.TrimSpace(text) == "" && (finish == "" || finish == FinishStop) {
+		return "", finish, &EmptyResponseError{Finish: finish, Usage: usageText(resp)}
+	}
 	return text, finish, nil
+}
+
+// usageText summarizes token counts for the log.
+func usageText(resp *genai.GenerateContentResponse) string {
+	if resp == nil || resp.UsageMetadata == nil {
+		return "no usage"
+	}
+	u := resp.UsageMetadata
+	return fmt.Sprintf("prompt %d, candidates %d, thoughts %d", u.PromptTokenCount, u.CandidatesTokenCount, u.ThoughtsTokenCount)
 }
 
 func responseText(resp *genai.GenerateContentResponse) (string, string) {
@@ -312,6 +328,31 @@ func NormalizeJobState(state genai.JobState) string {
 		return BatchRunning
 	default:
 		return BatchPending
+	}
+}
+
+// findBatchPages bounds the job listing; jobs are listed newest first and a
+// lost creation is looked up soon after.
+const findBatchPages = 5
+
+func (c *client) FindBatch(ctx context.Context, displayName string) (string, error) {
+	page, err := c.c.Batches.List(ctx, &genai.ListBatchJobsConfig{PageSize: 100})
+	for i := 0; ; i++ {
+		if err != nil {
+			if errors.Is(err, genai.ErrPageDone) {
+				return "", nil
+			}
+			return "", err
+		}
+		for _, job := range page.Items {
+			if job != nil && job.DisplayName == displayName {
+				return job.Name, nil
+			}
+		}
+		if page.NextPageToken == "" || i+1 >= findBatchPages {
+			return "", nil
+		}
+		page, err = page.Next(ctx)
 	}
 }
 
