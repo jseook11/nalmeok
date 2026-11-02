@@ -166,6 +166,10 @@ def inspect_folder(folder, light=False):
                     facts["changed"] = True
                     facts["reason"] = str(exc)
 
+    try:
+        audio_count = len(app.estimate_files(folder))
+    except OSError:
+        audio_count = m4a
     if facts["live_broken"]:
         facts["stage"] = "corrupt"
     elif facts["live"]:
@@ -194,10 +198,11 @@ def inspect_folder(folder, light=False):
             facts["stage"] = "submitted"
     elif facts["media"] == 0:
         facts["stage"] = "empty"
-    elif m4a > app.MAX_FILES or pdf > 1:
+    elif audio_count > app.MAX_FILES or pdf > 1:
+        # 변환 전 MP4도 변환 후 M4A로 세므로 같은 기준으로 셉니다.
         facts["stage"] = "invalid"
-        facts["reason"] = (f"오디오 {m4a}개 (최대 {app.MAX_FILES}개)"
-                           if m4a > app.MAX_FILES else "PDF가 2개 이상입니다")
+        facts["reason"] = (f"오디오 {audio_count}개 (최대 {app.MAX_FILES}개)"
+                           if audio_count > app.MAX_FILES else "PDF가 2개 이상입니다")
     else:
         facts["stage"] = "ready"
     return facts
@@ -581,12 +586,9 @@ def run_with_client(key, action, purpose="작업", tier=None):
             except APIError as exc:
                 app.log_exception(f"{purpose} API 오류 ({exc.code})", exc)
                 if exc.code in (401, 403):
+                    # 저장된 키는 지우지 않습니다. 정리는 키 관리(k)에서 사용자가 합니다.
                     app.notice(f"API 키 오류 ({exc.code}): {exc}")
                     failed = key
-                    if exc.code == 401:
-                        for entry in app.saved_key_entries():
-                            if entry["api_key"] == failed:
-                                app.delete_key_entry(entry["id"])
                     candidates = (app.key_entries_for_tier(tier) if tier
                                   else app.key_entries())
                     key = next((entry["api_key"] for entry in candidates
@@ -2056,6 +2058,8 @@ def drop_flow(raw_paths):
     if not folders:
         details = "".join(f"\n  · {name}: {reason}" for name, reason in skipped)
         app.fail("전사할 폴더나 MP4/M4A 파일이 없습니다." + details)
+    # SDK 설치 후 재시작이 TUI 도중(키 확인 등)에 일어나면 입력이 사라집니다.
+    app.ensure_sdk()
     with app.fullscreen():
         key = app.current_key()
         if not key:
@@ -2069,6 +2073,8 @@ def interactive():
     if not sys.stdin.isatty():
         app.fail("터미널 메뉴는 터미널에서 실행하세요. 명령어 사용법: nalmeok --help")
     app.require_tui()
+    # SDK 설치 후 재시작이 TUI 도중(키 확인 등)에 일어나면 입력이 사라집니다.
+    app.ensure_sdk()
     with app.fullscreen():
         key = app.current_key()
         if not key:

@@ -257,18 +257,28 @@ def _upload(folder, client, model=app.DEFAULT_MODEL, confirm=None, show_estimate
             app.log("제출을 취소했습니다. 준비되면 upload를 다시 실행하세요.")
             return
 
+    # Files API 업로드는 48시간 뒤 만료됩니다. 제출 전 단계에서 오래 멈췄다가
+    # 이어 하면 만료된 URI로 Batch를 만들게 되므로 시각을 보고 다시 올립니다.
     sources = job["files"] + ([job["pdf"]] if job["pdf"] else [])
+    reuploaded = False
     for item in sources:
-        if item.get("uri"):
-            continue  # 이전 실행에서 이미 업로드된 파일입니다.
+        if app._upload_record_valid(item):
+            continue  # 이전 실행에서 올린 파일이 아직 유효합니다.
         filepath = folder / item["name"]
         mime = "application/pdf" if filepath.suffix.lower() == ".pdf" else "audio/m4a"
         app.log(f"파일 업로드: {filepath.name}")
         remote = app.upload_safely(client, filepath, mime, filepath.name)
         if not remote.uri or not remote.name:
             app.fail(f"파일 업로드 응답이 불완전합니다: {filepath.name}")
-        item.update(uri=remote.uri, remote_name=remote.name, mime_type=mime)
+        item.update(uri=remote.uri, remote_name=remote.name, mime_type=mime,
+                    uploaded_at=time.time())
+        reuploaded = True
         app.save(path, job)
+    input_fresh = (isinstance(job.get("batch_input_uploaded_at"), (int, float))
+                   and time.time() - job["batch_input_uploaded_at"] < 47 * 3600)
+    if reuploaded or not input_fresh:
+        # 요청 목록은 파일 URI를 담고 있어 파일을 다시 올리면 함께 새로 만듭니다.
+        job.pop("batch_input_name", None)
 
     requests = []
     for item in job["files"]:
@@ -300,6 +310,7 @@ def _upload(folder, client, model=app.DEFAULT_MODEL, confirm=None, show_estimate
         if not uploaded.name:
             app.fail("Batch JSONL 업로드 응답이 불완전합니다.")
         job["batch_input_name"] = uploaded.name
+        job["batch_input_uploaded_at"] = time.time()
         app.save(path, job)
 
     app.log(f"Batch 제출: {folder.name} ({len(job['files'])}개 오디오)")

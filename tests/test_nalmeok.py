@@ -452,6 +452,22 @@ class StateTests(unittest.TestCase):
             self.assertEqual(facts["stage"], "invalid")
             self.assertIn(str(app.MAX_FILES), facts["reason"])
 
+    def test_unconverted_mp4_counts_toward_file_limit(self):
+        # 변환 후 M4A 수가 상한을 넘을 폴더는 준비 단계에서 미리 막습니다.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for index in range(app.MAX_FILES + 1):
+                (folder / f"{index:02d}.mp4").write_bytes(b"v")
+            facts = app.inspect_folder(folder)
+            self.assertEqual(facts["stage"], "invalid")
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            # 이미 변환된 MP4는 M4A와 한 번만 셉니다.
+            for index in range(app.MAX_FILES):
+                (folder / f"{index:02d}.mp4").write_bytes(b"v")
+                (folder / f"{index:02d}.m4a").write_bytes(b"a")
+            self.assertEqual(app.inspect_folder(folder)["stage"], "ready")
+
     def test_prepared_submitted_received_done(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
@@ -601,6 +617,65 @@ class StateTests(unittest.TestCase):
                 (folder / name).write_bytes(b"x")
             names = [p.name for p in app.estimate_files(folder)]
             self.assertEqual(names, ["01.m4a", "02.mp4"])
+
+
+class BatchUploadExpiryTests(unittest.TestCase):
+    def _client(self, uploads, created):
+        class Remote:
+            def __init__(self, name):
+                self.uri = f"https://files/{name}"
+                self.name = f"files/{name}"
+
+        class Files:
+            def upload(self, file, config):
+                uploads.append(config["display_name"])
+                return Remote(f"{len(uploads)}")
+
+        class Batches:
+            def create(self, model, src, config):
+                created.append(src)
+                return type("Batch", (), {"name": "batches/new"})()
+
+        return type("Client", (), {"files": Files(), "batches": Batches()})()
+
+    def test_prepared_job_reuploads_expired_files_and_request_list(self):
+        # 제출 전 단계에서 48시간 넘게 멈춘 작업은 만료된 URI를 쓰지 않습니다.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            write_state(folder, batch_id=None)
+            job = app.load(folder)
+            job["files"][0].update(uri="https://files/old", remote_name="files/old",
+                                   uploaded_at=0)
+            job["batch_input_name"] = "files/old-input"
+            job["batch_input_uploaded_at"] = 0
+            app.save(app.state_path(folder), job)
+            uploads, created = [], []
+            with mock.patch.object(app, "estimate_lines", return_value=[]):
+                app._upload(folder, self._client(uploads, created),
+                            confirm=lambda lines: True)
+            self.assertEqual(uploads, ["01.m4a", app.REQUEST_FILE])
+            self.assertNotEqual(created, ["files/old-input"])
+            saved = app.load(folder)
+            self.assertEqual(saved["batch_id"], "batches/new")
+            self.assertGreater(saved["files"][0]["uploaded_at"], 0)
+
+    def test_fresh_uploads_are_reused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            write_state(folder, batch_id=None)
+            job = app.load(folder)
+            now = app.time.time()
+            job["files"][0].update(uri="https://files/a", remote_name="files/a",
+                                   uploaded_at=now)
+            job["batch_input_name"] = "files/input"
+            job["batch_input_uploaded_at"] = now
+            app.save(app.state_path(folder), job)
+            uploads, created = [], []
+            with mock.patch.object(app, "estimate_lines", return_value=[]):
+                app._upload(folder, self._client(uploads, created),
+                            confirm=lambda lines: True)
+            self.assertEqual(uploads, [])
+            self.assertEqual(created, ["files/input"])
 
 
 class LiveGroupTests(unittest.TestCase):

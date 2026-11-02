@@ -12,7 +12,7 @@ switch ($Id) {
     'drop-help' {
         Write-Host ''
         Write-Host '폴더나 MP4/M4A 파일을 이 바로가기 위에 끌어다 놓으세요.'
-        Write-Host '결과는 문서 폴더의 nalmeok 안에 모입니다.'
+        Write-Host '파일 결과는 원본 옆에, 폴더 결과는 문서 폴더의 nalmeok에 생깁니다.'
         Write-Host ''
     }
     'install-failed' {

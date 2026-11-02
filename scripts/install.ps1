@@ -68,7 +68,7 @@ Write-Host '설치가 끝났습니다.'
 Write-Host '바탕화면의 nalmeok 바로가기로 실행하세요.'
 Write-Host '첫 실행에서 Python과 SDK를 내려받으므로 인터넷이 필요합니다.'
 Write-Host "폴더나 MP4/M4A 파일을 'nalmeok에 끌어놓기' 바로가기 위에 떨어뜨리면"
-Write-Host '전사 결과가 문서 폴더의 nalmeok 안에 모입니다.'
+Write-Host '바로 전사합니다. 파일 결과는 원본 옆에, 폴더 결과는 문서 폴더의 nalmeok에 생깁니다.'
 Write-Host ''
 Write-Host '처음 실행하면 Gemini API 키 등록 화면이 나옵니다.'
 Write-Host '제거하려면 아래 폴더와 바로가기를 직접 삭제하세요.'
