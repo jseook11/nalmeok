@@ -15,6 +15,7 @@ import (
 func TestDirIsUnderDocuments(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	dir, err := Dir()
 	if err != nil {
 		t.Fatal(err)
