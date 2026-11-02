@@ -30,11 +30,22 @@ internal/app        Wails 바인딩
 frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
 ```
 
+### 빌드
+
 ```bash
 go test ./...
 go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
-scripts/build_mac_app.sh                                            # build/Nalmeok.app (자격 환경변수가 있으면 서명·공증)
+scripts/build_mac_app.sh      # build/Nalmeok.app (arm64·amd64 범용, 아이콘 포함)
+scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.exe
 ```
+
+`build/nalmeok`은 개발용 네이티브 바이너리다. `.app`에는 들어가지 않는다. `scripts/build_mac_app.sh`는 arm64와 amd64를 따로 빌드해 `lipo -create`로 하나로 합친다. Wails의 macOS 백엔드가 cgo를 쓰므로 각 조각을 `CC="clang -arch ..."`와 `CGO_CFLAGS`·`CGO_LDFLAGS="-arch ..."`로 빌드한다. 확인은 `lipo -archs build/Nalmeok.app/Contents/MacOS/nalmeok`(→ `x86_64 arm64`).
+
+아이콘 원본은 `assets/nalmeok.ico`다. macOS용 `assets/nalmeok.icns`는 커밋해 두고, 원본이 바뀔 때만 `scripts/make_icns.sh`로 다시 만든다(sips로 PNG를 뽑아 .iconset을 만들고 iconutil로 묶는다). 빌드 스크립트는 이 파일을 `Contents/Resources`에 복사하고 `CFBundleIconFile`로 가리킨다.
+
+Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 Windows 백엔드는 순수 Go라 cgo가 필요 없다. 아직 Windows 아이콘과 애플리케이션 매니페스트는 넣지 않았다.
+
+서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 없으면 서명하지 않은 `.app`만 만든다.
 
 ### CLI: 테스트·AI 에이전트용
 
@@ -111,7 +122,7 @@ python -m unittest discover -s tests -v
 
 테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정, live 그룹핑(7×20분 → 2요청, 130분 상한), 무료/유료 키 레지스트리와 라벨·마이그레이션, 무료 키 429 순환, 혼합 배분(130/130/40), 혼합 결과 병합, live 상태·아카이브·CLI 인자, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택, 드롭 입력 정규화, 패키징(버전 동기화, `.cmd` ASCII, `.ps1` BOM), 업데이트 매니페스트.
 
-## 빌드
+## 빌드 (기존 Python 앱)
 
 | 대상 | 명령 | 문서 |
 |---|---|---|
