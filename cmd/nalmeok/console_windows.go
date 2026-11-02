@@ -27,7 +27,11 @@ func attachParentConsole() {
 	if ok, _, _ := attach.Call(uintptr(attachParentProcess)); ok == 0 {
 		return
 	}
-	con, err := os.OpenFile("CONOUT$", os.O_WRONLY, 0)
+	// Read access too: Go writes through WriteConsoleW (Unicode) only when
+	// GetConsoleMode succeeds, and that needs GENERIC_READ. A write-only
+	// handle would get raw UTF-8 bytes, which a Korean console (code page
+	// 949) shows garbled.
+	con, err := os.OpenFile("CONOUT$", os.O_RDWR, 0)
 	if err != nil {
 		return
 	}
