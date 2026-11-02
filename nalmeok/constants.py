@@ -212,6 +212,8 @@ The audio parts are in chronological order. Transcribe every part in order as on
 
 
 DROP_FILE_SUFFIXES = (".mp4", ".m4a")
+DROP_SOURCE_FILE = ".nalmeok-drop-source"
+CONVERTED_FILE = ".nalmeok-converted"
 
 
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")

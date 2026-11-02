@@ -229,7 +229,7 @@ def _upload(folder, client, model=app.DEFAULT_MODEL, confirm=None, show_estimate
     else:
         if app.needs_conversion(folder):
             app.log("M4A가 없어 MP4를 먼저 변환합니다.")
-            app.convert(folder)
+            app.convert(folder, temporary=True)
             app.log("")
         audios, pdf = app.list_media(folder)
         job = {
@@ -479,7 +479,7 @@ def download(folder, job, client, retry="none", attempts=3, choose_retry=None,
 
 def _download(folder, job, client, retry="none", attempts=3, choose_retry=None,
               validate=True):
-    if validate:
+    if validate and not app.output_path(folder).is_file():
         app.validate_local_files(folder, job)
     batch, state = app.status(job, client)
     if state != "JOB_STATE_SUCCEEDED":
@@ -548,9 +548,11 @@ def _download(folder, job, client, retry="none", attempts=3, choose_retry=None,
     if output.exists():
         if output.read_text(encoding="utf-8") == merged:
             app.log(f"이미 저장된 파일과 동일합니다: {output}")
+            app.cleanup_generated_audio(folder)
             return
         app.fail(f"기존 Markdown을 보존합니다. 파일을 확인하세요: {output}")
     app.atomic_write_text(output, merged)
+    app.cleanup_generated_audio(folder)
     app.log(f"전사 완료: {output} ({len(job['files'])}개 파일, {len(merged):,}자)")
     app.log("")
     for line in app.cost_lines(folder, job):
@@ -727,7 +729,7 @@ def prepare_live(folder, model=app.DEFAULT_MODEL, chunk_seconds=app.LIVE_CHUNK_S
         return app.load_live_state(folder)
     if app.needs_conversion(folder):
         app.log("M4A가 없어 MP4를 먼저 변환합니다.")
-        app.convert(folder)
+        app.convert(folder, temporary=True)
     audios, pdf = app.list_media(folder)
     segment_dir = app.live_segment_dir(folder)
     if segment_dir.exists():
@@ -788,7 +790,7 @@ def prepare_mixed(folder, model=app.DEFAULT_MODEL, free_keys=None, paid_keys=Non
         app.fail("등록된 API 키가 없습니다. 설정에서 무료/유료 키를 추가하세요.")
     if app.needs_conversion(folder):
         app.log("M4A가 없어 MP4를 먼저 변환합니다.")
-        app.convert(folder)
+        app.convert(folder, temporary=True)
     audios, pdf = app.list_media(folder)
     if free_keys:
         chunk_seconds = min(
@@ -1172,9 +1174,11 @@ def _live_transcribe(folder, client, model=None, gap=app.LIVE_GAP_SECONDS,
     if output.exists():
         if output.read_text(encoding="utf-8") == merged:
             app.log(f"이미 저장된 파일과 동일합니다: {output}")
+            app.cleanup_generated_audio(folder)
             return output
         app.fail(f"기존 Markdown을 보존합니다. 파일을 확인하세요: {output}")
     app.atomic_write_text(output, merged)
+    app.cleanup_generated_audio(folder)
     app.log(f"live 전사 완료: {output} ({len(merged):,}자)")
     app.log("")
     for line in app.cost_lines(folder, state):
@@ -1489,9 +1493,11 @@ def _mixed_run(folder, model, gap, interval, clients, include_paid=True):
     if output.exists():
         if output.read_text(encoding="utf-8") == merged:
             app.log(f"이미 저장된 파일과 동일합니다: {output}")
+            app.cleanup_generated_audio(folder)
             return output
         app.fail(f"기존 Markdown을 보존합니다. 파일을 확인하세요: {output}")
     app.atomic_write_text(output, merged)
+    app.cleanup_generated_audio(folder)
     state["finished"] = time.time()
     app.save(state_path, state)
     app.log(f"혼합 전사 완료: {output} ({len(merged):,}자)")
@@ -1642,6 +1648,13 @@ def background_wait(folder, retry="none", attempts=3):
         app.download(folder, app.load(folder), client, retry, attempts, validate=False)
         app.write_watch_status(folder, reset=True, state="DONE", label="완료",
                            finished=time.time())
+        if app.is_drop_job(folder):
+            target, error = app.copy_result_to_documents(folder)
+            if error:
+                app.log(f"결과 복사 실패: {error}")
+            elif target:
+                if not app.cleanup_drop_job(folder):
+                    app.cleanup_drop_audio(folder)
     except BaseException as exc:
         app.write_watch_status(folder, state="ERROR", label="오류",
                            error=str(exc), finished=time.time())

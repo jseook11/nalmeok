@@ -159,7 +159,7 @@ def inspect_folder(folder, light=False):
                 recovery.get("batch_id") == job.get("batch_id")
                 and recovery.get("pending_batch"))
             facts["recovery"] = bool(recovery.get("results"))
-            if job.get("files"):
+            if job.get("files") and not facts["output"]:
                 try:
                     app.validate_local_files(folder, job)
                 except (RuntimeError, OSError, KeyError, TypeError) as exc:
@@ -875,7 +875,7 @@ def transcribe_flow(folder, key):
     if facts["needs_convert"]:
         app.screen("MP4 → M4A 변환", folder.name)
         try:
-            app.convert(folder)
+            app.convert(folder, temporary=True)
         except (RuntimeError, OSError) as exc:
             app.notice(str(exc))
             app.wait()
@@ -1364,7 +1364,7 @@ def multi_submit(key):
         if facts["needs_convert"]:
             app.log(f"변환: {folder.name}")
             try:
-                app.convert(folder)
+                app.convert(folder, temporary=True)
             except (RuntimeError, OSError) as exc:
                 app.notice(f"{folder.name}: {exc}")
                 app.wait()
@@ -1933,7 +1933,7 @@ def session_screen(folder, key):
             print(f"  {app.dim('MP4 → M4A · 원본은 그대로 둡니다')}")
             print()
             try:
-                app.convert(folder)
+                app.convert(folder, temporary=True)
             except (RuntimeError, OSError) as exc:
                 app.message_screen(folder, "변환 실패", [str(exc)])
                 return key
@@ -1973,21 +1973,25 @@ def session_screen(folder, key):
 
 
 def show_drop_summary(results):
-    """드롭한 항목별 결과와 문서 폴더 위치를 보여줍니다."""
+    """드롭한 항목별 결과와 결과 위치를 보여줍니다."""
     app.header("드롭 결과", f"{len(results)}개 항목")
     copied = 0
+    targets = []
     for folder, target, error in results:
         name = folder.name if folder is not None else "건너뜀"
         if target:
             copied += 1
+            targets.append(target)
             print(f"  완료  {name}  →  {app.short_path(target)}")
         elif error:
             print(f"  실패  {name}  {error}")
         else:
             print(f"  대기  {name}  결과가 아직 없습니다.")
     print()
-    if copied:
-        print(f"  결과 폴더  {app.short_path(app.documents_dir())}")
+    documents = app.documents_dir()
+    if copied and any(Path(target).is_relative_to(documents)
+                      for target in targets):
+        print(f"  결과 폴더  {app.short_path(documents)}")
         print()
     app.wait("Enter 돌아가기")
 
@@ -2014,6 +2018,11 @@ def run_drop_folders(folders, skipped, key):
             key = app.session_screen(folder, key)
             target, error = app.copy_result_to_documents(folder)
             results.append((folder, target, error))
+            if app.is_drop_job(folder):
+                if target and not app.cleanup_drop_job(folder):
+                    app.cleanup_drop_audio(folder)
+            elif app.output_path(folder).is_file():
+                app.cleanup_generated_audio(folder)
         except KeyboardInterrupt:
             results.append((folder, None, "중단됨"))
             break

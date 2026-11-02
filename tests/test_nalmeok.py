@@ -508,6 +508,14 @@ class StateTests(unittest.TestCase):
             self.assertEqual(facts["stage"], "changed")
             self.assertTrue(facts["reason"])
 
+    def test_done_output_ignores_cleaned_audio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            write_state(folder)
+            (folder / "01.m4a").unlink()
+            app.output_path(folder).write_text("result", encoding="utf-8")
+            self.assertEqual(app.inspect_folder(folder)["stage"], "done")
+
     def test_watching_uses_pid_file(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
@@ -1371,6 +1379,8 @@ class DropTests(unittest.TestCase):
         job = folders[0]
         self.assertEqual(job, root / "jobs" / "week1")
         self.assertEqual((job / "week1.mp4").read_bytes(), b"video")
+        recorded = (job / app.DROP_SOURCE_FILE).read_text(encoding="utf-8")
+        self.assertEqual(Path(recorded), source.absolute())
 
     def test_normalize_copies_when_hardlink_fails(self):
         root = self.make_temp()
@@ -1433,6 +1443,107 @@ class DropTests(unittest.TestCase):
         folder.mkdir()
         self.assertEqual(app.copy_result_to_documents(folder, root / "docs"),
                          (None, ""))
+
+    def test_file_drop_copies_result_next_to_source(self):
+        root = self.make_temp()
+        source = root / "lecture" / "week1.m4a"
+        source.parent.mkdir()
+        source.write_bytes(b"audio")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(source)])
+        job = folders[0]
+        (job / "week1.md").write_text("result", encoding="utf-8")
+        with mock.patch.object(app, "documents_dir", return_value=root / "docs"):
+            target, error = app.copy_result_to_documents(job)
+        self.assertEqual(error, "")
+        self.assertEqual(target, source.parent / "week1.md")
+        self.assertEqual(target.read_text(encoding="utf-8"), "result")
+        self.assertFalse((root / "docs" / "week1.md").exists())
+
+    def test_file_drop_result_collision_adds_suffix_next_to_source(self):
+        root = self.make_temp()
+        source = root / "week1.m4a"
+        source.write_bytes(b"audio")
+        (root / "week1.md").write_text("old", encoding="utf-8")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(source)])
+        job = folders[0]
+        (job / "week1.md").write_text("new", encoding="utf-8")
+        with mock.patch.object(app, "documents_dir", return_value=root / "docs"):
+            target, error = app.copy_result_to_documents(job)
+        self.assertEqual(error, "")
+        self.assertEqual(target, root / "week1 (2).md")
+        self.assertEqual(target.read_text(encoding="utf-8"), "new")
+
+    def test_folder_drop_defaults_to_documents(self):
+        root = self.make_temp()
+        folder = root / "lecture"
+        folder.mkdir()
+        (folder / "lecture.md").write_text("result", encoding="utf-8")
+        with mock.patch.object(app, "documents_dir", return_value=root / "docs"):
+            target, error = app.copy_result_to_documents(folder)
+        self.assertEqual(error, "")
+        self.assertEqual(target, root / "docs" / "lecture.md")
+
+    def test_cleanup_generated_audio_keeps_original(self):
+        root = self.make_temp()
+        folder = root / "lecture"
+        folder.mkdir()
+        (folder / "original.m4a").write_bytes(b"original")
+        (folder / "generated.m4a").write_bytes(b"generated")
+        (folder / "source.mp4").write_bytes(b"video")
+        (folder / app.CONVERTED_FILE).write_text(
+            "generated.m4a\n", encoding="utf-8")
+        segments = app.live_segment_dir(folder)
+        segments.mkdir()
+        (segments / "part.m4a").write_bytes(b"segment")
+        app.cleanup_generated_audio(folder)
+        self.assertTrue((folder / "original.m4a").exists())
+        self.assertFalse((folder / "generated.m4a").exists())
+        self.assertTrue((folder / "source.mp4").exists())
+        self.assertFalse((folder / app.CONVERTED_FILE).exists())
+        self.assertFalse(segments.exists())
+
+    def test_file_job_is_removed_after_result_copy(self):
+        root = self.make_temp()
+        source = root / "src" / "week1.m4a"
+        source.parent.mkdir()
+        source.write_bytes(b"audio")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(source)])
+        job = folders[0]
+        (job / "week1.md").write_text("result", encoding="utf-8")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            self.assertTrue(app.is_drop_job(job))
+            with mock.patch.object(app, "documents_dir", return_value=root / "docs"):
+                target, error = app.copy_result_to_documents(job)
+            self.assertEqual(error, "")
+            self.assertTrue(app.cleanup_drop_job(job))
+        self.assertFalse(job.exists())
+        self.assertTrue(source.exists())
+        self.assertTrue(target.exists())
+
+    def test_cleanup_drop_job_ignores_normal_folder(self):
+        root = self.make_temp()
+        folder = root / "lecture"
+        folder.mkdir()
+        self.assertFalse(app.is_drop_job(folder))
+        self.assertFalse(app.cleanup_drop_job(folder))
+        self.assertTrue(folder.exists())
+
+    def test_drop_audio_cleanup_removes_copy_but_keeps_folder(self):
+        root = self.make_temp()
+        source = root / "src" / "week1.m4a"
+        source.parent.mkdir()
+        source.write_bytes(b"audio")
+        with mock.patch.object(app, "drop_jobs_dir", return_value=root / "jobs"):
+            folders, _ = app.normalize_drop_paths([str(source)])
+        job = folders[0]
+        self.assertTrue((job / "week1.m4a").exists())
+        app.cleanup_drop_audio(job)
+        self.assertFalse((job / "week1.m4a").exists())
+        self.assertTrue(job.exists())
+        self.assertTrue(source.exists())
 
     def test_parse_args_drop_takes_multiple_paths(self):
         args = app.parse_args(["drop", "./lecture", "./week1.mp4"])

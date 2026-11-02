@@ -341,6 +341,7 @@ def file_job_folder(source):
 
     같은 폴더의 다른 강의와 섞이지 않도록 별도 폴더를 만들고, 원본은 하드링크로
     연결합니다(다른 볼륨이거나 링크가 안 되면 복사). 원본 파일은 그대로 둡니다.
+    완료된 결과를 원본 옆에 돌려놓을 수 있도록 원본 경로도 함께 기록합니다.
     """
     folder = app._available_job_dir(source.stem)
     folder.mkdir(parents=True)
@@ -349,7 +350,59 @@ def file_job_folder(source):
         os.link(source, target)
     except OSError:
         shutil.copy2(source, target)
+    try:
+        (folder / app.DROP_SOURCE_FILE).write_text(
+            str(source.expanduser().absolute()), encoding="utf-8")
+    except OSError:
+        pass
     return folder
+
+
+def drop_source_path(folder):
+    """파일 드롭으로 만든 작업 폴더면 원본 파일 경로를 돌려줍니다."""
+    try:
+        text = (Path(folder) / app.DROP_SOURCE_FILE).read_text(
+            encoding="utf-8").strip()
+    except OSError:
+        return None
+    return Path(text) if text else None
+
+
+def is_drop_job(folder):
+    """파일 드롭으로 만든 임시 작업 폴더인지 확인합니다."""
+    folder = Path(folder)
+    if not (folder / app.DROP_SOURCE_FILE).is_file():
+        return False
+    try:
+        root = app.drop_jobs_dir().resolve()
+        target = folder.resolve()
+    except OSError:
+        return False
+    return target != root and target.is_relative_to(root)
+
+
+def cleanup_drop_job(folder):
+    """결과를 원본 옆에 복사한 뒤 임시 드롭 작업 폴더를 지웁니다."""
+    folder = Path(folder)
+    if not is_drop_job(folder):
+        return False
+    try:
+        shutil.rmtree(folder)
+    except OSError:
+        return False
+    return True
+
+
+def cleanup_drop_audio(folder):
+    """작업 폴더를 지울 수 없을 때 원본 오디오 사본과 생성 파일만 지웁니다."""
+    folder = Path(folder)
+    origin = drop_source_path(folder)
+    if origin is not None:
+        try:
+            (folder / origin.name).unlink()
+        except OSError:
+            pass
+    app.cleanup_generated_audio(folder)
 
 
 def normalize_drop_paths(raw_paths):
@@ -392,14 +445,28 @@ def result_copy_path(directory, name):
 
 
 def copy_result_to_documents(folder, directory=None):
-    """완료된 결과를 문서 폴더로 복사합니다. (복사본, 오류)를 돌려줍니다."""
+    """완료된 결과를 원본 옆(파일 드롭) 또는 문서 폴더로 복사합니다.
+
+    directory 를 주면 그곳에 작업 폴더 이름으로 복사합니다. 파일 드롭 작업
+    폴더는 원본 파일이 있던 폴더에 원본 이름의 .md 로 복사합니다.
+    """
     source = app.output_path(folder)
     if not source.is_file():
         return None, ""
-    target_dir = Path(directory) if directory else app.documents_dir()
+    if directory is not None:
+        target_dir = Path(directory)
+        name = Path(folder).name
+    else:
+        origin = drop_source_path(folder)
+        if origin is not None and origin.parent.is_dir():
+            target_dir = origin.parent
+            name = origin.stem
+        else:
+            target_dir = app.documents_dir()
+            name = Path(folder).name
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        target = app.result_copy_path(target_dir, folder.name)
+        target = app.result_copy_path(target_dir, name)
         shutil.copy2(source, target)
     except OSError as exc:
         return None, str(exc)

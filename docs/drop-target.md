@@ -1,7 +1,7 @@
 # 드래그앤드롭 전사 계획
 
-> **상태:** 구현 완료 (v0.5.0, 2026-10-30). v0.6.2 기준 동작 유지
-> **목표:** 폴더/MP4/M4A를 바로가기 또는 터미널에 끌어다 놓으면 전사하고, 결과를 문서 폴더에 모읍니다.
+> **상태:** 구현 완료 (v0.5.0, 2026-10-30). v0.6.3에서 파일 결과를 원본 옆에 두고 완료 후 임시 오디오를 정리하도록 변경
+> **목표:** 폴더/MP4/M4A를 바로가기 또는 터미널에 끌어다 놓으면 전사하고, 결과를 원본 위치에 남깁니다.
 > 이 문서가 단일 기준입니다.
 
 ## 구현 위치
@@ -11,7 +11,7 @@
 | 입력 정규화·파일 작업 폴더 | `nalmeok/runtime.py` `normalize_drop_paths`, `file_job_folder`, `drop_jobs_dir` |
 | 터미널 붙여넣기 파싱 | `nalmeok/runtime.py` `split_pasted_paths` |
 | 브래킷 붙여넣기 감지 | `nalmeok/term.py` `read_key`, `_read_paste_posix`, `_read_paste_windows`, `_paste_mode` |
-| 문서 폴더 복사 | `nalmeok/runtime.py` `copy_result_to_documents`, `result_copy_path`, `documents_dir` |
+| 결과 복사 | `nalmeok/runtime.py` `copy_result_to_documents`, `drop_source_path`, `result_copy_path`, `documents_dir` |
 | 드롭 화면 흐름 | `nalmeok/screens.py` `drop_paths_screen`, `drop_session`, `run_drop_folders`, `drop_flow`, `show_drop_summary` |
 | 홈 진입점 | `nalmeok/screens.py` `home_screen`의 `d`, `interactive` 분기 |
 | CLI | `nalmeok/cli.py` `parse_args`의 `drop`, `main` 분기 |
@@ -25,8 +25,8 @@
 | ID | 결정 | 이유 | 결과 |
 |---|---|---|---|
 | DD1 | **바탕화면/시작 메뉴 바로가기 드롭**(Windows) | 드롭 경로가 `%*` → `sys.argv`로 그대로 전달돼 raw TUI 붙여넣기 문제가 없음 | `nalmeok-drop.cmd` + 두 번째 `.lnk` |
-| DD2 | 결과는 **`Documents\nalmeok`에 모음** | 비개발자가 결과를 찾기 쉬움. 소스 폴더의 상태 파일은 유지 | 완료된 `.md`만 복사, 이름 충돌은 ` (2)` |
-| DD3 | **폴더는 그 자리에서**, **파일은 별도 작업 폴더**에서 | 같은 폴더의 다른 강의를 섞지 않음 | `%LOCALAPPDATA%\nalmeok\jobs\<stem>`에 하드링크, 실패 시 복사 |
+| DD2 | **폴더 드롭 결과는 `Documents\nalmeok`**, **파일 드롭 결과는 원본 파일 옆** | 폴더는 결과를 한곳에 모으고, 파일은 원본과 같은 이름의 `.md`를 바로 옆에서 찾는 것이 자연스러움. 소스 폴더의 상태 파일은 유지 | 폴더: 완료된 `.md`만 문서 폴더로 복사. 파일: 원본 폴더에 `<원본 stem>.md`, 이름 충돌은 ` (2)` |
+| DD3 | **폴더는 그 자리에서**, **파일은 별도 작업 폴더**에서 | 같은 폴더의 다른 강의를 섞지 않음 | `%LOCALAPPDATA%\nalmeok\jobs\<stem>`에 하드링크, 실패 시 복사. 완료 후 결과를 원본 옆에 복사하고 job 폴더 삭제 |
 | DD4 | 기존 `session_screen`/전사 흐름 재사용, **무료 우선** | 이미 검증된 키·비용·재개 흐름을 그대로 사용 | 새 파이프라인 없음 |
 | DD5 | `nalmeok drop <paths...>` CLI + `nalmeok-drop.cmd` | 바로가기와 CLI 양쪽에서 같은 진입점 | `drop` 서브커맨드 |
 | DD6 | 터미널 드롭은 **붙여넣기 감지로 바로 시작**, `d`는 수동 입력용 | 터미널은 드롭을 인자가 아니라 텍스트 붙여넣기로 전달하므로, 브래킷 붙여넣기(`ESC[200~`)를 감지하면 별도 키 없이 경로를 받을 수 있음 | macOS 주 경로, Windows는 바로가기·`d` 보조 |
@@ -46,8 +46,8 @@
 4. 예상 계획(파일 수/길이/무료·유료)과 결과 위치를 보여준다.
 5. 키가 없으면 기존 키 등록 화면으로 이동한 뒤, 드롭한 작업을 이어간다.
 6. 기존 무료 우선/혼합/유료 흐름으로 폴더를 순서대로 전사한다.
-7. 완료된 `.md`를 `Documents\nalmeok`에 복사하고, 결과 폴더를 연다.
-8. 여러 항목이면 마지막에 성공/실패 요약을 보여준다.
+7. 폴더 드롭은 완료된 `.md`를 `Documents\nalmeok`에 복사하고, 파일 드롭은 원본 파일이 있던 폴더에 같은 이름의 `.md`로 복사한다. 복사가 끝나면 파일 드롭의 임시 작업 폴더와 폴더 드롭의 변환 M4A·live 세그먼트를 정리한다.
+8. 여러 항목이면 마지막에 성공/실패와 결과 위치를 요약해 보여준다.
 
 ### 터미널 드롭 (macOS · Windows Terminal)
 
@@ -66,8 +66,13 @@
   (OneDrive 리디렉트 대응), 실패 시 `~/Documents/nalmeok`.
 - POSIX `documents_dir()` = `~/Documents/nalmeok`.
 - 소스 결과: 기존 `output_path(folder)` = `<작업폴더>/<작업폴더명>.md`.
-- 복사 대상: `documents_dir() / f"{folder.name}.md"`.
+- 파일 드롭 작업 폴더는 `.nalmeok-drop-source`에 원본 파일의 절대 경로를 기록한다.
+- 파일 드롭 복사 대상: `<원본 폴더>/<원본 stem>.md`.
+- 폴더 드롭 복사 대상: `documents_dir() / f"{folder.name}.md"`.
+- `copy_result_to_documents(folder, directory)`에 `directory`를 명시하면 그 폴더와 작업 폴더 이름을 쓴다(수동 복사·테스트용).
 - 같은 이름이 있으면 `name (2).md`, `name (3).md` ...
+- 원본 경로가 사라졌으면 문서 폴더로 폴백한다.
+- 전사 완료 후 `.nalmeok-converted`에 기록된 변환 M4A와 live 세그먼트 디렉터리를 지운다. 사용자가 원래 넣은 M4A/MP4와 명시적 `convert` 명령·메뉴로 만든 M4A는 건드리지 않는다.
 - `shutil.copy2`로 복사. 복사 실패는 원본 결과를 유지하고 경고.
 - 상태 파일·세그먼트·Batch 메타데이터는 소스/작업 폴더에 그대로 둔다.
 
@@ -78,7 +83,9 @@
   없으면 `~/.local/share/nalmeok/jobs/<stem>`.
 - 같은 stem이 있으면 `stem-2`, `stem-3`.
 - `os.link(source, job / source.name)` 시도 → `OSError`면 `shutil.copy2`.
-- 완료 후에도 작업 폴더는 재개/감사를 위해 유지한다. 정리 정책은 후속.
+- `.nalmeok-drop-source`에 원본 파일의 절대 경로를 기록한다. 결과를 원본 옆에 복사하는 데 쓴다.
+- 완료 후 결과를 원본 옆에 복사하면 작업 폴더를 통째로 지운다. 원본 파일과 결과 `.md`만 남는다.
+- 결과 복사가 실패하거나 전사가 끝나지 않았으면 재시도를 위해 작업 폴더를 유지한다.
 
 ## 5. CLI / 바로가기
 
@@ -111,6 +118,9 @@
   - 작업 폴더 이름 충돌 suffix.
   - 하드링크 실패 시 복사 폴백.
   - 결과 복사 이름 충돌 suffix.
+  - 파일 드롭 결과가 원본 옆에 생기는지, 폴더 드롭은 문서 폴더로 가는지.
+  - 파일 드롭 완료 후 job 폴더가 지워지고 원본이 남는지, 복사 실패 시 job 폴더를 유지하는지.
+  - 변환 M4A와 live 세그먼트만 지우고 원본 M4A/MP4는 보존하는지.
   - `drop` 인자 파싱.
   - 터미널 붙여넣기 파싱(macOS `\ `, Windows 따옴표, 빈 입력, 깨진 따옴표).
   - 브래킷 붙여넣기 리더(`ESC[200~`, Windows 키 리더, POSIX 파이프).
@@ -128,7 +138,7 @@
 
 ## 7. 열린 질문
 
-- 완료 후 파일 작업 폴더 자동 삭제 여부 — **기본: 유지**. 재개·감사에 필요하므로 v1에서는 지우지 않습니다.
+- 완료 후 파일 작업 폴더 자동 삭제 — **해결**: 결과를 원본 옆에 복사한 뒤 삭제한다. 복사 실패·미완료 시에는 재시도를 위해 유지한다.
 - 터미널 창 드롭 — **해결**: 홈 `d` → 한 줄 붙여넣기. macOS 기본 경로, Windows Terminal 보조 경로.
 - `Documents`가 OneDrive로 리디렉트된 환경 — **해결**: Windows에서는 셸의
   `User Shell Folders\Personal` 값을 읽어 실제 문서 폴더를 찾고, 실패할 때만

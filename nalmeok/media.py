@@ -414,8 +414,13 @@ def convert_progress_line(index, total, name, seconds, duration):
             f"{app.dim(app.clip(name, 34))}")
 
 
-def convert(folder):
-    """폴더 안 모든 MP4를 M4A로 바꿉니다. 원본과 이미 만든 M4A는 건드리지 않습니다."""
+def convert(folder, temporary=False):
+    """폴더 안 모든 MP4를 M4A로 바꿉니다. 원본과 이미 만든 M4A는 건드리지 않습니다.
+
+    temporary=True 면 전사 파이프라인이 만든 변환본으로 기록해, 전사 완료 후
+    `cleanup_generated_audio`가 지울 수 있게 합니다. 명시적 `convert` 명령은
+    사용자가 M4A를 얻으려는 것이므로 기록하지 않습니다.
+    """
     videos = sorted((p for p in folder.iterdir()
                      if p.is_file() and p.suffix.lower() == ".mp4"),
                     key=lambda p: app.natural_key(p.name))
@@ -481,10 +486,59 @@ def convert(folder):
                 skipped += 1
             else:
                 converted += 1
+                if temporary:
+                    _record_converted(folder, output.name)
                 app.log(f"변환 완료: {source.name} → {output.name}")
     app.log(f"변환 결과: 완료 {converted}개 · 건너뜀 {skipped}개 · 실패 {len(failures)}개")
     if failures:
         app.fail("변환하지 못한 파일: " + ", ".join(failures))
+
+
+def _record_converted(folder, name):
+    """이 앱이 만든 M4A를 기록해 전사 완료 후 정리할 수 있게 합니다."""
+    marker = Path(folder) / app.CONVERTED_FILE
+    try:
+        names = {line.strip() for line in marker.read_text(
+            encoding="utf-8").splitlines() if line.strip()}
+    except OSError:
+        names = set()
+    names.add(name)
+    try:
+        app.atomic_write_text(marker, "\n".join(sorted(names)) + "\n")
+    except (OSError, ValueError):
+        pass
+
+
+def cleanup_generated_audio(folder):
+    """전사 완료 후 이 앱이 만든 변환 M4A와 live 세그먼트를 지웁니다."""
+    folder = Path(folder)
+    marker = folder / app.CONVERTED_FILE
+    try:
+        names = [line.strip() for line in marker.read_text(
+            encoding="utf-8").splitlines() if line.strip()]
+    except OSError:
+        names = []
+    names = [name for name in names
+             if Path(name).name == name and Path(name).suffix.lower() == ".m4a"]
+    for name in names:
+        try:
+            (folder / name).unlink()
+        except OSError:
+            pass
+    remaining = [name for name in names if (folder / name).exists()]
+    if remaining:
+        try:
+            app.atomic_write_text(marker, "\n".join(remaining) + "\n")
+        except (OSError, ValueError):
+            pass
+    else:
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+    segment_dir = app.live_segment_dir(folder)
+    if segment_dir.is_dir():
+        shutil.rmtree(segment_dir, ignore_errors=True)
 
 
 def list_media(folder):

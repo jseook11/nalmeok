@@ -111,7 +111,7 @@
 
 ### 3.2 재사용하는 앱 기능
 
-`ensure_sdk()`(앱 폴더 옆 `.venv`), `find_tool()`, 터미널 드롭, `nalmeok drop`, 문서 폴더 복사, `doctor`, TUI 전체.
+`ensure_sdk()`(앱 폴더 옆 `.venv`), `find_tool()`, 터미널 드롭, `nalmeok drop`, 결과 복사, `doctor`, TUI 전체.
 
 ## 4. 아키텍처
 
@@ -144,8 +144,8 @@ DMG에는 `nalmeok.app`과 `/Applications` 심볼릭 링크가 들어간다.
   bin/                         # ffmpeg/ffprobe (현재 비어 있음)
 ~/.config/nalmeok/config.json  # 키·최근 작업 (0600)
 ~/.config/nalmeok/nalmeok.log  # NALMEOK_DEBUG 로그
-~/.local/share/nalmeok/jobs/   # 드롭한 단일 파일 작업 폴더
-~/Documents/nalmeok/           # 드롭 결과 .md
+~/.local/share/nalmeok/jobs/   # 드롭한 단일 파일 작업 폴더 (완료 후 삭제)
+~/Documents/nalmeok/           # 폴더 드롭 결과 .md (파일 드롭은 원본 옆)
 ```
 
 ### 4.3 첫 실행 흐름
