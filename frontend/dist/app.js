@@ -1,6 +1,17 @@
 (async () => {
   "use strict";
 
+  // Windows: Wails only forwards dropped file paths to Go (OnFileDrop in
+  // internal/app) once the page registers its JS drop listener. macOS
+  // delivers drops natively, so this is a no-op there. The callback is
+  // empty because Go handles the paths; false = no drop-target check, so a
+  // drop lands anywhere in the window, sheets and the PDF card included.
+  // Registered before anything awaits (the catalog load below included), so
+  // a drop while the window is still loading is not lost.
+  if (window.runtime && typeof window.runtime.OnFileDrop === "function") {
+    window.runtime.OnFileDrop(() => {}, false);
+  }
+
   // ── Strings ───────────────────────────────────────────────
 
   // All user-facing text lives in i18n/<lang>.json, the same file the Go side
@@ -1880,16 +1891,7 @@
   async function init() {
     bindEvents();
 
-    // Windows: Wails only forwards dropped file paths to Go (OnFileDrop in
-    // internal/app) once the page registers its JS drop listener. macOS
-    // delivers drops natively, so this is a no-op there. The callback is
-    // empty because Go handles the paths; false = no drop-target check, so
-    // a drop lands anywhere in the window, sheets and the PDF card included.
-    // Registered first, before anything awaits, so a drop while the window
-    // is still loading (or while the first-run key sheet is up) is not lost.
-    if (window.runtime && typeof window.runtime.OnFileDrop === "function") {
-      window.runtime.OnFileDrop(() => {}, false);
-    }
+    // The drop listener is registered at the very top of this file.
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       // A folder with several PDFs waits for the PDF card.
       window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
