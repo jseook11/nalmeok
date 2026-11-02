@@ -360,6 +360,8 @@ func runDoctor() int {
 }
 
 func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "테스트·AI 에이전트용 CLI입니다. 일반 사용은 앱 창(인자 없이 실행)을 쓰세요.")
+	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "사용법:")
 	fmt.Fprintln(w, "  nalmeok [--batch|--free] <파일 또는 폴더>...")
 	fmt.Fprintln(w, "  nalmeok --version")

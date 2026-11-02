@@ -13,7 +13,42 @@
 | `docs/macos-app.md` | 앱 번들, 부트스트랩, DMG, 업데이트, 서명(선택) |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
-## 프로젝트 구조
+## Go 앱 (재설계, 진행 중)
+
+[`redesign-2026-11.md`](redesign-2026-11.md)에 따라 Go + Wails로 다시 만들고 있다. 기능을 다 갖추면 아래 Python 구조를 대체한다.
+
+```text
+cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
+internal/config     설정 폴더, config.json(키·gui.mode)
+internal/store      items.json(처리 목록), 검색
+internal/media      입력 스캔, MP4 AAC→ADTS 추출·분할, MP3·WAV 분할 (표준 라이브러리만)
+internal/plan       조각 계획(130분), 예상 비용
+internal/gemini     genai SDK 래퍼: 업로드, live, Batch
+internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
+internal/output     결과 병합, .md 쓰기
+internal/app        Wails 바인딩
+frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
+```
+
+```bash
+go test ./...
+go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
+scripts/build_mac_app.sh                                            # build/날먹.app (자격 환경변수가 있으면 서명·공증)
+```
+
+### CLI: 테스트·AI 에이전트용
+
+CLI는 **사용자용 기능이 아니다.** 실제 API 회귀 테스트, AI 에이전트의 자동화, 문제 보고(`doctor`)에만 쓴다. README와 `usage.md`에는 싣지 않는다. 전사 로직은 GUI와 같은 실행기·저장소를 쓴다.
+
+```bash
+build/nalmeok [--free|--batch] <파일 또는 폴더>...   # 끝날 때까지 상태를 한 줄씩 출력. 모두 완료면 0, 아니면 1
+build/nalmeok doctor                                  # 버전·OS·설정 폴더·등급별 키 개수 (키 값은 출력하지 않음)
+build/nalmeok --version
+```
+
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 프로세스 여러 개가 같은 `items.json`을 동시에 쓰지 않게 하기 위해서다.
+
+## 프로젝트 구조 (기존 Python 앱)
 
 ```text
 app.py                     # 실행 진입점 (./app.py)
