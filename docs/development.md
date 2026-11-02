@@ -60,7 +60,7 @@ build/nalmeok doctor                                  # 버전·OS·설정 폴�
 build/nalmeok --version
 ```
 
-실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 프로세스 여러 개가 같은 `items.json`을 동시에 쓰지 않게 하기 위해서다.
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 옛 Python 앱이 쓴 내용을 지우지 않는다.
 
 ### 화면 미리보기 (스크린샷용)
 

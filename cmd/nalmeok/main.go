@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jseook11/nalmeok/frontend"
@@ -100,6 +103,15 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 }
 
 func runGUI() {
+	// A second app window is handed to the first by Wails' single-instance
+	// lock below. The folder lock also keeps the app from running next to a
+	// CLI run on the same items.json; if the CLI holds it, the window only
+	// says so and closes.
+	folderLock, lockErr := config.Lock()
+	if lockErr == nil {
+		defer folderLock.Close()
+	}
+
 	cfg, history, engine, err := newRuntime()
 	if err != nil {
 		log.Fatal(err)
@@ -139,6 +151,32 @@ func runGUI() {
 		log.Fatal(err)
 	}
 
+	// Set on startup, read when a second launch asks for the window.
+	var windowCtx atomic.Pointer[context.Context]
+	onStartup := func(ctx context.Context) {
+		windowCtx.Store(&ctx)
+		if lockErr != nil {
+			_, _ = wailsruntime.MessageDialog(ctx, wailsruntime.MessageDialogOptions{
+				Type:    wailsruntime.ErrorDialog,
+				Title:   "Nalmeok",
+				Message: lockMessage(lockErr),
+			})
+			wailsruntime.Quit(ctx)
+			return
+		}
+		application.Startup(ctx)
+	}
+	onShutdown := func(ctx context.Context) {
+		if lockErr == nil {
+			application.Shutdown(ctx)
+		}
+	}
+	instanceID := "nalmeok"
+	if dir, err := config.Dir(); err == nil {
+		sum := sha256.Sum256([]byte(dir))
+		instanceID = "nalmeok-" + hex.EncodeToString(sum[:6])
+	}
+
 	err = wails.Run(&options.App{
 		Title:     "Nalmeok",
 		Width:     480,
@@ -173,9 +211,21 @@ func runGUI() {
 				DarkModeBorderInactive:     windows.RGB(0x1e, 0x1e, 0x1e),
 			},
 		},
-		OnStartup:  application.Startup,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: instanceID,
+			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+				ctx := windowCtx.Load()
+				if ctx == nil {
+					return
+				}
+				wailsruntime.WindowUnminimise(*ctx)
+				wailsruntime.Show(*ctx)
+				wailsruntime.WindowShow(*ctx)
+			},
+		},
+		OnStartup:  onStartup,
 		OnDomReady: onDomReady,
-		OnShutdown: application.Shutdown,
+		OnShutdown: onShutdown,
 		Bind:       []interface{}{application},
 	})
 	if err != nil {
@@ -187,6 +237,13 @@ func runGUI() {
 // line whenever an item's visible state changes and exits once every added
 // item is finished.
 func runCLI(args []string) int {
+	folderLock, err := config.Lock()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, lockMessage(err))
+		return 1
+	}
+	defer folderLock.Close()
+
 	cfg, history, engine, err := newRuntime()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -370,6 +427,14 @@ func elapsedMinutes(item store.Item) int {
 		return 0
 	}
 	return minutes
+}
+
+// lockMessage explains a failed folder lock.
+func lockMessage(err error) string {
+	if errors.Is(err, config.ErrLocked) {
+		return "Nalmeok이 이미 실행 중이에요(앱 또는 CLI). 끝난 뒤 다시 여세요."
+	}
+	return "설정 폴더를 잠그지 못했어요: " + err.Error()
 }
 
 func runDoctor() int {

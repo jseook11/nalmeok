@@ -296,6 +296,7 @@ func (c *Config) SetMode(mode string) error {
 	if mode != "free" && mode != "batch" {
 		return fmt.Errorf("알 수 없는 처리 방식이에요: %s", mode)
 	}
+	c.reload()
 	previous := c.mode
 	c.mode = mode
 	if err := c.Save(); err != nil {
@@ -395,6 +396,7 @@ func (c *Config) AddKey(label, tier, apiKey string) (Key, error) {
 		label = tier
 	}
 
+	c.reload()
 	previous := make([]Key, len(c.keys))
 	copy(previous, c.keys)
 
@@ -481,6 +483,7 @@ func (c *Config) editKey(id string, fn func(*Key)) (Key, error) {
 	if c.isEnvID(id) {
 		return Key{}, ErrEnvKey
 	}
+	c.reload()
 	index := c.savedIndex(id)
 	if index < 0 {
 		return Key{}, ErrKeyNotFound
@@ -527,6 +530,7 @@ func (c *Config) SetKeyOrder(ids []string) error {
 			return ErrEnvKey
 		}
 	}
+	c.reload()
 	if len(ids) != len(c.keys) {
 		return errKeyOrder
 	}
@@ -551,6 +555,7 @@ func (c *Config) SetKeyOrder(ids []string) error {
 
 // DeleteKey removes a saved key by ID. It reports whether a key was removed.
 func (c *Config) DeleteKey(id string) (bool, error) {
+	c.reload()
 	previous := make([]Key, len(c.keys))
 	copy(previous, c.keys)
 
@@ -569,6 +574,29 @@ func (c *Config) DeleteKey(id string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// reload picks up what another process (the CLI, the Python app) wrote since
+// this copy was read, so the change about to be saved does not erase it.
+// Every editing method calls it right before changing and saving. A missing
+// or unreadable file keeps the copy in memory.
+func (c *Config) reload() {
+	if c.path == "" {
+		return
+	}
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		return
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
+		return
+	}
+	fresh, err := LoadFrom(c.path)
+	if err != nil {
+		return
+	}
+	c.raw, c.keys, c.mode, c.keyExtra, c.keyRest = fresh.raw, fresh.keys, fresh.mode, fresh.keyExtra, fresh.keyRest
 }
 
 // Save writes the config to its original path with mode 0600.
