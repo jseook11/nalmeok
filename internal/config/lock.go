@@ -1,15 +1,16 @@
 package config
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // ErrLocked means another Nalmeok process (app or CLI) is using the config
 // folder.
-var ErrLocked = errors.New("Nalmeok이 이미 실행 중이에요")
+var ErrLocked = i18n.Error("error.locked")
 
 // lockName is the lock file inside the config folder.
 const lockName = "nalmeok.lock"

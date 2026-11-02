@@ -201,7 +201,7 @@ func TestSendToBatchFromRunningFreeItem(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.add("lec.m4a", "free")
 	h.waitFor("free item to start", started)
-	h.setDetailForTest(item.ID, retryDetail) // as if retrying after 503
+	h.setDetailForTest(item.ID, retryDetail()) // as if retrying after 503
 
 	if err := h.r.SendToBatch(item.ID); err != nil {
 		t.Fatal(err)

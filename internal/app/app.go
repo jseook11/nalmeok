@@ -3,7 +3,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -59,12 +59,12 @@ type ModeState struct {
 }
 
 var (
-	errNotReady  = errors.New("아직 준비 중이에요")
-	errNoOutput  = errors.New("결과 파일이 없어요")
-	errNoConfig  = errors.New("설정을 불러오지 못했어요")
-	errNoKey     = errors.New("키가 없어요")
-	errPinnedKey = errors.New("선택한 키가 없어요")
-	errEnvKey    = errors.New("환경변수 키는 바꿀 수 없어요")
+	errNotReady  = i18n.Error("error.notReady")
+	errNoOutput  = i18n.Error("error.noOutput")
+	errNoConfig  = i18n.Error("error.noConfig")
+	errNoKey     = i18n.Error("error.noKey")
+	errPinnedKey = i18n.Error("error.pinnedKeyMissing")
+	errEnvKey    = i18n.Error("error.envKeyLocked")
 )
 
 // App is the object bound to the frontend.
@@ -240,7 +240,7 @@ func (a *App) AddPathsWithKey(paths []string, keyID string) error {
 		}
 	}
 	if len(cleaned) == 0 {
-		return errors.New("추가할 파일이 없어요")
+		return i18n.Error("error.nothingToAdd")
 	}
 	keyID = strings.TrimSpace(keyID)
 	if keyID != "" {
@@ -283,7 +283,7 @@ func (a *App) SetItemKey(id, keyID string) error {
 	switch item.State {
 	case "failed", "canceled", "free_exhausted":
 	default:
-		return errors.New("진행 중이거나 끝난 항목은 키를 바꿀 수 없어요")
+		return i18n.Error("error.keyChangeLocked")
 	}
 	return a.store.Update(id, func(it *store.Item) {
 		it.KeyID = keyID
@@ -307,9 +307,9 @@ func (a *App) PickFilesWithKey(keyID string) error {
 		return errNotReady
 	}
 	paths, err := wailsruntime.OpenMultipleFilesDialog(ctx, wailsruntime.OpenDialogOptions{
-		Title: "음성 파일 선택",
+		Title: i18n.T("dialog.pickTitle"),
 		Filters: []wailsruntime.FileFilter{
-			{DisplayName: "오디오 파일", Pattern: "*.m4a;*.mp4;*.mp3;*.wav"},
+			{DisplayName: i18n.T("dialog.audioFiles"), Pattern: "*.m4a;*.mp4;*.mp3;*.wav"},
 		},
 	})
 	if err != nil {
@@ -372,9 +372,9 @@ func (a *App) Rename(id, name string) error {
 	}
 	switch {
 	case name == "" || name == "." || name == "..":
-		return errors.New("이름을 입력하세요")
+		return i18n.Error("error.nameRequired")
 	case strings.ContainsAny(name, `/\:`):
-		return errors.New(`이름에 / \ : 는 쓸 수 없어요`)
+		return i18n.Error("error.nameBadChars")
 	}
 	item, ok := a.store.Get(id)
 	if !ok {
@@ -394,7 +394,7 @@ func (a *App) Rename(id, name string) error {
 	}
 	if target != item.Output {
 		if err := os.Rename(item.Output, target); err != nil {
-			return fmt.Errorf("이름을 바꾸지 못했어요: %w", err)
+			return i18n.Wrap("error.renameFailed", err)
 		}
 	}
 	return a.store.Update(id, func(it *store.Item) {
@@ -410,7 +410,7 @@ func (a *App) OpenOutput(id string) error {
 		return err
 	}
 	if err := openPath(path); err != nil {
-		return fmt.Errorf("결과 파일을 열지 못했어요: %w", err)
+		return i18n.Wrap("error.openFailed", err)
 	}
 	return nil
 }
@@ -422,7 +422,7 @@ func (a *App) RevealOutput(id string) error {
 		return err
 	}
 	if err := revealPath(path); err != nil {
-		return fmt.Errorf("폴더를 열지 못했어요: %w", err)
+		return i18n.Wrap("error.revealFailed", err)
 	}
 	return nil
 }
@@ -439,10 +439,10 @@ func (a *App) CopyOutput(id string) error {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errors.New("결과 파일을 읽지 못했어요")
+		return i18n.Error("error.readOutputFailed")
 	}
 	if err := wailsruntime.ClipboardSetText(ctx, string(data)); err != nil {
-		return fmt.Errorf("복사하지 못했어요: %w", err)
+		return i18n.Wrap("error.copyFailed", err)
 	}
 	return nil
 }
@@ -496,7 +496,7 @@ func (a *App) SetMode(mode string) error {
 		return errNoConfig
 	}
 	if mode != "free" && mode != "batch" {
-		return errors.New("처리 방식이 올바르지 않아요")
+		return i18n.Error("error.badMode")
 	}
 	return a.cfg.SetMode(mode)
 }
@@ -533,11 +533,11 @@ func (a *App) Keys() []KeyView {
 func (a *App) AddKey(label, tier, key string) error {
 	tier = strings.ToLower(strings.TrimSpace(tier))
 	if tier != "free" && tier != "paid" {
-		return errors.New("등급이 올바르지 않아요")
+		return i18n.Error("error.badTier")
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return errors.New("API 키를 붙여넣으세요")
+		return i18n.Error("error.pasteKey")
 	}
 	if a.cfg == nil {
 		return errNoConfig
@@ -549,7 +549,7 @@ func (a *App) AddKey(label, tier, key string) error {
 			ctx = context.Background()
 		}
 		if err := a.ValidateKey(ctx, key); err != nil {
-			return errors.New("키가 올바르지 않아요")
+			return i18n.Error("error.badKey")
 		}
 	}
 
@@ -569,9 +569,9 @@ func (a *App) AddKey(label, tier, key string) error {
 // autoLabelLocked names a new key "무료 1", "유료 2" and so on, taking the
 // smallest number not already used. Re-adding a saved key keeps its label.
 func (a *App) autoLabelLocked(tier, key string) string {
-	prefix := "무료"
+	prefix := i18n.T("tier.free")
 	if tier == "paid" {
-		prefix = "유료"
+		prefix = i18n.T("tier.paid")
 	}
 	used := make(map[string]bool)
 	for _, saved := range a.cfg.SavedKeys() {
@@ -594,7 +594,7 @@ func (a *App) DeleteKey(id string) error {
 		return errNoKey
 	}
 	if id == "env" && config.EnvKey() != nil {
-		return errors.New("환경변수 키는 지울 수 없어요")
+		return i18n.Error("error.envKeyNoDelete")
 	}
 	if a.cfg == nil {
 		return errNoConfig

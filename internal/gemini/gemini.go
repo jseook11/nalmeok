@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 	"google.golang.org/genai"
 )
@@ -106,7 +107,7 @@ type client struct {
 func New(apiKey string) (Client, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return nil, errors.New("API 키가 비어 있어요")
+		return nil, i18n.Error("error.emptyKey")
 	}
 	timeout := requestTimeout
 	c, err := genai.NewClient(context.Background(), &genai.ClientConfig{
@@ -162,7 +163,7 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 		return store.Upload{}, err
 	}
 	if file == nil || file.Name == "" {
-		return store.Upload{}, errors.New("업로드 응답이 불완전해요")
+		return store.Upload{}, i18n.Error("gemini.uploadIncomplete")
 	}
 	uploadedAt := time.Now()
 
@@ -172,10 +173,10 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 			if file.Error != nil && file.Error.Message != "" {
 				msg = file.Error.Message
 			}
-			return store.Upload{}, fmt.Errorf("업로드한 파일을 처리하지 못했어요: %s", msg)
+			return store.Upload{}, i18n.Error("gemini.uploadProcessFailed", "message", msg)
 		}
 		if time.Since(uploadedAt) > 10*time.Minute {
-			return store.Upload{}, errors.New("업로드한 파일 처리가 너무 오래 걸려요")
+			return store.Upload{}, i18n.Error("gemini.uploadTooSlow")
 		}
 		select {
 		case <-ctx.Done():
@@ -188,7 +189,7 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 		}
 	}
 	if file.URI == "" {
-		return store.Upload{}, errors.New("업로드 응답에 URI가 없어요")
+		return store.Upload{}, i18n.Error("gemini.uploadNoURI")
 	}
 	return store.Upload{URI: file.URI, MIME: mime, UploadedAt: uploadedAt}, nil
 }
@@ -239,7 +240,7 @@ func responseText(resp *genai.GenerateContentResponse) (string, string) {
 
 func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayName string) (string, error) {
 	if len(reqs) == 0 {
-		return "", errors.New("보낼 요청이 없어요")
+		return "", i18n.Error("gemini.noRequests")
 	}
 	if len(displayName) > 120 {
 		displayName = truncateUTF8(displayName, 120)
@@ -266,7 +267,7 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 		return "", err
 	}
 	if job == nil || job.Name == "" {
-		return "", errors.New("요청 ID를 받지 못했어요")
+		return "", i18n.Error("gemini.noRequestID")
 	}
 	return job.Name, nil
 }
@@ -308,7 +309,7 @@ func (c *client) uploadJSONL(ctx context.Context, reqs []BatchRequest) (string, 
 		return "", err
 	}
 	if file == nil || file.Name == "" {
-		return "", errors.New("업로드 응답이 불완전해요")
+		return "", i18n.Error("gemini.uploadIncomplete")
 	}
 	return file.Name, nil
 }
@@ -370,7 +371,7 @@ func (c *client) BatchResults(ctx context.Context, name string) (map[string]Resu
 		return nil, err
 	}
 	if job.Dest == nil {
-		return nil, errors.New("서버 결과가 비어 있어요")
+		return nil, i18n.Error("gemini.emptyResults")
 	}
 	if len(job.Dest.InlinedResponses) > 0 {
 		var srcKeys []string
@@ -406,14 +407,14 @@ func (c *client) BatchResults(ctx context.Context, name string) (map[string]Resu
 		}
 		return ParseResultsJSONL(data)
 	}
-	return nil, errors.New("서버 결과 위치를 찾지 못했어요")
+	return nil, i18n.Error("gemini.noResultsLocation")
 }
 
 func inlinedResult(r *genai.InlinedResponse) Result {
 	if r.Error != nil {
 		msg := r.Error.Message
 		if msg == "" {
-			msg = "요청 오류"
+			msg = i18n.T("gemini.requestError")
 		}
 		return Result{Error: msg}
 	}
@@ -437,7 +438,7 @@ func ParseResultsJSONL(data []byte) (map[string]Result, error) {
 			Response *genai.GenerateContentResponse `json:"response"`
 		}
 		if err := json.Unmarshal(line, &row); err != nil {
-			return nil, fmt.Errorf("결과 %d행을 읽지 못했어요: %w", i+1, err)
+			return nil, i18n.Wrap("gemini.badResultLine", err, "line", i+1)
 		}
 		key := row.Key
 		if key == "" {

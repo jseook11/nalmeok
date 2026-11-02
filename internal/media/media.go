@@ -8,13 +8,14 @@
 package media
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // Track formats.
@@ -60,7 +61,7 @@ type Piece struct {
 }
 
 // ErrUnsupported marks inputs this app cannot read.
-var ErrUnsupported = errors.New("지원하지 않는 형식이에요")
+var ErrUnsupported = i18n.Error("media.unsupported")
 
 // FormatOf returns the track format for a file name, or "" if unsupported.
 func FormatOf(name string) string {
@@ -83,7 +84,7 @@ func Scan(path string) (Input, error) {
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return Input{}, fmt.Errorf("파일을 열지 못했어요: %s", filepath.Base(abs))
+		return Input{}, i18n.Error("media.openFailed", "name", filepath.Base(abs))
 	}
 	if !info.IsDir() {
 		format := FormatOf(abs)
@@ -100,7 +101,7 @@ func Scan(path string) (Input, error) {
 
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		return Input{}, fmt.Errorf("폴더를 읽지 못했어요: %s", filepath.Base(abs))
+		return Input{}, i18n.Error("media.readDirFailed", "name", filepath.Base(abs))
 	}
 	var audio, pdfs []string
 	for _, entry := range entries {
@@ -122,13 +123,13 @@ func Scan(path string) (Input, error) {
 	}
 	audio = dropConvertedMP4(audio)
 	if len(audio) == 0 {
-		return Input{}, errors.New("폴더에 오디오 파일이 없어요")
+		return Input{}, i18n.Error("media.noAudio")
 	}
 	if len(audio) > MaxFiles {
-		return Input{}, fmt.Errorf("오디오 파일이 너무 많아요 (%d개, 최대 %d개)", len(audio), MaxFiles)
+		return Input{}, i18n.Error("media.tooMany", "count", len(audio), "max", MaxFiles)
 	}
 	if len(pdfs) > 1 {
-		return Input{}, errors.New("PDF는 한 폴더에 하나만 둘 수 있어요")
+		return Input{}, i18n.Error("media.onePDF")
 	}
 	SortNatural(audio)
 	in := Input{Source: abs, Kind: "folder", Name: filepath.Base(abs)}

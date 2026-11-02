@@ -3,14 +3,15 @@ package media
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
-var errMP3 = errors.New("MP3 프레임을 찾지 못했어요")
+var errMP3 = i18n.Error("media.mp3NoFrame")
 
 var mp3Bitrates = [5][16]int{
 	{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0}, // V1 L1

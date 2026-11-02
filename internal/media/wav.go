@@ -3,12 +3,13 @@ package media
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"io"
 	"os"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
-var errWAV = errors.New("WAV 형식을 읽지 못했어요")
+var errWAV = i18n.Error("media.wavBad")
 
 type wavInfo struct {
 	fmtChunk   []byte

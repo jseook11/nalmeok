@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"google.golang.org/genai"
 )
 
@@ -135,7 +136,7 @@ func ValidateKey(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if err := c.Validate(ctx); err != nil && IsAuth(err) {
-		return errors.New("올바르지 않은 키예요")
+		return i18n.Error("error.invalidKey")
 	}
 	return nil
 }

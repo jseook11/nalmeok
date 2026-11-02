@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // Merge trims every chunk, drops empty chunks, and joins the rest with one
@@ -147,5 +149,5 @@ func WriteNew(path, text string) (string, error) {
 		}
 		return candidate, nil
 	}
-	return "", fmt.Errorf("이름을 정하지 못했어요: %s", filepath.Base(path))
+	return "", i18n.Error("output.nameFailed", "name", filepath.Base(path))
 }

@@ -18,6 +18,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"time"
 )
 
@@ -64,7 +66,7 @@ func configDir(xdg, appdata, home string, windows bool) (string, error) {
 	}
 	if base == "" {
 		if strings.TrimSpace(home) == "" {
-			return "", errors.New("설정 폴더를 찾지 못했어요")
+			return "", i18n.Error("error.noConfigDir")
 		}
 		base = filepath.Join(home, ".config")
 	}
@@ -161,7 +163,7 @@ func legacyKey(raw json.RawMessage) *Key {
 	}
 	return &Key{
 		ID:           "legacy",
-		Label:        "기본",
+		Label:        i18n.T("key.defaultLabel"),
 		Tier:         "paid",
 		APIKey:       key,
 		LimitMinutes: DefaultFreeMinutes,
@@ -294,7 +296,7 @@ func (c *Config) Mode() string {
 // SetMode stores and immediately persists the processing mode.
 func (c *Config) SetMode(mode string) error {
 	if mode != "free" && mode != "batch" {
-		return fmt.Errorf("알 수 없는 처리 방식이에요: %s", mode)
+		return i18n.Error("error.unknownMode", "mode", mode)
 	}
 	c.reload()
 	previous := c.mode
@@ -376,7 +378,7 @@ func EnvKey() *Key {
 	}
 	return &Key{
 		ID:           "env",
-		Label:        "환경변수",
+		Label:        i18n.T("key.envLabel"),
 		Tier:         tier,
 		APIKey:       apiKey,
 		LimitMinutes: DefaultFreeMinutes,
@@ -388,7 +390,7 @@ func EnvKey() *Key {
 func (c *Config) AddKey(label, tier, apiKey string) (Key, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return Key{}, errors.New("API 키가 비어 있어요")
+		return Key{}, i18n.Error("error.emptyKey")
 	}
 	tier = normalizeTier(tier)
 	label = strings.TrimSpace(label)
@@ -457,9 +459,9 @@ func (c *Config) uniqueLabelExcept(label, except string) string {
 
 // Errors returned by the key editing methods.
 var (
-	ErrKeyNotFound = errors.New("키가 없어요")
-	ErrEnvKey      = errors.New("환경변수 키는 여기서 바꿀 수 없어요")
-	errKeyOrder    = errors.New("키 목록이 맞지 않아요")
+	ErrKeyNotFound = i18n.Error("error.noKey")
+	ErrEnvKey      = i18n.Error("error.envKeyHere")
+	errKeyOrder    = i18n.Error("error.keyOrder")
 )
 
 // isEnvID reports whether id names the read-only GEMINI_API_KEY entry rather
@@ -503,7 +505,7 @@ func (c *Config) editKey(id string, fn func(*Key)) (Key, error) {
 func (c *Config) RenameKey(id, label string) (Key, error) {
 	label = strings.TrimSpace(label)
 	if label == "" {
-		return Key{}, errors.New("이름을 입력하세요")
+		return Key{}, i18n.Error("error.nameRequired")
 	}
 	return c.editKey(id, func(k *Key) {
 		k.Label = c.uniqueLabelExcept(label, id)
@@ -515,7 +517,7 @@ func (c *Config) RenameKey(id, label string) (Key, error) {
 func (c *Config) SetKeyTier(id, tier string) (Key, error) {
 	tier = strings.ToLower(strings.TrimSpace(tier))
 	if tier != "free" && tier != "paid" {
-		return Key{}, errors.New("등급이 올바르지 않아요")
+		return Key{}, i18n.Error("error.badTier")
 	}
 	return c.editKey(id, func(k *Key) { k.Tier = tier })
 }

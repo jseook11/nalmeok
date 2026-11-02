@@ -696,8 +696,8 @@ func TestBlockedLiveResponseFailsUnit(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	failed := h.wait(item.ID, StateFailed)
-	if failed.Detail != blockedMessage {
-		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage)
+	if failed.Detail != blockedMessage() {
+		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if !strings.Contains(logData, "OTHER") {
@@ -714,8 +714,8 @@ func TestBlockedBatchResponseFailsItem(t *testing.T) {
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
 	failed := h.wait(item.ID, StateFailed)
-	if failed.Detail != blockedMessage {
-		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage)
+	if failed.Detail != blockedMessage() {
+		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if !strings.Contains(logData, "blocked") || !strings.Contains(logData, "OTHER") {
@@ -752,8 +752,8 @@ func TestTransientErrorsAreRetried(t *testing.T) {
 	}
 	select {
 	case detail := <-details:
-		if detail != retryDetail {
-			t.Errorf("detail during retry = %q, want %q", detail, retryDetail)
+		if detail != retryDetail() {
+			t.Errorf("detail during retry = %q, want %q", detail, retryDetail())
 		}
 	default:
 		t.Error("no retry detail was visible while retrying")

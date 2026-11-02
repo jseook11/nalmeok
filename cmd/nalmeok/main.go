@@ -22,6 +22,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/app"
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
@@ -254,9 +255,9 @@ func runCLI(args []string) int {
 	flags := flag.NewFlagSet("nalmeok", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.Usage = func() { printUsage(flags.Output()) }
-	batch := flags.Bool("batch", false, "유료로 처리")
-	free := flags.Bool("free", false, "무료로 처리")
-	keyID := flags.String("key", "", "이 키 ID로만 처리 (등급이 처리 방식을 정해요)")
+	batch := flags.Bool("batch", false, i18n.T("cli.flagBatch"))
+	free := flags.Bool("free", false, i18n.T("cli.flagFree"))
+	keyID := flags.String("key", "", i18n.T("cli.flagKey"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -264,7 +265,7 @@ func runCLI(args []string) int {
 		return 2
 	}
 	if *batch && *free {
-		fmt.Fprintln(os.Stderr, "--batch와 --free는 함께 쓸 수 없어요")
+		fmt.Fprintln(os.Stderr, i18n.T("cli.batchAndFree"))
 		return 2
 	}
 	paths := flags.Args()
@@ -303,7 +304,7 @@ func runCLI(args []string) int {
 		}
 	}
 	if len(ids) == 0 {
-		fmt.Fprintln(os.Stderr, "추가된 항목이 없어요")
+		fmt.Fprintln(os.Stderr, i18n.T("cli.nothingAdded"))
 		return 1
 	}
 	return watch(history, engine, ids, cancel)
@@ -331,7 +332,7 @@ func watch(history *store.Store, engine *runner.Runner, ids []string, cancel con
 				fmt.Println(line)
 				if item.State == runner.StateFreeExhausted && !hinted[id] {
 					hinted[id] = true
-					fmt.Println("유료로 이어 가려면 --batch로 다시 실행하세요")
+					fmt.Println(i18n.T("cli.batchHint"))
 				}
 			}
 			switch item.State {
@@ -378,23 +379,23 @@ func statusLine(item store.Item) string {
 
 	switch item.State {
 	case runner.StateRunning:
-		if item.Detail == "" || strings.HasPrefix(item.Detail, "전사 중") {
-			return fmt.Sprintf("%s: 전사 중 %d%%", name, percent(item.Progress))
+		if item.Detail == "" || strings.HasPrefix(item.Detail, i18n.T("status.transcribing")) {
+			return i18n.T("cli.transcribing", "name", name, "percent", percent(item.Progress))
 		}
 		return fmt.Sprintf("%s: %s", name, item.Detail)
 	case runner.StateBatchWaiting:
-		return fmt.Sprintf("%s: 기다리는 중 · %d분", name, elapsedMinutes(item))
+		return i18n.T("cli.waiting", "name", name, "minutes", elapsedMinutes(item))
 	case runner.StateFreeExhausted:
-		return fmt.Sprintf("%s: 오늘 무료 사용량을 다 썼어요", name)
+		return i18n.T("cli.freeExhausted", "name", name)
 	case runner.StateDone:
-		return fmt.Sprintf("%s: 완료 → %s", name, item.Output)
+		return i18n.T("cli.done", "name", name, "output", item.Output)
 	case runner.StateFailed:
 		if item.Detail == "" {
-			return fmt.Sprintf("%s: 실패", name)
+			return i18n.T("cli.failed", "name", name)
 		}
-		return fmt.Sprintf("%s: 실패 · %s", name, item.Detail)
+		return i18n.T("cli.failedReason", "name", name, "reason", item.Detail)
 	case runner.StateCanceled:
-		return fmt.Sprintf("%s: 취소됨", name)
+		return i18n.T("cli.canceled", "name", name)
 	default:
 		if item.Detail == "" {
 			return fmt.Sprintf("%s: %s", name, item.State)
@@ -432,9 +433,9 @@ func elapsedMinutes(item store.Item) int {
 // lockMessage explains a failed folder lock.
 func lockMessage(err error) string {
 	if errors.Is(err, config.ErrLocked) {
-		return "Nalmeok이 이미 실행 중이에요(앱 또는 CLI). 끝난 뒤 다시 여세요."
+		return i18n.T("cli.locked")
 	}
-	return "설정 폴더를 잠그지 못했어요: " + err.Error()
+	return i18n.T("cli.lockFailed", "error", err)
 }
 
 func runDoctor() int {
@@ -466,18 +467,18 @@ func runDoctor() int {
 	}
 
 	fmt.Printf("Nalmeok %s\n", version)
-	fmt.Printf("OS/아키텍처: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("설정 폴더: %s\n", dir)
-	fmt.Printf("키: 무료 %d개, 유료 %d개\n", free, paid)
-	fmt.Printf("items.json 항목: %d개\n", items)
+	fmt.Println(i18n.T("cli.doctorOS", "os", runtime.GOOS, "arch", runtime.GOARCH))
+	fmt.Println(i18n.T("cli.doctorDir", "dir", dir))
+	fmt.Println(i18n.T("cli.doctorKeys", "free", free, "paid", paid))
+	fmt.Println(i18n.T("cli.doctorItems", "count", items))
 	return 0
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "테스트·AI 에이전트용 CLI예요. 보통은 인자 없이 실행해 앱 창을 쓰세요.")
+	fmt.Fprintln(w, i18n.T("cli.usageIntro"))
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "사용법:")
-	fmt.Fprintln(w, "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...")
+	fmt.Fprintln(w, i18n.T("cli.usage"))
+	fmt.Fprintln(w, i18n.T("cli.usageRun"))
 	fmt.Fprintln(w, "  nalmeok --version")
 	fmt.Fprintln(w, "  nalmeok doctor")
 }

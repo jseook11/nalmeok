@@ -2,11 +2,11 @@ package app
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -28,7 +28,7 @@ func (r *StubRunner) Start(context.Context) {}
 // Add records each path as a failed item with a placeholder reason.
 func (r *StubRunner) Add(paths []string, mode, keyID string) error {
 	if r.store == nil {
-		return errors.New("아직 준비 중이에요")
+		return errNotReady
 	}
 	if mode != "free" && mode != "batch" {
 		mode = "free"
@@ -44,7 +44,7 @@ func (r *StubRunner) Add(paths []string, mode, keyID string) error {
 			Name:   filepath.Base(path),
 			Mode:   mode,
 			State:  "failed",
-			Detail: "전사 엔진 준비 중",
+			Detail: i18n.T("status.engineNotReady"),
 			KeyID:  keyID,
 		})
 		if err != nil {
@@ -69,7 +69,7 @@ func (r *StubRunner) Retry(id string) error {
 	return r.update(id, func(item *store.Item) {
 		item.State = "failed"
 		item.Progress = 0
-		item.Detail = "전사 엔진 준비 중"
+		item.Detail = i18n.T("status.engineNotReady")
 	})
 }
 
@@ -87,7 +87,7 @@ func (r *StubRunner) SendToBatch(id string) error {
 // Remove checks that the item exists; the stub has no work folder to delete.
 func (r *StubRunner) Remove(id string) error {
 	if r.store == nil {
-		return errors.New("아직 준비 중이에요")
+		return errNotReady
 	}
 	if _, ok := r.store.Get(id); !ok {
 		return store.ErrNotFound
@@ -97,7 +97,7 @@ func (r *StubRunner) Remove(id string) error {
 
 func (r *StubRunner) update(id string, fn func(*store.Item)) error {
 	if r.store == nil {
-		return errors.New("아직 준비 중이에요")
+		return errNotReady
 	}
 	return r.store.Update(id, fn)
 }

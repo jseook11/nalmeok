@@ -9,14 +9,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // ErrNotAAC is returned for MP4 files whose first audio track is not AAC.
-var ErrNotAAC = errors.New("AAC 오디오가 아닌 MP4는 지원하지 않아요")
+var ErrNotAAC = i18n.Error("media.mp4NotAAC")
 
-// errMP4 wraps structural problems of an MP4 file.
-func errMP4(format string, args ...any) error {
-	return fmt.Errorf("지원하지 않는 MP4 형식이에요 (%s)", fmt.Sprintf(format, args...))
+// errMP4 wraps structural problems of an MP4 file. detail is catalog text.
+func errMP4(detail string) error {
+	return i18n.Error("media.mp4Unsupported", "detail", detail)
 }
 
 // maxMoovSize guards against absurd moov sizes in corrupt files.
@@ -72,7 +74,7 @@ func childBoxes(b []byte) ([]box, error) {
 	var out []box
 	for len(b) > 0 {
 		if len(b) < 8 {
-			return out, errMP4("상자 크기 오류")
+			return out, errMP4(i18n.T("mp4.boxSize"))
 		}
 		size := uint64(binary.BigEndian.Uint32(b))
 		typ := string(b[4:8])
@@ -82,13 +84,13 @@ func childBoxes(b []byte) ([]box, error) {
 			size = uint64(len(b))
 		case 1:
 			if len(b) < 16 {
-				return out, errMP4("상자 크기 오류")
+				return out, errMP4(i18n.T("mp4.boxSize"))
 			}
 			size = binary.BigEndian.Uint64(b[8:])
 			head = 16
 		}
 		if size < head || size > uint64(len(b)) {
-			return out, errMP4("상자 %q 크기 오류", typ)
+			return out, errMP4(i18n.T("mp4.boxSizeOf", "box", strconv.Quote(typ)))
 		}
 		out = append(out, box{typ: typ, body: b[head:size]})
 		b = b[size:]
@@ -145,12 +147,12 @@ func readMoov(f *os.File) ([]byte, error) {
 			if moov != nil {
 				break // trailing garbage after a complete moov
 			}
-			return nil, errMP4("상자 %q 크기 오류", typ)
+			return nil, errMP4(i18n.T("mp4.boxSizeOf", "box", strconv.Quote(typ)))
 		}
 		switch typ {
 		case "moov":
 			if size-hlen > maxMoovSize {
-				return nil, errMP4("moov가 너무 커요")
+				return nil, errMP4(i18n.T("mp4.moovTooBig"))
 			}
 			moov = make([]byte, size-hlen)
 			if _, err := f.ReadAt(moov, pos+hlen); err != nil {
@@ -162,13 +164,13 @@ func readMoov(f *os.File) ([]byte, error) {
 		pos += size
 	}
 	if moov == nil {
-		return nil, errMP4("moov 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "moov"))
 	}
 	if _, ok := findBox(moov, "mvex"); ok {
 		fragmented = true
 	}
 	if fragmented {
-		return nil, errMP4("조각난 MP4")
+		return nil, errMP4(i18n.T("mp4.fragmented"))
 	}
 	return moov, nil
 }
@@ -207,7 +209,7 @@ func parseMP4(path string) (*mp4Track, error) {
 		}
 		return tr, nil
 	}
-	return nil, errMP4("오디오 트랙 없음")
+	return nil, errMP4(i18n.T("mp4.noAudioTrack"))
 }
 
 // smpbSamples reads the valid sample count from iTunes gapless metadata
@@ -288,16 +290,16 @@ func parseAudioTrak(trak []byte) (*mp4Track, error) {
 	t := &mp4Track{}
 	mdhd, ok := findBox(trak, "mdia", "mdhd")
 	if !ok || len(mdhd) < 4 {
-		return nil, errMP4("mdhd 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "mdhd"))
 	}
 	if mdhd[0] == 1 {
 		if len(mdhd) < 24 {
-			return nil, errMP4("mdhd 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "mdhd"))
 		}
 		t.timescale = binary.BigEndian.Uint32(mdhd[20:])
 	} else {
 		if len(mdhd) < 16 {
-			return nil, errMP4("mdhd 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "mdhd"))
 		}
 		t.timescale = binary.BigEndian.Uint32(mdhd[12:])
 	}
@@ -306,15 +308,15 @@ func parseAudioTrak(trak []byte) (*mp4Track, error) {
 	}
 	stbl, ok := findBox(trak, "mdia", "minf", "stbl")
 	if !ok {
-		return nil, errMP4("stbl 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "stbl"))
 	}
 	stsd, ok := findBox(stbl, "stsd")
 	if !ok || len(stsd) < 8 {
-		return nil, errMP4("stsd 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "stsd"))
 	}
 	entries, err := childBoxes(stsd[8:])
 	if err != nil || len(entries) == 0 {
-		return nil, errMP4("stsd 오류")
+		return nil, errMP4(i18n.T("mp4.bad", "box", "stsd"))
 	}
 	if entries[0].typ != "mp4a" {
 		return nil, fmt.Errorf("%w (%s)", ErrNotAAC, entries[0].typ)
@@ -332,7 +334,7 @@ func parseAudioTrak(trak []byte) (*mp4Track, error) {
 // parseMP4A reads the AudioSampleEntry and its esds.
 func (t *mp4Track) parseMP4A(b []byte) error {
 	if len(b) < 28 {
-		return errMP4("mp4a 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "mp4a"))
 	}
 	skip := 28
 	switch binary.BigEndian.Uint16(b[8:]) { // sound description version
@@ -342,11 +344,11 @@ func (t *mp4Track) parseMP4A(b []byte) error {
 		skip += 36
 	}
 	if len(b) < skip {
-		return errMP4("mp4a 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "mp4a"))
 	}
 	esds := findESDS(b[skip:], 0)
 	if esds == nil {
-		return errMP4("esds 없음")
+		return errMP4(i18n.T("mp4.missing", "box", "esds"))
 	}
 	asc, err := decoderSpecificInfo(esds)
 	if err != nil {
@@ -377,7 +379,7 @@ func findESDS(b []byte, depth int) []byte {
 // readDescriptor returns (tag, body, rest) of an MPEG-4 descriptor.
 func readDescriptor(b []byte) (byte, []byte, []byte, error) {
 	if len(b) < 2 {
-		return 0, nil, nil, errMP4("esds 오류")
+		return 0, nil, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 	}
 	tag := b[0]
 	n, i := 0, 1
@@ -389,39 +391,39 @@ func readDescriptor(b []byte) (byte, []byte, []byte, error) {
 		}
 	}
 	if i+n > len(b) {
-		return 0, nil, nil, errMP4("esds 길이 오류")
+		return 0, nil, nil, errMP4(i18n.T("mp4.badLength", "box", "esds"))
 	}
 	return tag, b[i : i+n], b[i+n:], nil
 }
 
 func decoderSpecificInfo(esds []byte) ([]byte, error) {
 	if len(esds) < 4 {
-		return nil, errMP4("esds 오류")
+		return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 	}
 	tag, es, _, err := readDescriptor(esds[4:])
 	if err != nil {
 		return nil, err
 	}
 	if tag != 0x03 || len(es) < 3 {
-		return nil, errMP4("ES_Descriptor 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "ES_Descriptor"))
 	}
 	flags := es[2]
 	es = es[3:]
 	if flags&0x80 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4("esds 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
 	if flags&0x40 != 0 {
 		if len(es) < 1 || len(es) < 1+int(es[0]) {
-			return nil, errMP4("esds 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[1+int(es[0]):]
 	}
 	if flags&0x20 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4("esds 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
@@ -435,7 +437,7 @@ func decoderSpecificInfo(esds []byte) ([]byte, error) {
 			continue
 		}
 		if len(body) < 13 {
-			return nil, errMP4("DecoderConfig 오류")
+			return nil, errMP4(i18n.T("mp4.bad", "box", "DecoderConfig"))
 		}
 		switch body[0] {
 		case 0x40, 0x66, 0x67, 0x68: // MPEG-4 audio, MPEG-2 AAC main/LC/SSR
@@ -453,9 +455,9 @@ func decoderSpecificInfo(esds []byte) ([]byte, error) {
 			}
 			sub = rest
 		}
-		return nil, errMP4("AudioSpecificConfig 없음")
+		return nil, errMP4(i18n.T("mp4.missing", "box", "AudioSpecificConfig"))
 	}
-	return nil, errMP4("DecoderConfig 없음")
+	return nil, errMP4(i18n.T("mp4.missing", "box", "DecoderConfig"))
 }
 
 type bitReader struct {
@@ -504,25 +506,25 @@ func (t *mp4Track) parseASC(asc []byte) error {
 	sri, ok2 := srIndex()
 	ch, ok3 := r.read(4)
 	if !ok1 || !ok2 || !ok3 {
-		return errMP4("AudioSpecificConfig 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "AudioSpecificConfig"))
 	}
 	if aot == 5 || aot == 29 { // HE-AAC explicit signaling: core follows
 		if _, ok := srIndex(); !ok {
-			return errMP4("AudioSpecificConfig 오류")
+			return errMP4(i18n.T("mp4.bad", "box", "AudioSpecificConfig"))
 		}
 		var ok bool
 		if aot, ok = objectType(); !ok {
-			return errMP4("AudioSpecificConfig 오류")
+			return errMP4(i18n.T("mp4.bad", "box", "AudioSpecificConfig"))
 		}
 	}
 	if aot < 1 || aot > 4 {
 		return fmt.Errorf("%w (object type %d)", ErrNotAAC, aot)
 	}
 	if sri < 0 || sri >= len(adtsSampleRates) {
-		return errMP4("샘플레이트")
+		return errMP4(i18n.T("mp4.sampleRate"))
 	}
 	if ch < 1 || ch > 7 {
-		return errMP4("채널 구성 %d", ch)
+		return errMP4(i18n.T("mp4.channels", "count", ch))
 	}
 	t.profile, t.srIndex, t.channels = aot-1, sri, ch
 	return nil
@@ -542,15 +544,15 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 	// stsz
 	stsz, ok := findBox(stbl, "stsz")
 	if !ok || len(stsz) < 12 {
-		return errMP4("stsz 없음")
+		return errMP4(i18n.T("mp4.missing", "box", "stsz"))
 	}
 	fixed := binary.BigEndian.Uint32(stsz[4:])
 	n := int(binary.BigEndian.Uint32(stsz[8:]))
 	if n <= 0 {
-		return errMP4("샘플 없음")
+		return errMP4(i18n.T("mp4.noSamples"))
 	}
 	if n > 1<<26 {
-		return errMP4("샘플 수 오류")
+		return errMP4(i18n.T("mp4.sampleCount"))
 	}
 	t.sizes = make([]uint32, n)
 	if fixed != 0 {
@@ -558,7 +560,7 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 			t.sizes[i] = fixed
 		}
 	} else if !u32s(stsz, 12, n, func(i int, v uint32) { t.sizes[i] = v }) {
-		return errMP4("stsz 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "stsz"))
 	}
 
 	// stco / co64
@@ -567,29 +569,29 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 		c := int(binary.BigEndian.Uint32(stco[4:]))
 		chunks = make([]int64, max(c, 0))
 		if !u32s(stco, 8, c, func(i int, v uint32) { chunks[i] = int64(v) }) {
-			return errMP4("stco 오류")
+			return errMP4(i18n.T("mp4.bad", "box", "stco"))
 		}
 	} else if co64, ok := findBox(stbl, "co64"); ok && len(co64) >= 8 {
 		c := int(binary.BigEndian.Uint32(co64[4:]))
 		if c < 0 || 8+c*8 > len(co64) {
-			return errMP4("co64 오류")
+			return errMP4(i18n.T("mp4.bad", "box", "co64"))
 		}
 		chunks = make([]int64, c)
 		for i := range chunks {
 			chunks[i] = int64(binary.BigEndian.Uint64(co64[8+i*8:]))
 		}
 	} else {
-		return errMP4("stco 없음")
+		return errMP4(i18n.T("mp4.missing", "box", "stco"))
 	}
 
 	// stsc
 	stsc, ok := findBox(stbl, "stsc")
 	if !ok || len(stsc) < 8 {
-		return errMP4("stsc 없음")
+		return errMP4(i18n.T("mp4.missing", "box", "stsc"))
 	}
 	sc := int(binary.BigEndian.Uint32(stsc[4:]))
 	if sc <= 0 || 8+sc*12 > len(stsc) {
-		return errMP4("stsc 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "stsc"))
 	}
 	t.offsets = make([]int64, n)
 	s := 0
@@ -601,7 +603,7 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 			last = int(binary.BigEndian.Uint32(stsc[8+(e+1)*12:])) - 1
 		}
 		if first < 0 || last > len(chunks) || first > last {
-			return errMP4("stsc 오류")
+			return errMP4(i18n.T("mp4.bad", "box", "stsc"))
 		}
 		for c := first; c < last && s < n; c++ {
 			off := chunks[c]
@@ -613,17 +615,17 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 		}
 	}
 	if s != n {
-		return errMP4("샘플 표 불일치")
+		return errMP4(i18n.T("mp4.sampleTable"))
 	}
 
 	// stts
 	stts, ok := findBox(stbl, "stts")
 	if !ok || len(stts) < 8 {
-		return errMP4("stts 없음")
+		return errMP4(i18n.T("mp4.missing", "box", "stts"))
 	}
 	ec := int(binary.BigEndian.Uint32(stts[4:]))
 	if ec < 0 || 8+ec*8 > len(stts) {
-		return errMP4("stts 오류")
+		return errMP4(i18n.T("mp4.bad", "box", "stts"))
 	}
 	t.deltas = make([]uint32, 0, n)
 	var last uint32 = 1024
@@ -660,7 +662,7 @@ func (w *windowReader) at(off int64, size int) ([]byte, error) {
 	n, err := w.f.ReadAt(w.buf, off)
 	if n < size {
 		if err == nil || errors.Is(err, io.EOF) {
-			err = errMP4("샘플이 파일 밖에 있어요")
+			err = errMP4(i18n.T("mp4.sampleOutside"))
 		}
 		return nil, err
 	}

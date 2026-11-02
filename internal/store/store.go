@@ -14,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // FormatVersion is written to items.json as "version". Files without it are
@@ -21,7 +23,7 @@ import (
 const FormatVersion = 1
 
 // ErrNotFound is returned when an item ID does not exist.
-var ErrNotFound = errors.New("항목이 없어요")
+var ErrNotFound = i18n.Error("store.notFound")
 
 // Item is one dropped file or folder. The JSON field names are the contract
 // shared with the frontend and the future runner.
