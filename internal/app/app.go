@@ -24,6 +24,7 @@ type Runner interface {
 	Cancel(id string) error
 	Retry(id string) error
 	SendToBatch(id string) error
+	Remove(id string) error
 }
 
 // Item is the frontend-facing history item.
@@ -182,10 +183,16 @@ func (a *App) SendToBatch(id string) error {
 	return a.runner.SendToBatch(id)
 }
 
-// Remove drops an item from the history only; source and output stay on disk.
+// Remove stops any running work, deletes the item's temporary work folder and
+// then drops it from the history. Source and output stay on disk.
 func (a *App) Remove(id string) error {
 	if a.store == nil {
 		return store.ErrNotFound
+	}
+	if a.runner != nil {
+		if err := a.runner.Remove(id); err != nil {
+			return err
+		}
 	}
 	return a.store.Remove(id)
 }

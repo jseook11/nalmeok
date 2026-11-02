@@ -422,9 +422,6 @@
 
     gear.addEventListener("click", openSheet);
     sheetClose.addEventListener("click", closeSheet);
-    sheet.addEventListener("click", (event) => {
-      if (event.target === sheet) closeSheet();
-    });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !sheet.hidden) closeSheet();
     });

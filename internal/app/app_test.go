@@ -230,6 +230,44 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+type removeSpy struct {
+	*StubRunner
+	removed []string
+}
+
+func (r *removeSpy) Remove(id string) error {
+	r.removed = append(r.removed, id)
+	return r.StubRunner.Remove(id)
+}
+
+func TestRemoveTellsRunnerBeforeDroppingItem(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GEMINI_API_KEY", "")
+	cfg, err := config.LoadFrom(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Load(filepath.Join(dir, "items.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &removeSpy{StubRunner: NewStubRunner(st)}
+	application := New(cfg, st, spy)
+
+	if err := st.Add(store.Item{ID: "item-1", Name: "강의09.m4a", State: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := application.Remove("item-1"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if len(spy.removed) != 1 || spy.removed[0] != "item-1" {
+		t.Fatalf("runner Remove calls = %v", spy.removed)
+	}
+	if _, ok := st.Get("item-1"); ok {
+		t.Fatal("item is still in the store after Remove")
+	}
+}
+
 func TestStubStateTransitions(t *testing.T) {
 	ta := newTestApp(t)
 	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {

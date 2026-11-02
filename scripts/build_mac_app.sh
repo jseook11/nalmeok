@@ -15,7 +15,9 @@ APP="build/날먹.app"
 CONTENTS="$APP/Contents"
 
 mkdir -p build
-go build -tags desktop,production -ldflags "-s -w" -o "$BIN" ./cmd/nalmeok
+# -o is required: without it the binary is named `nalmeok` and collides with
+# the Python package directory `nalmeok/` at the repository root.
+go build -tags desktop,production -ldflags "-s -w -X main.version=$VERSION" -o "$BIN" ./cmd/nalmeok
 
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"

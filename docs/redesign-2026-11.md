@@ -84,7 +84,7 @@ frontend/dist/              index.html, app.css, app.js (빌드 단계 없는 �
 scripts/build_mac_app.sh    go build + .app 번들 + (자격이 있으면) 서명·공증
 ```
 
-Wails CLI 없이 `go build -tags desktop,production`으로 빌드한다. 의존 방향은 `app → runner → gemini · media · plan · output · store → config` 한쪽이다.
+Wails CLI 없이 `go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok`으로 빌드한다. `-o`를 빼면 실행 파일 이름이 `nalmeok`이 되어 저장소 루트의 Python 패키지 폴더 `nalmeok/`와 겹치므로 반드시 붙인다. 의존 방향은 `app → runner → gemini · media · plan · output · store → config` 한쪽이다.
 
 ### 5-2. 데이터
 

@@ -724,6 +724,41 @@ func TestScanErrorFailsItem(t *testing.T) {
 	}
 }
 
+func TestRemoveCancelsAndDeletesWorkDir(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	src := h.source("lec.m4a")
+	work := filepath.Join(h.dir, "cfg", "nalmeok", "work", "item-remove")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "piece.aac"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.Add(store.Item{
+		ID: "item-remove", Source: src, Kind: "file", Name: "lec.m4a",
+		Mode: "free", State: StateRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.r.Remove("item-remove"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("work dir still exists: %v", err)
+	}
+	item, ok := h.st.Get("item-remove")
+	if !ok {
+		t.Fatal("Remove deleted the store item; the app owns that step")
+	}
+	if item.State != StateCanceled {
+		t.Errorf("state = %q, want canceled", item.State)
+	}
+	if err := h.r.Remove("missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Remove(missing) = %v, want ErrNotFound", err)
+	}
+}
+
 func TestGapMatchesPythonRateLimits(t *testing.T) {
 	r := New(Options{Store: nil})
 	if g := r.gap(10); g != 12*time.Second {

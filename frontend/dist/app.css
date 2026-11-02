@@ -498,30 +498,41 @@ button:disabled {
   bottom: 0;
   left: 0;
   z-index: 60;
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(16, 18, 16, 0.3);
-  -webkit-backdrop-filter: blur(1.5px);
-  backdrop-filter: blur(1.5px);
+  background: var(--bg);
   animation: overlay-in 0.16s ease-out;
 }
 
 .sheet {
-  width: min(360px, 92vw);
+  width: 100%;
   height: 100%;
-  padding: 20px 20px 26px;
+  padding: 18px 20px 26px;
   overflow-y: auto;
-  border-left: 1px solid var(--border);
+  overscroll-behavior: contain;
   background: var(--bg);
-  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.12);
   animation: sheet-in 0.2s ease-out;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.sheet::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sheet::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
 }
 
 .sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin: -18px -20px 12px;
+  padding: 18px 20px 9px;
+  background: var(--bg);
 }
 
 .sheet-head h2 {
@@ -715,11 +726,11 @@ button:disabled {
 @keyframes sheet-in {
   from {
     opacity: 0;
-    transform: translateX(18px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0);
   }
 }
 

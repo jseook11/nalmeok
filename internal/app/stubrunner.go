@@ -83,6 +83,17 @@ func (r *StubRunner) SendToBatch(id string) error {
 	})
 }
 
+// Remove checks that the item exists; the stub has no work folder to delete.
+func (r *StubRunner) Remove(id string) error {
+	if r.store == nil {
+		return errors.New("저장소가 준비되지 않았습니다")
+	}
+	if _, ok := r.store.Get(id); !ok {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (r *StubRunner) update(id string, fn func(*store.Item)) error {
 	if r.store == nil {
 		return errors.New("저장소가 준비되지 않았습니다")

@@ -310,6 +310,45 @@ func (r *Runner) Cancel(id string) error {
 	}
 }
 
+// Remove cancels any in-flight work for id and deletes its work directory.
+// The caller is responsible for dropping the item from the store afterwards.
+func (r *Runner) Remove(id string) error {
+	item, ok := r.opts.Store.Get(id)
+	if !ok {
+		return store.ErrNotFound
+	}
+	switch item.State {
+	case StateRunning, StateFreeExhausted, StateBatchWaiting:
+		if err := r.Cancel(id); err != nil {
+			r.logf("item %s remove: cancel: %v", id, r.redact(err))
+		}
+	}
+	r.waitInactive(id, 2*time.Second)
+	if r.opts.WorkDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(r.workDir(id)); err != nil {
+		return err
+	}
+	r.logf("item %s work dir removed", id)
+	return nil
+}
+
+// waitInactive gives the worker a moment to stop touching an item's work
+// directory after its context was canceled.
+func (r *Runner) waitInactive(id string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		r.mu.Lock()
+		active := r.active == id
+		r.mu.Unlock()
+		if !active || !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // Retry re-queues a failed, canceled or exhausted item, keeping finished units.
 func (r *Runner) Retry(id string) error {
 	item, ok := r.opts.Store.Get(id)
@@ -437,6 +476,12 @@ func (r *Runner) runItem(parent context.Context, id string) {
 		delete(r.canceled, id)
 		r.mu.Unlock()
 	}()
+
+	// A cancel or remove may land between the first read and taking the active
+	// slot. Re-read so canceled items never start fresh work.
+	if current, ok := r.opts.Store.Get(id); !ok || current.State != StateRunning {
+		return
+	}
 
 	err := r.process(ctx, id)
 	if err == nil {
