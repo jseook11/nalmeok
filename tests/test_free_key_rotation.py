@@ -12,6 +12,11 @@ try:
 except ImportError:
     ClientError = None
 
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
 import nalmeok as app
 from tests.test_nalmeok import response_row
 
@@ -149,6 +154,59 @@ class GenerationTests(unittest.TestCase):
                                       rotate_429=True)
                 self.assertEqual(client.models.generate_content.call_count, 1)
                 sleep.assert_not_called()
+
+    def test_read_timeout_is_logged_and_shown_as_runtime_error(self):
+        if httpx is None:
+            self.skipTest("httpx 필요")
+        client = mock.Mock()
+        client.models.generate_content.side_effect = httpx.ReadTimeout("timed out")
+        with mock.patch.object(app, "log_exception") as log, \
+                mock.patch.object(app.time, "sleep") as sleep, \
+                self.assertRaisesRegex(RuntimeError, "ReadTimeout"):
+            app.live_generate(client, app.DEFAULT_MODEL, [], 60)
+        self.assertEqual(client.models.generate_content.call_count, 1)
+        sleep.assert_not_called()
+        log.assert_called_once()
+
+    def test_connection_error_retries_once(self):
+        if httpx is None:
+            self.skipTest("httpx 필요")
+        response = SimpleNamespace(text="ok")
+        client = mock.Mock()
+        client.models.generate_content.side_effect = [
+            httpx.ConnectError("down"), response]
+        with mock.patch.object(app.time, "sleep") as sleep, \
+                mock.patch.object(app, "log_exception") as log:
+            result = app.live_generate(client, app.DEFAULT_MODEL, [], 1)
+        self.assertIs(result, response)
+        self.assertEqual(client.models.generate_content.call_count, 2)
+        sleep.assert_called_once_with(1)
+        log.assert_not_called()
+
+
+@unittest.skipIf(httpx is None, "httpx 필요")
+class MixedSessionErrorTests(unittest.TestCase):
+    def test_transport_error_returns_to_folder_menu(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            app.save(app.live_state_path(folder), {
+                "mode": "mixed", "model": app.DEFAULT_MODEL,
+                "groups": [{"key": "g1", "label": "key0", "seconds": 1}],
+                "paid": []})
+            with mock.patch.object(
+                    app, "mixed_transcribe",
+                    side_effect=httpx.ReadTimeout("timed out")), \
+                    mock.patch.object(app, "log_exception") as log, \
+                    mock.patch.object(app, "wait"), \
+                    mock.patch.object(app, "folder_session",
+                                      return_value="menu"), \
+                    mock.patch.object(app, "key_entries", return_value=[]), \
+                    mock.patch.object(app, "key_entries_for_tier",
+                                      return_value=[]), \
+                    mock.patch.object(app, "current_key", return_value=None), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(app.mixed_session(folder, None), "menu")
+            log.assert_called_once()
 
 
 class ExhaustionUITests(unittest.TestCase):

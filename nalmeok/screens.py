@@ -574,6 +574,7 @@ def run_with_client(key, action, purpose="작업", tier=None):
         try:
             client = app.get_client(key)
         except (RuntimeError, OSError, ValueError) as exc:
+            app.log_exception(f"{purpose} 클라이언트", exc)
             app.notice(str(exc))
             return key, None
         try:
@@ -597,7 +598,12 @@ def run_with_client(key, action, purpose="작업", tier=None):
                 app.notice(f"API 오류: {exc}")
                 return key, None
             except (RuntimeError, OSError, ValueError, KeyError) as exc:
+                app.log_exception(purpose, exc)
                 app.notice(str(exc))
+                return key, None
+            except Exception as exc:  # noqa: BLE001 - 네트워크 오류도 화면으로 보여줍니다.
+                app.log_exception(purpose, exc)
+                app.notice(str(exc) or f"오류: {type(exc).__name__}")
                 return key, None
         finally:
             client.close()
@@ -1701,18 +1707,21 @@ def mixed_session(folder, key, include_paid=True):
         app.wait()
         return app.folder_session(folder, key)
     except (RuntimeError, OSError, ValueError, KeyError) as exc:
+        app.log_exception(f"혼합 전사 ({app.short_path(folder)})", exc)
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
         app.notice(str(exc))
         app.wait()
         return app.folder_session(folder, key)
-    except Exception as exc:  # API 오류만 화면으로 보여줍니다.
-        api_error = app._api_error_class()
-        if api_error is None or not isinstance(exc, api_error):
-            raise
+    except Exception as exc:  # noqa: BLE001 - 예상 못 한 오류도 화면으로 보여줍니다.
+        app.log_exception(f"혼합 전사 ({app.short_path(folder)})", exc)
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
-        app.notice(f"API 오류: {exc}")
+        api_error = app._api_error_class()
+        if api_error is not None and isinstance(exc, api_error):
+            app.notice(f"API 오류: {exc}")
+        else:
+            app.notice(str(exc) or f"오류: {type(exc).__name__}")
         app.wait()
         return app.folder_session(folder, key)
     sys.stdout.write("\r\033[K")
@@ -2092,7 +2101,15 @@ def interactive():
             except KeyboardInterrupt:
                 continue
             except (RuntimeError, OSError, ValueError, KeyError, AttributeError) as exc:
+                app.log_exception("메뉴", exc)
                 app.notice(str(exc))
+                try:
+                    app.wait()
+                except (KeyboardInterrupt, EOFError):
+                    return
+            except Exception as exc:  # noqa: BLE001 - 메뉴가 traceback 으로 끝나지 않게 합니다.
+                app.log_exception("메뉴", exc)
+                app.notice(str(exc) or f"오류: {type(exc).__name__}")
                 try:
                     app.wait()
                 except (KeyboardInterrupt, EOFError):

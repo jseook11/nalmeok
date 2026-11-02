@@ -286,11 +286,15 @@ def cli():
     except (KeyboardInterrupt, EOFError):
         print("\n종료했습니다.")
     except (RuntimeError, OSError, ValueError, KeyError) as exc:
+        app.log_exception("cli", exc)
         print(f"오류: {exc}", file=sys.stderr)
         sys.exit(1)
     except Exception as exc:
-        api_error = app._api_error_class()
-        if api_error is None or not isinstance(exc, api_error):
+        app.log_exception("cli", exc)
+        if os.getenv("NALMEOK_DEBUG"):
             raise
-        print(f"API 오류: {exc}", file=sys.stderr)
+        api_error = app._api_error_class()
+        prefix = ("API 오류" if api_error is not None
+                  and isinstance(exc, api_error) else "오류")
+        print(f"{prefix}: {exc}", file=sys.stderr)
         sys.exit(1)

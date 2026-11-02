@@ -1042,6 +1042,20 @@ class FreeKeysExhausted(RuntimeError):
     """이번 실행에서 모든 무료 키가 429로 제한되었습니다."""
 
 
+def _transient_transport_error(exc):
+    """SDK가 APIError로 감싸지 않는 연결 오류인지 확인합니다.
+
+    응답을 기다리다 끊긴 ReadTimeout 은 같은 요청을 다시 보내도 오래 걸리므로
+    재시도하지 않고 바로 사용자에게 알립니다.
+    """
+    try:
+        import httpx
+    except ImportError:
+        return False
+    return (isinstance(exc, httpx.TransportError)
+            and not isinstance(exc, httpx.ReadTimeout))
+
+
 def live_generate(client, model, contents, gap, *, rotate_429=False):
     from google.genai.errors import APIError
     for attempt in (1, 2):
@@ -1054,13 +1068,25 @@ def live_generate(client, model, contents, gap, *, rotate_429=False):
             detail = str(exc).lower()
             daily = "perday" in detail or "per day" in detail or "rpd" in detail
             if exc.code == 429 and daily:
+                app.log_exception("live 일일 한도", exc)
                 app.log("live 일일 한도를 다 쓴 것 같습니다. 내일 이어서 하세요.")
                 raise
             if attempt == 2 or exc.code not in (429, 500, 502, 503, 504):
+                app.log_exception(f"live API 오류 {exc.code}", exc)
                 raise
             app.log(f"live API 오류 {exc.code} · {gap}초 후 1회 재시도")
             if gap:
                 time.sleep(gap)
+        except Exception as exc:  # noqa: BLE001 - 네트워크 오류는 APIError가 아닙니다.
+            if attempt == 1 and _transient_transport_error(exc):
+                app.log(f"live 연결 오류 ({type(exc).__name__}) · "
+                        f"{gap}초 후 1회 재시도")
+                if gap:
+                    time.sleep(gap)
+                continue
+            app.log_exception("live 요청", exc)
+            detail = str(exc).strip() or type(exc).__name__
+            app.fail(f"live 요청 오류 ({type(exc).__name__}): {detail[:300]}")
     app.fail("live 요청에 실패했습니다.")
 
 

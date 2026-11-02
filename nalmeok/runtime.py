@@ -18,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import unicodedata
 import uuid
 import zipfile
@@ -35,6 +36,25 @@ def fail(message):
 
 def log(message=""):
     app._logger(message)
+
+
+def log_exception(context, exc):
+    """예상하지 못한 오류를 nalmeok.log 에 남깁니다. 기록 실패는 무시합니다.
+
+    TUI는 진행 로그를 상태 줄에 덮어써서 오류가 사라지고, CLI는 traceback 을
+    보여주지 않는 경로가 있어 원인을 잃기 쉽습니다. 사용자 화면과 별도로
+    시각·맥락·traceback 을 남겨 두면 다음 실행에서 바로 확인할 수 있습니다.
+    """
+    try:
+        path = app.debug_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        detail = "".join(traceback.format_exception(
+            type(exc), exc, exc.__traceback__)).rstrip()
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"[{stamp}] {context}\n{detail}\n")
+    except (OSError, ValueError):
+        pass
 
 
 def _print_logger(message=""):
