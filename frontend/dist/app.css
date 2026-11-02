@@ -3,23 +3,31 @@
 
   --bg: #ffffff;
   --text: #1d1d1f;
-  --secondary: #86868b;
-  --tertiary: #b4b4b9;
-  --separator: rgba(0, 0, 0, 0.09);
+  --secondary: #6e6e73;
+  --tertiary: #aeaeb2;
+  --separator: rgba(0, 0, 0, 0.1);
+  /* Hairlines are 1px; macOS draws them at half a point (see .is-mac). */
+  --hairline: 1px;
   --fill: rgba(0, 0, 0, 0.055);
   --fill-strong: rgba(0, 0, 0, 0.09);
+  --fill-faint: rgba(0, 0, 0, 0.03);
   --hover: rgba(0, 0, 0, 0.035);
-  --selected: rgba(0, 0, 0, 0.05);
+  --selected: rgba(0, 0, 0, 0.065);
   --control: #ffffff;
   --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
   --accent: #1e7a4c;
   --accent-text: #1a7046;
   --accent-soft: rgba(30, 122, 76, 0.14);
+  --amber: #c27a00;
+  --amber-text: #9a6100;
+  --red: #c8443f;
+  --red-text: #b03a35;
   --danger: #e5484d;
   --danger-text: #c4363b;
   --rename: #8e8e93;
   --menu-bg: rgba(246, 246, 246, 0.92);
   --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --menu-hover: rgba(0, 0, 0, 0.08);
   --toast-bg: rgba(30, 30, 32, 0.92);
   --toast-text: #f5f5f7;
   --toast-action: #5fd39b;
@@ -29,27 +37,37 @@
   :root {
     --bg: #1e1e1e;
     --text: #f5f5f7;
-    --secondary: #98989d;
-    --tertiary: #636366;
-    --separator: rgba(255, 255, 255, 0.09);
+    --secondary: #a1a1a6;
+    --tertiary: #6c6c70;
+    --separator: rgba(255, 255, 255, 0.1);
     --fill: rgba(255, 255, 255, 0.075);
     --fill-strong: rgba(255, 255, 255, 0.12);
+    --fill-faint: rgba(255, 255, 255, 0.045);
     --hover: rgba(255, 255, 255, 0.04);
-    --selected: rgba(255, 255, 255, 0.06);
+    --selected: rgba(255, 255, 255, 0.08);
     --control: #5a5a5e;
     --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
     --accent: #3bb273;
     --accent-text: #4cc38a;
     --accent-soft: rgba(76, 195, 138, 0.18);
+    --amber: #e0a43a;
+    --amber-text: #e8b45a;
+    --red: #e5675f;
+    --red-text: #f07d76;
     --danger: #e5484d;
     --danger-text: #ff6b6f;
     --rename: #636366;
     --menu-bg: rgba(44, 44, 46, 0.94);
     --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+    --menu-hover: rgba(255, 255, 255, 0.1);
     --toast-bg: rgba(245, 245, 247, 0.94);
     --toast-text: #1d1d1f;
     --toast-action: #1a7046;
   }
+}
+
+.is-mac {
+  --hairline: 0.5px;
 }
 
 * {
@@ -72,7 +90,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   word-break: keep-all;
@@ -103,15 +121,27 @@ button {
 
 /* ── Window ───────────────────────────────────────────────── */
 
+/* List only: top bar, list, footer. With the transcript pane the list keeps
+   a fixed column and the pane takes the rest; the footer sits under the
+   pane. */
 #app {
   /* Wails accepts file drops on elements with this property. It is
      inherited, so the whole window is a drop target. */
   --wails-drop-target: drop;
+  --gutter: 16px;
+  --side-width: 360px;
 
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "top" "side" "foot";
   height: 100%;
+}
+
+#app.has-pane {
+  grid-template-columns: var(--side-width) minmax(0, 1fr);
+  grid-template-areas: "top top" "side pane" "side foot";
 }
 
 #app::after {
@@ -130,29 +160,40 @@ button {
   opacity: 0.7;
 }
 
-/* ── Top bar and search ───────────────────────────────────── */
+/* ── Top bar ──────────────────────────────────────────────── */
 
-.chrome {
-  flex: 0 0 auto;
-  padding: 8px 12px 10px;
-  border-bottom: 0.5px solid transparent;
-  background: var(--bg);
-  transition: border-color 0.15s ease;
-}
-
-/* The list and the top bar are one surface. A hairline appears only when
-   content is scrolled underneath it. */
-#app.is-scrolled .chrome {
-  border-bottom-color: var(--separator);
-}
-
+/* Three parts: the two sides share the leftover width equally so the mode
+   toggle stays centred in the window. On macOS the left side clears the
+   traffic lights. */
 .topbar {
-  position: relative;
+  grid-area: top;
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 28px;
-  margin-bottom: 8px;
+  gap: 8px;
+  height: 44px;
+  padding: 0 var(--gutter);
+  border-bottom: var(--hairline) solid var(--separator);
+  background: var(--bg);
+}
+
+.is-mac .topbar {
+  height: 52px;
+}
+
+.topbar-side {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+}
+
+.is-mac .topbar-side:first-child {
+  min-width: 64px;
+}
+
+.topbar-tools {
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 /* macOS: the title bar is transparent and this bar is the toolbar row, next
@@ -167,17 +208,11 @@ button {
   --wails-draggable: no-drag;
 }
 
-.is-mac .chrome {
-  padding-top: 0;
-}
-
-.is-mac .topbar {
-  height: 52px;
-  margin-bottom: 2px;
-}
-
-.is-mac .add-button {
-  top: 13px;
+.topbar-center {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .segmented {
@@ -195,9 +230,9 @@ button {
   border-radius: 5px;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .segmented button[aria-disabled="true"] {
@@ -222,38 +257,38 @@ button {
   box-shadow: var(--control-shadow);
 }
 
-/* The mode toggle stays centered; the key picker hangs off its right. */
-.topbar-center {
-  position: relative;
-  display: flex;
-  align-items: center;
+/* Paid selected: money is being spent, so the choice shows in the accent. */
+#mode-toggle button[data-mode="batch"][aria-selected="true"] {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .picker-button {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 8px);
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 112px;
-  height: 22px;
-  padding: 0 7px 0 8px;
-  border: none;
+  gap: 6px;
+  max-width: 120px;
+  height: 26px;
+  padding: 0 8px;
+  border: var(--hairline) solid var(--separator);
   border-radius: 6px;
   background: transparent;
-  color: var(--secondary);
-  font-size: 12.5px;
+  color: var(--text);
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  transform: translateY(-50%);
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease;
 }
 
-.picker-button:hover,
+.picker-button svg {
+  flex: 0 0 auto;
+  color: var(--secondary);
+}
+
+.picker-button.is-hover,
 .picker-button.is-menu {
   background: var(--fill);
-  color: var(--text);
 }
 
 .picker-label {
@@ -261,15 +296,11 @@ button {
   text-overflow: ellipsis;
 }
 
-.picker-button svg {
-  flex: 0 0 auto;
-}
-
 .tool-button {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 26px;
+  width: 30px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -278,25 +309,38 @@ button {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.tool-button:hover {
+.tool-button.is-hover {
   background: var(--fill);
   color: var(--text);
 }
 
-.add-button {
-  position: absolute;
-  top: 1px;
-  right: 0;
+.tool-button[aria-pressed="true"] {
+  color: var(--text);
+}
+
+/* ── List column ──────────────────────────────────────────── */
+
+.side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#app.has-pane .side {
+  border-right: var(--hairline) solid var(--separator);
 }
 
 .search {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 28px;
+  margin: 10px var(--gutter) 6px;
   padding: 0 8px;
-  border-radius: 7px;
-  background: var(--fill);
+  border-radius: 6px;
+  background: var(--fill-faint);
   color: var(--secondary);
   cursor: text;
 }
@@ -332,15 +376,20 @@ button {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* ── List ─────────────────────────────────────────────────── */
-
 .list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: 6px;
+  padding-bottom: 8px;
+  border-top: var(--hairline) solid transparent;
   scrollbar-width: thin;
+  transition: border-color 0.15s ease;
+}
+
+/* A hairline under the search field only while rows scroll beneath it. */
+#app.is-scrolled .list {
+  border-top-color: var(--separator);
 }
 
 #app.is-empty .list {
@@ -348,25 +397,37 @@ button {
 }
 
 .list-note {
-  margin: 40px 0;
+  margin: 40px var(--gutter);
   text-align: center;
   color: var(--secondary);
   font-size: 13px;
 }
+
+/* Day headers, only when the list spans more than one day. */
+.list-section {
+  padding: 12px var(--gutter) 4px;
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Rows ─────────────────────────────────────────────────── */
 
 .row {
   position: relative;
   overflow: hidden;
 }
 
+/* Every row is the same height whatever its state; progress is a line on
+   the bottom edge, not a bar that adds height. */
 .row-main {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 58px;
-  padding: 9px 16px 9px 18px;
+  height: 64px;
+  padding: 0 var(--gutter);
   background: var(--bg);
 }
 
@@ -375,28 +436,29 @@ button {
   position: absolute;
   right: 0;
   bottom: 0;
-  left: 52px;
-  height: 0.5px;
+  left: 50px;
+  height: var(--hairline);
   background: var(--separator);
 }
 
-.row:last-child .row-main::after {
+.row:last-child .row-main::after,
+.row:has(+ .list-section) .row-main::after,
+.row.is-selected .row-main::after,
+.row:has(+ .row.is-selected) .row-main::after {
   display: none;
 }
 
-.row.is-done.is-hover .row-main,
+.row.is-hover .row-main,
 .row.is-menu .row-main {
   background: linear-gradient(var(--hover), var(--hover)), var(--bg);
 }
 
-.row.is-snapping .row-main {
-  transition: transform 0.15s ease-out;
+.row.is-selected .row-main {
+  background: linear-gradient(var(--selected), var(--selected)), var(--bg);
 }
 
-.row.is-leaving {
-  transition: max-height 0.15s ease, opacity 0.15s ease;
-  overflow: hidden;
-  opacity: 0;
+.row.is-snapping .row-main {
+  transition: transform 0.15s ease-out;
 }
 
 .glyph {
@@ -413,8 +475,9 @@ button {
 
 .name {
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -422,29 +485,31 @@ button {
 .name-input {
   display: block;
   width: 100%;
-  height: 22px;
-  margin: -1px 0 -1px -4px;
+  height: 20px;
+  margin: 0 0 0 -4px;
   padding: 0 4px;
   border: none;
   border-radius: 4px;
   background: var(--bg);
-  box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 0.5px var(--accent);
-  font-size: 14px;
-  font-weight: 500;
+  box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent);
+  font-size: 15px;
+  font-weight: 600;
   -webkit-user-select: text;
   user-select: text;
 }
 
+/* The second line: [dot] text · elapsed. */
 .status {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin-top: 2px;
   overflow: hidden;
   color: var(--secondary);
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 18px;
   white-space: nowrap;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .status span {
@@ -452,92 +517,79 @@ button {
   text-overflow: ellipsis;
 }
 
-.icon-action {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--secondary);
-  transition: color 0.12s ease, background-color 0.12s ease;
+.dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.icon-action:hover {
-  background: var(--fill);
-  color: var(--accent-text);
-}
+.tone-running .dot { color: var(--accent); }
+.tone-waiting .dot { color: var(--amber); }
+.tone-alert { color: var(--amber-text); }
+.tone-alert .dot { color: var(--amber); }
+.tone-failed { color: var(--red-text); }
+.tone-failed .dot { color: var(--red); }
+.tone-quiet { color: var(--tertiary); }
 
-.progress {
-  position: relative;
-  height: 3px;
-  margin: 8px 0 3px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--fill-strong);
-}
-
-.progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-  transition: width 0.4s ease;
-}
-
-.progress.is-indeterminate .progress-fill {
-  width: 30%;
-  opacity: 0.55;
-  animation: slide 1.6s ease-in-out infinite;
-}
-
-@keyframes slide {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(340%); }
-}
-
-.row-aside {
+/* One plain text action at most, on the right. */
+.row-action {
   flex: 0 0 auto;
-}
-
-.key-tag {
-  display: block;
-  max-width: 120px;
-  overflow: hidden;
-  color: var(--secondary);
-  font-size: 12px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.accent-button {
-  padding: 3px 2px;
+  padding: 4px 0;
   border: none;
   background: none;
   color: var(--accent-text);
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.accent-button:hover {
-  opacity: 0.75;
+.row-action.is-danger {
+  color: var(--red-text);
 }
 
-.pill-button {
-  height: 22px;
-  padding: 0 9px;
-  border: none;
-  border-radius: 6px;
+.row-action.is-hover,
+.text-button.is-hover,
+.plain-button.is-hover {
+  opacity: 0.7;
+}
+
+/* Progress: a 2px line on the row's bottom edge. Waiting work moves too,
+   slower and in amber, so a long wait still looks alive. */
+.row-line {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.row-line span {
+  display: block;
+  height: 100%;
   background: var(--accent);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 600;
+  transition: width 0.4s ease;
 }
 
-.pill-button:hover {
-  filter: brightness(1.08);
+.row-line.is-moving span {
+  width: 28%;
+  opacity: 0.6;
+  animation: slide 1.8s ease-in-out infinite;
+}
+
+.row-line.is-waiting span {
+  background: var(--amber);
+  opacity: 0.55;
+  animation-duration: 3.2s;
+}
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(360%); }
 }
 
 /* Swipe actions sit under the row and are uncovered from the right. */
@@ -586,68 +638,193 @@ button {
 .empty {
   display: none;
   flex: 1 1 auto;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   padding: 0 24px 40px;
   border: none;
   background: none;
   color: var(--secondary);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
+  transition: color 0.12s ease;
 }
 
 #app.is-empty .empty {
   display: flex;
 }
 
-.empty-glyph {
-  color: var(--tertiary);
-  transition: color 0.15s ease;
+.empty.is-hover,
+#app.is-dragover .empty {
+  color: var(--text);
 }
 
-.empty:hover .empty-glyph,
-#app.is-dragover .empty-glyph {
-  color: var(--accent);
+/* ── Transcript pane ──────────────────────────────────────── */
+
+.pane {
+  grid-area: pane;
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+#app.has-pane .pane {
+  display: flex;
+}
+
+.pane-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 16px;
+  margin: 0 32px;
+  padding: 28px 0 16px;
+  border-bottom: var(--hairline) solid var(--separator);
+}
+
+.pane-head:empty {
+  display: none;
+}
+
+.pane-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pane-meta {
+  grid-column: 1;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.pane-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 1px;
+}
+
+.plain-button {
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.plain-button.is-accent {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 32px 24px;
+  scrollbar-width: thin;
+}
+
+.pane-text {
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.75;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.pane-text p {
+  margin: 0 0 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pane-note {
+  margin: 0 0 8px;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.pane-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  margin: 0;
+  padding-bottom: 40px;
+  color: var(--secondary);
+  font-size: 15px;
+}
+
+/* A non-finished item: its state and what to expect, in place of text. */
+.pane-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pane-state .dot {
+  flex-basis: 8px;
+  width: 8px;
+  height: 8px;
+}
+
+.pane-state.tone-quiet {
+  color: var(--secondary);
 }
 
 /* ── Footer ───────────────────────────────────────────────── */
 
 .footer {
+  grid-area: foot;
   display: flex;
-  flex: 0 0 auto;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 6px 12px 7px;
-  border-top: 0.5px solid transparent;
+  gap: 4px;
+  padding: 4px 10px 6px;
+  border-top: var(--hairline) solid transparent;
   transition: border-color 0.15s ease;
 }
 
 /* The footer is part of the same surface. Its hairline shows only while
    more rows are hidden below the fold. */
-#app.is-more-below .footer {
+#app.is-more-below:not(.has-pane) .footer {
   border-top-color: var(--separator);
 }
 
-.round-button {
+.foot-button {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 0.5px solid var(--tertiary);
-  border-radius: 50%;
+  border: none;
+  border-radius: 6px;
   background: transparent;
   color: var(--secondary);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  transition: color 0.12s ease, border-color 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease;
 }
 
-.round-button:hover {
-  border-color: var(--secondary);
+.foot-button.is-hover {
+  background: var(--fill);
   color: var(--text);
 }
 
@@ -677,11 +854,10 @@ button {
 }
 
 .menu button:hover {
-  background: var(--accent);
-  color: #ffffff;
+  background: var(--menu-hover);
 }
 
-.menu button.is-danger:not(:hover) {
+.menu button.is-danger {
   color: var(--danger-text);
 }
 
@@ -698,7 +874,7 @@ button {
 }
 
 .menu hr {
-  height: 0.5px;
+  height: var(--hairline);
   margin: 5px 10px;
   border: none;
   background: var(--separator);
@@ -723,7 +899,7 @@ button {
   align-items: center;
   justify-content: center;
   height: 44px;
-  border-bottom: 0.5px solid var(--separator);
+  border-bottom: var(--hairline) solid var(--separator);
   background: var(--bg);
 }
 
@@ -792,7 +968,7 @@ button {
 
 .key-item {
   position: relative;
-  border-bottom: 0.5px solid var(--separator);
+  border-bottom: var(--hairline) solid var(--separator);
   background: var(--bg);
 }
 
@@ -801,7 +977,7 @@ button {
   align-items: center;
   gap: 10px;
   height: 40px;
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .key-row:focus-visible {
@@ -843,14 +1019,14 @@ button {
 
 .key-meta {
   color: var(--secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .key-mask {
   margin-left: auto;
   color: var(--secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -886,7 +1062,7 @@ button {
 
 .key-field-label {
   color: var(--secondary);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .key-panel .field {
@@ -924,7 +1100,7 @@ button {
   grid-column: 1 / -1;
   margin: -2px 0 2px;
   color: var(--secondary);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 /* Lifted while dragged by the handle. */
@@ -961,7 +1137,7 @@ button {
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border: 0.5px solid var(--separator);
+  border: var(--hairline) solid var(--separator);
   border-radius: 7px;
   background: var(--fill);
   font-size: 13px;
@@ -980,7 +1156,7 @@ button {
 .form-error {
   margin: 0;
   color: var(--danger-text);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .primary-button {
@@ -1009,7 +1185,7 @@ button {
   grid-template-columns: max-content 1fr;
   gap: 14px 18px;
   margin: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -1036,7 +1212,7 @@ button {
   border-radius: 999px;
   background: var(--toast-bg);
   color: var(--toast-text);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   opacity: 0;
@@ -1063,7 +1239,7 @@ button {
   border: none;
   background: none;
   color: var(--toast-action);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 

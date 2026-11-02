@@ -8,60 +8,72 @@
 </head>
 <body>
 <div id="app" class="is-empty">
-  <header class="chrome">
-    <div class="topbar">
-      <div class="topbar-center">
-        <div class="segmented" id="mode-toggle" role="tablist" data-i18n-aria-label="mode.label" hidden>
-          <button type="button" role="tab" data-mode="free" aria-selected="true" data-i18n="tier.free"></button>
-          <button type="button" role="tab" data-mode="batch" aria-selected="false" data-i18n="tier.paid"></button>
-        </div>
-        <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu"
-                data-i18n-aria-label="picker.title" data-i18n-title="picker.title" hidden>
-          <span class="picker-label" id="key-picker-label" data-i18n="picker.auto"></span>
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
-               stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m2 3.5 3 3 3-3"/>
-          </svg>
-        </button>
+  <header class="topbar">
+    <div class="topbar-side"></div>
+    <div class="topbar-center">
+      <div class="segmented" id="mode-toggle" role="tablist" data-i18n-aria-label="mode.label" hidden>
+        <button type="button" role="tab" data-mode="free" aria-selected="true" data-i18n="tier.free"></button>
+        <button type="button" role="tab" data-mode="batch" aria-selected="false" data-i18n="tier.paid"></button>
       </div>
-      <button class="tool-button add-button" id="add" type="button" data-i18n-aria-label="action.addFile" data-i18n-title="action.addFile">
+      <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu"
+              data-i18n-aria-label="picker.title" data-i18n-title="picker.title" hidden>
+        <span class="picker-label" id="key-picker-label" data-i18n="picker.auto"></span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+             stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m2 3.5 3 3 3-3"/>
+        </svg>
+      </button>
+    </div>
+    <div class="topbar-side topbar-tools">
+      <button class="tool-button" id="add" type="button" data-i18n-aria-label="action.addFile" data-i18n-title="action.addFile">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
              stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
           <path d="M8 3v10M3 8h10"/>
         </svg>
       </button>
+      <button class="tool-button" id="pane-toggle" type="button" aria-pressed="false"
+              data-i18n-aria-label="pane.toggle" data-i18n-title="pane.toggle">
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor"
+             stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">
+          <rect x="1.5" y="2.5" width="15" height="11" rx="2.5"/>
+          <path d="M10.5 2.5v11"/>
+        </svg>
+      </button>
     </div>
+  </header>
+
+  <section class="side">
     <label class="search">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-           stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
         <circle cx="7" cy="7" r="4.6"/>
         <path d="m10.5 10.5 3 3"/>
       </svg>
       <input id="search" type="search" data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false"
              data-i18n-aria-label="search.placeholder">
     </label>
-  </header>
+    <main class="list" id="list"></main>
+    <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
+      <span data-i18n="empty.text"></span>
+    </button>
+  </section>
 
-  <main class="list" id="list"></main>
-
-  <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
-    <svg class="empty-glyph" width="56" height="28" viewBox="0 0 64 32" fill="none" aria-hidden="true">
-      <rect x="4" y="12" width="3.4" height="8" rx="1.7" fill="currentColor"/>
-      <rect x="13" y="8" width="3.4" height="16" rx="1.7" fill="currentColor"/>
-      <rect x="22" y="3" width="3.4" height="26" rx="1.7" fill="currentColor"/>
-      <rect x="31" y="6" width="3.4" height="20" rx="1.7" fill="currentColor"/>
-      <rect x="40" y="2" width="3.4" height="28" rx="1.7" fill="currentColor"/>
-      <rect x="49" y="10" width="3.4" height="12" rx="1.7" fill="currentColor"/>
-      <rect x="58" y="13" width="3.4" height="6" rx="1.7" fill="currentColor"/>
-    </svg>
-    <span data-i18n="empty.text"></span>
-  </button>
+  <section class="pane" id="pane" aria-live="polite">
+    <header class="pane-head" id="pane-head"></header>
+    <div class="pane-body" id="pane-body"></div>
+  </section>
 
   <footer class="footer">
-    <button class="round-button" id="help" type="button" data-i18n-aria-label="help.title" data-i18n-title="help.title">?</button>
-    <button class="round-button" id="gear" type="button" data-i18n-aria-label="keys.title" data-i18n-title="keys.title">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <button class="foot-button" id="help" type="button" data-i18n-aria-label="help.title" data-i18n-title="help.title">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5.6 5.6a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.2.9-1.2 1.7v.6"/>
+        <circle cx="8" cy="12.6" r=".5" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <button class="foot-button" id="gear" type="button" data-i18n-aria-label="keys.title" data-i18n-title="keys.title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.9 4.6 1.7 1.7 0 0 0 9.93 3.04V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.9c.2.62.78 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.7 0-1.3.4-1.51 1.07Z"/>
       </svg>

@@ -53,6 +53,9 @@
   const empty = $("empty");
   const helpButton = $("help");
   const gear = $("gear");
+  const paneToggle = $("pane-toggle");
+  const paneHead = $("pane-head");
+  const paneBody = $("pane-body");
 
   const keysSheet = $("keys-sheet");
   const keysIntro = $("keys-intro");
@@ -90,6 +93,8 @@
     keyTier: "free",
     newItemKey: "", // toolbar choice for new files; "" = automatic
     openKey: "", // key whose settings panel is expanded
+    pane: false, // transcript pane shown
+    selected: "", // item shown in the pane
   };
 
   const GLYPHS = {
@@ -99,9 +104,6 @@
     folder: `<svg class="glyph" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.2"
       stroke-linejoin="round" aria-hidden="true">
       <path d="M2.5 5.5h6l2 2h9v10h-17z"/></svg>`,
-    reveal: `<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor"
-      stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
-      <path d="M2.5 4.5h4.5l1.5 1.5h7v8.5h-13z"/><path d="M6.5 10.3h5M9.7 8.5l1.8 1.8-1.8 1.8"/></svg>`,
     handle: `<svg width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor"
       stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5h11M1.5 5h11M1.5 8.5h11"/></svg>`,
     chevron: `<svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor"
@@ -200,6 +202,29 @@
     });
   }
 
+  // A drop or "+" with no key at all: the same note, and doing it again
+  // while the note is up opens the key sheet.
+  function explainMissingKey() {
+    if (missingTierNote && missingTierNote.mode === "any" && Date.now() < missingTierNote.until) {
+      missingTierNote = null;
+      hideToast();
+      openKeys("free");
+      return;
+    }
+    const duration = 3200;
+    missingTierNote = { mode: "any", until: Date.now() + duration };
+    showToast(t("error.keyRequired"), {
+      action: t("toast.addKey"),
+      duration,
+      onAction: () => {
+        missingTierNote = null;
+        openKeys("free");
+      },
+    });
+  }
+
+  const hasKeys = () => state.available.free || state.available.paid;
+
   async function setMode(mode) {
     if (mode === state.mode) return;
     const previous = state.mode;
@@ -242,92 +267,160 @@
 
   const pad2 = (n) => String(n).padStart(2, "0");
 
-  // When a finished item finished: "오늘 21:08", "어제 14:02", "11월 2일",
-  // "2025년 11월 2일".
-  function finishedAt(stamp) {
-    const date = new Date(Date.parse(stamp));
-    if (Number.isNaN(date.getTime())) return "";
+  function parseDate(stamp) {
+    const date = new Date(Date.parse(stamp || ""));
+    return Number.isNaN(date.getTime()) || date.getFullYear() < 2000 ? null : date;
+  }
+
+  function startOfToday() {
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-    if (date >= startOfToday) return t("date.today", { time });
-    if (date >= new Date(startOfToday.getTime() - 86400000)) return t("date.yesterday", { time });
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  function dayName(date) {
     const day = t("date.monthDay", { month: date.getMonth() + 1, day: date.getDate() });
-    return date.getFullYear() === now.getFullYear()
+    return date.getFullYear() === new Date().getFullYear()
       ? day
       : t("date.withYear", { year: date.getFullYear(), date: day });
   }
 
+  // When a finished item finished: "오늘 21:08", "어제 14:02", "11월 2일",
+  // "2025년 11월 2일".
+  function finishedAt(stamp) {
+    const date = parseDate(stamp);
+    if (!date) return "";
+    const today = startOfToday();
+    const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    if (date >= today) return t("date.today", { time });
+    if (date >= new Date(today.getTime() - 86400000)) return t("date.yesterday", { time });
+    return dayName(date);
+  }
+
+  // Finished items keep the time they finished; renaming does not move it.
+  // Items from before FinishedAt existed use their last change.
+  function finishStamp(item) {
+    return parseDate(item.FinishedAt) ? item.FinishedAt : item.UpdatedAt || item.CreatedAt;
+  }
+
+  // Day headers group by the day an item was added (the list order).
+  function dayKey(item) {
+    const date = parseDate(item.CreatedAt);
+    return date ? `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}` : "";
+  }
+
+  function dayLabel(item) {
+    const date = parseDate(item.CreatedAt);
+    if (!date) return "";
+    const today = startOfToday();
+    if (date >= today) return t("date.todaySection");
+    if (date >= new Date(today.getTime() - 86400000)) return t("date.yesterdaySection");
+    return dayName(date);
+  }
+
   function minutesSince(stamp) {
-    const then = Date.parse(stamp);
-    if (!Number.isFinite(then)) return 0;
-    return Math.max(0, Math.floor((Date.now() - then) / 60000));
+    const date = parseDate(stamp);
+    if (!date) return 0;
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
   }
 
-  function progressHTML(progress) {
-    if (progress > 0) {
-      const percent = Math.min(100, Math.round(progress * 100));
-      return `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-        aria-valuenow="${percent}"><span class="progress-fill" style="width:${percent}%"></span></div>`;
-    }
-    return `<div class="progress is-indeterminate" role="progressbar"><span class="progress-fill"></span></div>`;
+  // "진행 중 · 4분"; under a minute, the state alone.
+  function withElapsed(text, stamp) {
+    const minutes = minutesSince(stamp);
+    return minutes < 1 ? text : t("row.elapsed", { status: text, minutes });
   }
 
-  // One state line (or a progress bar) under the name, and at most one
-  // visible action on the right.
-  function rowParts(item) {
-    const id = esc(item.ID);
+  // "22분", "1시간 5분", "2시간".
+  function audioLength(seconds) {
+    if (!(seconds > 0)) return "";
+    const total = Math.max(1, Math.round(seconds / 60));
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    if (!hours) return t("duration.minutes", { minutes });
+    return minutes ? t("duration.hoursMinutes", { hours, minutes }) : t("duration.hours", { hours });
+  }
+
+  const won = (amount) => Number(amount).toLocaleString("ko-KR");
+
+  const isPaid = (item) => item.Mode === "batch";
+
+  // The cost shown for an item: what it cost once done (paid requests only),
+  // otherwise the paid estimate. Free items have none; their tier says it.
+  function costText(item) {
+    if (!isPaid(item)) return "";
+    if (item.State === "done" && item.CostKRW != null) return t("cost.won", { amount: won(item.CostKRW) });
+    if (item.EstimateKRW > 0) return t("cost.estimate", { amount: won(item.EstimateKRW) });
+    return "";
+  }
+
+  const isQueued = (item) => item.State === "running" && item.Detail === t("status.queued");
+  const isRetrying = (item) => item.State === "running" && item.Detail === t("status.retrying");
+
+  // Each state as one line: tone (dot colour), text, the moving line under
+  // the row, and at most one action. Free or paid shows in the pane, not
+  // here.
+  function rowState(item) {
     switch (item.State) {
       case "running": {
-        const progress = Number(item.Progress) || 0;
-        const detail = item.Detail || "";
-        const aside = keyTag(item);
-        if (progress <= 0 && detail && detail !== t("status.transcribing")) {
-          return { status: `<div class="status"><span>${esc(detail)}</span></div>`, aside };
+        if (isQueued(item)) return { tone: "quiet", dot: false, text: t("status.queued") };
+        if (isRetrying(item)) {
+          return { tone: "waiting", dot: true, text: item.Detail, line: "waiting" };
         }
-        return { status: progressHTML(progress), aside };
+        const progress = Number(item.Progress) || 0;
+        return {
+          tone: "running",
+          dot: true,
+          text: withElapsed(t("row.running"), item.StartedAt || item.CreatedAt),
+          line: progress > 0 ? "progress" : "moving",
+          progress,
+        };
       }
       case "batch_waiting": {
-        const minutes = minutesSince(item.CreatedAt);
-        const text = minutes < 1 ? t("row.waiting") : t("row.waitingMinutes", { minutes });
-        return { status: `<div class="status"><span>${text}</span></div>`, aside: keyTag(item) };
+        const since = (item.Batch && item.Batch.SubmittedAt) || item.StartedAt || item.CreatedAt;
+        return { tone: "waiting", dot: true, text: withElapsed(t("row.waiting"), since), line: "waiting" };
       }
       case "free_exhausted":
         return {
-          status: `<div class="status"><span>${t("row.freeExhausted")}</span></div>`,
-          aside: state.available.paid
-            ? `<button class="pill-button" type="button" data-action="batch" data-id="${id}">${t("action.continuePaid")}</button>`
-            : "",
+          tone: "alert",
+          dot: true,
+          text: t("row.freeExhausted"),
+          action: ["batch", t("action.continuePaid")],
         };
-      case "done":
+      case "failed":
         return {
-          status: `<div class="status"><span>${finishedAt(item.UpdatedAt || item.CreatedAt)}</span></div>`,
-          aside: `<button class="icon-action" type="button" data-action="reveal" data-id="${id}"
-            title="${REVEAL_LABEL}" aria-label="${REVEAL_LABEL}">${GLYPHS.reveal}</button>`,
+          tone: "failed",
+          dot: true,
+          text: item.Detail ? t("row.failedReason", { reason: item.Detail }) : t("row.failed"),
+          title: item.Detail,
+          action: ["retry", t("action.retry"), true],
         };
-      case "failed": {
-        const text = item.Detail ? t("row.failedReason", { reason: esc(item.Detail) }) : t("row.failed");
-        return {
-          status: `<div class="status"><span title="${esc(item.Detail)}">${text}</span></div>`,
-          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">${t("action.retry")}</button>`,
-        };
-      }
       case "canceled":
-        return {
-          status: `<div class="status"><span>${t("status.canceled")}</span></div>`,
-          aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">${t("action.retry")}</button>`,
-        };
+        return { tone: "quiet", dot: false, text: t("status.canceled"), action: ["retry", t("action.retry")] };
+      case "done":
+        return { tone: "", dot: false, text: finishedAt(finishStamp(item)) };
       default:
-        return {
-          status: `<div class="status"><span>${esc(item.Detail || t("status.queued"))}</span></div>`,
-          aside: keyTag(item),
-        };
+        return { tone: "quiet", dot: false, text: item.Detail || t("status.queued") };
     }
   }
 
-  // Rows pinned to one key say which, quietly. Automatic rows say nothing.
-  function keyTag(item) {
-    return item.KeyLabel ? `<span class="key-tag">${esc(item.KeyLabel)}</span>` : "";
+  function lineHTML(s) {
+    if (s.line === "progress") {
+      const percent = Math.min(100, Math.round(s.progress * 100));
+      return `<div class="row-line" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+        aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>`;
+    }
+    if (s.line === "moving") return `<div class="row-line is-moving" role="progressbar"><span></span></div>`;
+    if (s.line === "waiting") return `<div class="row-line is-moving is-waiting" role="progressbar"><span></span></div>`;
+    return "";
+  }
+
+  function rowActionHTML(item, s) {
+    if (!s.action) return "";
+    const [action, label, danger] = s.action;
+    // "유료로 이어서" needs a paid key; without one the context menu and the
+    // pane still offer key settings.
+    if (action === "batch" && !state.available.paid) return "";
+    return `<button class="row-action${danger ? " is-danger" : ""}" type="button"
+      data-action="${action}" data-id="${esc(item.ID)}">${esc(label)}</button>`;
   }
 
   function isActive(item) {
@@ -336,7 +429,7 @@
 
   function rowHTML(item) {
     const id = esc(item.ID);
-    const parts = rowParts(item);
+    const s = rowState(item);
     const first = isActive(item)
       ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">${t("action.cancel")}</button>`
       : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">${t("action.rename")}</button>`;
@@ -349,15 +442,18 @@
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
         <div class="row-body">
           <div class="name" title="${esc(item.Source || item.Name)}">${esc(displayName(item))}</div>
-          ${parts.status}
+          <div class="status${s.tone ? ` tone-${s.tone}` : ""}">${s.dot ? `<i class="dot"></i>` : ""}<span
+            ${s.title ? `title="${esc(s.title)}"` : ""}>${esc(s.text)}</span></div>
         </div>
-        ${parts.aside ? `<div class="row-aside">${parts.aside}</div>` : ""}
+        ${rowActionHTML(item, s)}
+        ${lineHTML(s)}
       </div>`;
   }
 
   // Rows are kept and patched in place so an open swipe, a rename field or a
   // running animation survives the frequent "items:changed" refreshes.
   const rowCache = new Map(); // id -> { el, html }
+  const sectionCache = new Map(); // day key -> header element
   const hidden = new Set(); // ids removed from view while undo is possible
   let renaming = null; // { id, input }
 
@@ -365,8 +461,8 @@
     return state.items.filter((item) => !hidden.has(item.ID));
   }
 
-  // The top bar gets a hairline only while the list is scrolled; the footer
-  // gets one only while more rows are hidden below.
+  // The search field gets a hairline only while the list is scrolled; the
+  // footer gets one only while more rows are hidden below.
   function syncScrolled() {
     appEl.classList.toggle("is-scrolled", list.scrollTop > 0);
     appEl.classList.toggle(
@@ -379,19 +475,46 @@
     const items = visibleItems();
     const isEmpty = items.length === 0 && !state.query;
     appEl.classList.toggle("is-empty", isEmpty);
+    ensureSelection(items);
 
     if (items.length === 0) {
       rowCache.clear();
+      sectionCache.clear();
       list.innerHTML = state.query ? `<p class="list-note">${t("list.noResults")}</p>` : "";
       syncScrolled();
+      renderPane();
       return;
     }
     const note = list.querySelector(".list-note");
     if (note) note.remove();
 
+    const multiDay = new Set(items.map(dayKey)).size > 1;
     const keep = new Set();
+    const keepSections = new Set();
     let previous = null;
+    let lastDay = null;
+    const place = (el) => {
+      const next = previous ? previous.nextSibling : list.firstChild;
+      if (next !== el) list.insertBefore(el, next);
+      previous = el;
+    };
     for (const item of items) {
+      if (multiDay) {
+        const day = dayKey(item);
+        if (day !== lastDay) {
+          lastDay = day;
+          let header = sectionCache.get(day);
+          if (!header) {
+            header = document.createElement("div");
+            header.className = "list-section";
+            sectionCache.set(day, header);
+          }
+          const label = dayLabel(item);
+          if (header.textContent !== label) header.textContent = label;
+          keepSections.add(day);
+          place(header);
+        }
+      }
       keep.add(item.ID);
       const html = rowHTML(item);
       let entry = rowCache.get(item.ID);
@@ -407,13 +530,11 @@
       if (entry.html !== html && !isRenaming) {
         entry.html = html;
         el.innerHTML = html;
-        el.classList.toggle("is-done", item.State === "done");
         const offset = swipe.offsets.get(item.ID);
         if (offset) setOffset(el, offset, false);
       }
-      const next = previous ? previous.nextSibling : list.firstChild;
-      if (next !== el) list.insertBefore(el, next);
-      previous = el;
+      el.classList.toggle("is-selected", item.ID === state.selected);
+      place(el);
     }
     for (const [id, entry] of rowCache) {
       if (!keep.has(id)) {
@@ -422,7 +543,14 @@
         swipe.offsets.delete(id);
       }
     }
+    for (const [day, header] of sectionCache) {
+      if (!keepSections.has(day)) {
+        header.remove();
+        sectionCache.delete(day);
+      }
+    }
     syncScrolled();
+    renderPane();
   }
 
   function itemByID(id) {
@@ -444,6 +572,149 @@
       await loadItems();
     } catch (error) {
       showToast(errorText(error));
+    }
+  }
+
+  // ── Selection and the transcript pane ─────────────────────
+  //
+  // The pane shows the selected item: its transcript when done, otherwise
+  // its state. With the pane open something is always selected while the
+  // list has rows (the first row by default), like a mail list.
+
+  function ensureSelection(items) {
+    if (state.selected && items.some((item) => item.ID === state.selected)) return;
+    state.selected = state.pane && items.length ? items[0].ID : "";
+  }
+
+  function select(id) {
+    if (state.selected === id) return;
+    state.selected = id;
+    for (const [rowID, entry] of rowCache) entry.el.classList.toggle("is-selected", rowID === id);
+    renderPane();
+  }
+
+  function setPane(open, save = true) {
+    state.pane = open;
+    appEl.classList.toggle("has-pane", open);
+    paneToggle.setAttribute("aria-pressed", String(open));
+    renderItems();
+    if (save) call("SetPane", open).catch((error) => showToast(errorText(error)));
+  }
+
+  let paneHeadHTML = "";
+  let paneBodyKey = ""; // what the body shows: "text:<id>|<output>", "state:<html>" or "empty"
+
+  function paneMeta(item) {
+    const parts = [];
+    if (item.State === "done") parts.push(finishedAt(finishStamp(item)));
+    parts.push(audioLength(item.AudioSec));
+    parts.push(isPaid(item) ? t("tier.paid") : t("tier.free"));
+    if (item.KeyLabel) parts.push(item.KeyLabel);
+    parts.push(costText(item));
+    return parts.filter(Boolean).map(esc).join(" · ");
+  }
+
+  function paneActionsHTML(item) {
+    const id = esc(item.ID);
+    const button = (action, label, cls) =>
+      `<button class="${cls}" type="button" data-action="${action}" data-id="${id}">${esc(label)}</button>`;
+    switch (item.State) {
+      case "done":
+        return button("copy", t("menu.copy"), "primary-button") + button("reveal", REVEAL_LABEL, "plain-button");
+      case "running":
+      case "batch_waiting":
+        return button("cancel", t("action.cancel"), "plain-button");
+      case "free_exhausted":
+        return button("batch", t("action.continuePaid"), "plain-button is-accent");
+      case "failed":
+      case "canceled":
+        return button("retry", t("action.retry"), "plain-button is-accent");
+      default:
+        return "";
+    }
+  }
+
+  // A non-finished item: its state line, then what else is known.
+  function paneStateHTML(item) {
+    const s = rowState(item);
+    const notes = [];
+    switch (item.State) {
+      case "running":
+        if (!isQueued(item) && !isRetrying(item) && item.Detail) notes.push(item.Detail);
+        if (item.Progress > 0) notes.push(t("pane.progress", { percent: Math.round(item.Progress * 100) }));
+        break;
+      case "batch_waiting":
+        notes.push(t("pane.waitingNote"));
+        break;
+      case "free_exhausted":
+        if (item.Detail) notes.push(item.Detail);
+        notes.push(t("pane.exhaustedNote"));
+        break;
+      default:
+        break;
+    }
+    return `<p class="pane-state${s.tone ? ` tone-${s.tone}` : ""}">${s.dot ? `<i class="dot"></i>` : ""}<span>${esc(s.text)}</span></p>`
+      + notes.map((note) => `<p class="pane-note">${esc(note)}</p>`).join("");
+  }
+
+  // Paragraphs split on blank lines; single line breaks stay (pre-wrap).
+  function transcriptHTML(out) {
+    const paragraphs = String(out.Text || "")
+      .replace(/\r\n?/g, "\n")
+      .split(/\n[ \t]*\n+/)
+      .map((p) => p.replace(/^\n+|\s+$/g, ""))
+      .filter(Boolean);
+    if (!paragraphs.length) return `<p class="pane-note">${t("pane.emptyText")}</p>`;
+    const note = out.Truncated ? `<p class="pane-note">${t("pane.truncated")}</p>` : "";
+    return `<div class="pane-text">${paragraphs.map((p) => `<p>${esc(p)}</p>`).join("")}</div>${note}`;
+  }
+
+  async function loadTranscript(item, key) {
+    paneBody.innerHTML = "";
+    try {
+      const out = await call("ReadOutput", item.ID);
+      if (paneBodyKey !== key) return; // selection moved on
+      paneBody.innerHTML = transcriptHTML(out || {});
+    } catch (error) {
+      if (paneBodyKey !== key) return;
+      paneBody.innerHTML = `<p class="pane-note">${esc(errorText(error))}</p>`;
+    }
+    paneBody.scrollTop = 0;
+  }
+
+  function renderPane() {
+    if (!state.pane) return;
+    const item = state.selected ? itemByID(state.selected) : null;
+    const head = item ? `
+      <h1 class="pane-title" title="${esc(item.Source || item.Name)}">${esc(displayName(item))}</h1>
+      <p class="pane-meta">${paneMeta(item)}</p>
+      <div class="pane-actions">${paneActionsHTML(item)}</div>` : "";
+    if (head !== paneHeadHTML) {
+      paneHeadHTML = head;
+      paneHead.innerHTML = head;
+    }
+    if (!item) {
+      if (paneBodyKey !== "empty") {
+        paneBodyKey = "empty";
+        paneBody.innerHTML = state.items.length || state.query
+          ? `<p class="pane-empty">${t("pane.empty")}</p>`
+          : "";
+      }
+      return;
+    }
+    if (item.State === "done") {
+      const key = `text:${item.ID}|${item.Output}`;
+      if (paneBodyKey !== key) {
+        paneBodyKey = key;
+        loadTranscript(item, key);
+      }
+      return;
+    }
+    const html = paneStateHTML(item);
+    const key = `state:${item.ID}|${html}`;
+    if (paneBodyKey !== key) {
+      paneBodyKey = key;
+      paneBody.innerHTML = html;
     }
   }
 
@@ -1245,6 +1516,10 @@
   // ── Events ────────────────────────────────────────────────
 
   function pickFiles() {
+    if (!hasKeys()) {
+      explainMissingKey();
+      return;
+    }
     call("PickFiles").catch((error) => showToast(errorText(error)));
   }
 
@@ -1330,9 +1605,22 @@
         closeOtherRows(null);
         return;
       }
-      const item = itemByID(id);
-      if (item && item.State === "done") runAction("open", id);
+      select(id);
     });
+
+    // Double-click opens a finished transcript in its default app.
+    list.addEventListener("dblclick", (event) => {
+      const rowEl = event.target.closest(".row");
+      if (!rowEl || event.target.closest("button, input")) return;
+      const item = itemByID(rowEl.dataset.id);
+      if (item && item.State === "done") runAction("open", item.ID);
+    });
+
+    paneHead.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (button) runAction(button.dataset.action, button.dataset.id);
+    });
+    paneToggle.addEventListener("click", () => setPane(!state.pane));
 
     list.addEventListener("contextmenu", (event) => {
       const rowEl = event.target.closest(".row");
@@ -1408,6 +1696,8 @@
 
     trackHover(keyList, ".key-row");
     trackHover(list, ".row");
+    // Buttons outside the list get the same JS hover (see trackHover).
+    trackHover(document.body, ".tool-button, .foot-button, .picker-button, .row-action, .plain-button, .text-button, .empty");
 
     keyList.addEventListener("click", (event) => {
       const del = event.target.closest("[data-key-delete]");
@@ -1477,6 +1767,13 @@
   async function init() {
     bindEvents();
 
+    // The window opened at the width for this choice (cmd/nalmeok).
+    try {
+      setPane(Boolean(await call("PaneOpen")), false);
+    } catch (_) {
+      setPane(false, false);
+    }
+
     try {
       await loadKeys();
     } catch (error) {
@@ -1503,11 +1800,17 @@
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);
       window.runtime.EventsOn("keys:changed", reloadKeys);
+      // A drop the backend could not take, e.g. before any key exists.
+      window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
+        if (noKeys) explainMissingKey();
+        else showToast(errorText(message));
+      });
     }
 
-    // Keep "기다리는 중 · N분째" current without a backend round trip.
+    // Keep "진행 중 · N분" and "기다리는 중 · N분" current without a backend
+    // round trip.
     setInterval(() => {
-      if (state.items.some((item) => item.State === "batch_waiting")) renderItems();
+      if (state.items.some(isActive)) renderItems();
     }, 30000);
   }
 

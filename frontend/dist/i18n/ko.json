@@ -29,10 +29,19 @@
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...",
   "cli.waiting": "{name}: 기다리는 중 · {minutes}분",
 
+  "cost.estimate": "약 {amount}원",
+  "cost.won": "{amount}원",
+
   "date.monthDay": "{month}월 {day}일",
   "date.today": "오늘 {time}",
+  "date.todaySection": "오늘",
   "date.withYear": "{year}년 {date}",
   "date.yesterday": "어제 {time}",
+  "date.yesterdaySection": "어제",
+
+  "duration.hours": "{hours}시간",
+  "duration.hoursMinutes": "{hours}시간 {minutes}분",
+  "duration.minutes": "{minutes}분",
 
   "dialog.audioFiles": "오디오 파일",
   "dialog.pickTitle": "음성 파일 선택",
@@ -177,6 +186,14 @@
 
   "output.nameFailed": "이름을 정하지 못했어요: {name}",
 
+  "pane.empty": "선택한 항목 없음",
+  "pane.emptyText": "전사본이 비어 있어요",
+  "pane.exhaustedNote": "남은 부분은 유료로 이어서 처리할 수 있어요",
+  "pane.progress": "{percent}% 완료",
+  "pane.toggle": "전사본 보기",
+  "pane.truncated": "파일이 커서 앞부분만 보여요",
+  "pane.waitingNote": "결과까지 보통 10분~1시간 · 앱을 닫아도 계속 진행",
+
   "picker.auto": "자동",
   "picker.autoByPriority": "자동 (우선순위대로)",
   "picker.title": "새 파일에 쓸 키",
@@ -184,8 +201,9 @@
   "row.failed": "실패",
   "row.failedReason": "실패 · {reason}",
   "row.freeExhausted": "오늘 무료 사용량을 다 썼어요",
+  "row.elapsed": "{status} · {minutes}분",
+  "row.running": "진행 중",
   "row.waiting": "기다리는 중",
-  "row.waitingMinutes": "기다리는 중 · {minutes}분째",
 
   "search.placeholder": "검색",
 
