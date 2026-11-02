@@ -116,16 +116,46 @@
   // ── Mode ──────────────────────────────────────────────────
 
   // Which tiers have keys, and the mode in effect, come from the backend so
-  // the GUI and CLI agree. A tier without keys is disabled, not hidden.
+  // the GUI and CLI agree. A tier without keys looks dimmed but stays
+  // clickable, so a click can explain why instead of doing nothing.
   function renderMode() {
     const { free, paid } = state.available;
     modeToggle.hidden = !free && !paid;
     for (const button of modeToggle.querySelectorAll("button")) {
       const selected = button.dataset.mode === state.mode;
       button.setAttribute("aria-selected", String(selected));
-      button.disabled = button.dataset.mode === "batch" ? !paid : !free;
+      const missing = button.dataset.mode === "batch" ? !paid : !free;
+      button.setAttribute("aria-disabled", String(missing));
     }
     renderPicker();
+  }
+
+  // First click on a tier without keys: nudge the control and say why, with
+  // a way to add one. Clicking it again while that note is up opens the key
+  // sheet on that tier.
+  let missingTierNote = null; // { mode, until }
+
+  function explainMissingTier(mode) {
+    const tier = mode === "batch" ? "paid" : "free";
+    if (missingTierNote && missingTierNote.mode === mode && Date.now() < missingTierNote.until) {
+      missingTierNote = null;
+      hideToast();
+      openKeys(tier);
+      return;
+    }
+    modeToggle.classList.remove("is-nudging");
+    void modeToggle.offsetWidth; // restart the animation
+    modeToggle.classList.add("is-nudging");
+    const duration = 3200;
+    missingTierNote = { mode, until: Date.now() + duration };
+    showToast(tier === "paid" ? "유료 키가 없어요" : "무료 키가 없어요", {
+      action: "키 추가",
+      duration,
+      onAction: () => {
+        missingTierNote = null;
+        openKeys(tier);
+      },
+    });
   }
 
   async function setMode(mode) {
@@ -838,6 +868,8 @@
 
     keyList.innerHTML = keys.map(keyHTML).join("");
     keyCaption.hidden = keys.length < 2;
+    // Handles only make sense when there is something to reorder.
+    keyList.classList.toggle("no-order", keys.filter((key) => key.Source !== "env").length < 2);
     keysIntro.hidden = state.keys.length > 0;
     for (const button of keyTier.querySelectorAll("button")) {
       button.setAttribute("aria-selected", String(button.dataset.tier === state.keyTier));
@@ -1017,7 +1049,9 @@
 
     const center = top + height / 2;
     const others = items.filter((item) => item !== drag.el);
-    const target = others.find((item) => center < item.offsetTop + item.offsetHeight / 2) || null;
+    // <= so the clamped top position (center exactly on the first row's
+    // center) still lands in first place.
+    const target = others.find((item) => center <= item.offsetTop + item.offsetHeight / 2) || null;
     const next = target || (others.length ? others[others.length - 1].nextSibling : null);
     if (drag.el.nextSibling !== next && drag.el !== next) {
       const tops = new Map(others.map((item) => [item, item.offsetTop]));
@@ -1187,7 +1221,12 @@
 
     modeToggle.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-mode]");
-      if (button) setMode(button.dataset.mode);
+      if (!button) return;
+      if (button.getAttribute("aria-disabled") === "true") {
+        explainMissingTier(button.dataset.mode);
+        return;
+      }
+      setMode(button.dataset.mode);
     });
     keyPicker.addEventListener("click", openPickerMenu);
 

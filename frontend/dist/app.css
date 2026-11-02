@@ -200,6 +200,23 @@ button {
   transition: background-color 0.12s ease;
 }
 
+.segmented button[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.segmented.is-nudging {
+  animation: nudge 0.32s ease;
+}
+
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
 .segmented button[aria-selected="true"] {
   background: var(--control);
   box-shadow: var(--control-shadow);
@@ -790,6 +807,11 @@ button {
 .key-row:focus-visible {
   outline-offset: -2px;
   border-radius: 6px;
+}
+
+.key-list.no-order .key-handle,
+.key-list.no-order .key-handle-spacer {
+  display: none;
 }
 
 .key-handle,
