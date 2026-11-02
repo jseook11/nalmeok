@@ -33,10 +33,12 @@ go build -tags desktop,production -ldflags "$LDFLAGS" -o "$BIN" ./cmd/nalmeok
 # Wails' macOS backend uses cgo, so cross-building needs clang's -arch both for
 # compiling and linking. Each slice is built on its own and joined with lipo.
 for arch in arm64 amd64; do
+	carch=$arch
+	[ "$arch" = amd64 ] && carch=x86_64   # clang names it x86_64
 	env CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
-		CC="clang -arch $arch" \
-		CGO_CFLAGS="-arch $arch" \
-		CGO_LDFLAGS="-arch $arch" \
+		CC="clang -arch $carch" \
+		CGO_CFLAGS="-arch $carch" \
+		CGO_LDFLAGS="-arch $carch" \
 		go build -tags desktop,production -ldflags "$LDFLAGS" \
 		-o "build/nalmeok-$arch" ./cmd/nalmeok
 done
