@@ -7,6 +7,9 @@ import (
 	"github.com/jseook11/nalmeok/frontend"
 	"github.com/jseook11/nalmeok/internal/app"
 	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/gemini"
+	"github.com/jseook11/nalmeok/internal/plan"
+	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -28,7 +31,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	application := app.New(cfg, history, app.NewStubRunner(history))
+	workDir, err := config.WorkDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	logPath, err := config.LogPath()
+	if err != nil {
+		log.Fatal(err)
+	}
+	engine := runner.New(runner.Options{
+		Store:          history,
+		Media:          runner.DefaultMedia{},
+		NewClient:      gemini.New,
+		WorkDir:        workDir,
+		LogPath:        logPath,
+		UnitMaxSeconds: plan.UnitMaxSeconds,
+	})
+
+	application := app.New(cfg, history, engine)
+	application.ValidateKey = gemini.ValidateKey
 
 	assets, err := fs.Sub(frontend.Assets, "dist")
 	if err != nil {

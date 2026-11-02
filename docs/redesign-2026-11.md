@@ -88,7 +88,7 @@ Wails CLI 없이 `go build -tags desktop,production`으로 빌드한다. 의존 
 
 ### 5-2. 데이터
 
-- **경로**: 설정 폴더는 Python과 같다. `$XDG_CONFIG_HOME/nalmeok`, Windows는 `%APPDATA%\nalmeok`, 그 밖에는 `~/.config/nalmeok`. 여기에 `config.json`(기존), `items.json`(새로), `work/<item-id>/`(임시 조각, 완료 시 삭제), `nalmeok.log`.
+- **경로**: 설정 폴더는 Python과 같다. `$XDG_CONFIG_HOME/nalmeok`, Windows는 `%APPDATA%\nalmeok`, 그 밖에는 `~/.config/nalmeok`. 여기에 `config.json`(기존), `items.json`(새로), `work/<item-id>/`(임시 조각과 참고 PDF 사본 `reference.pdf`, 완료 시 삭제), `nalmeok.log`.
 - **config.json**: 기존 형식 `{"keys":[{"id","label","tier":"free|paid","api_key","limit_minutes"}], "recent":[...]}`. Go 앱은 `keys`만 쓰고 모르는 필드는 보존한다. 새 설정은 `"gui":{"mode":"free|batch"}`에 둔다. 파일 권한 0600.
 - **items.json**: `{"items":[Item...]}`. 쓰기는 임시 파일 → rename.
 
@@ -124,7 +124,7 @@ type Upload struct { URI, MIME string; UploadedAt time.Time }
 
 ### 5-3. 전사 규칙 (Python 구현을 기준으로 옮긴다)
 
-- 모델 `gemini-3.8-flash`, `thinking_level=low`. 프롬프트는 `nalmeok/constants.py`의 `PROMPT`와 `LIVE_PROMPT`를 글자 그대로 옮긴다.
+- 모델 `gemini-3.8-flash`, `thinking_level=low`. 프롬프트는 `nalmeok/constants.py`의 `PROMPT`와 `LIVE_PROMPT`를 글자 그대로 옮긴다(`internal/gemini/prompt.go`, 테스트가 일치를 검사한다). 요청에 오디오 파트가 둘 이상이면 `LIVE_PROMPT`, 하나면 `PROMPT`를 쓴다.
 - 요청 하나의 구성: 프롬프트 텍스트 + (PDF가 있으면 PDF 파일 파트) + 오디오 파일 파트들(시간 순서).
 - **조각 계획**: 오디오를 순서대로 요청당 최대 **130분**으로 묶는다. 한 파일이 130분을 넘으면 130분 단위로 자른다. 오디오 토큰은 초당 32로 계산한다(무료 TPM 250k 기준). 이 규칙은 `plan` 패키지의 순수 함수로 두고 테스트한다.
 - **오디오 준비**: m4a/mp4는 AAC 프레임을 꺼내 **ADTS(.aac, `audio/aac`)** 로 저장한다(재인코딩 없음). 분할은 ADTS 프레임 경계에서 한다. mp3는 `audio/mp3`로 그대로 올리고 분할은 프레임 경계, wav는 `audio/wav`로 그대로 올리고 분할은 샘플 경계에서 한다.
@@ -132,6 +132,9 @@ type Upload struct { URI, MIME string; UploadedAt time.Time }
 - **무료 live**: 무료 키를 순서대로 쓴다. 429를 받으면 다음 키로 넘긴다. 요청 시작 간격은 최소 12초(키별). 일시 오류(5xx, 네트워크)는 지수 백오프로 3회 재시도한다. 모든 무료 키가 429면 `free_exhausted`.
 - **유료 Batch**: 유료 키로 미완 조각마다 요청 하나를 만든다. 요청 키(`key`)는 `unit-<index>`다. JSONL 파일을 올리거나 inline 요청으로 Batch를 만든다. 성공하면 결과를 키로 맞춰 `Unit.Text`에 넣고, 실패한 요청이 있으면 `failed`로 두고 "다시 시도"에서 그 조각만 다시 보낸다.
 - 결과 텍스트가 비어 있거나 `MAX_TOKENS`로 끊기면 그 조각을 실패로 본다.
+- 무료 키 요청 간격은 키별 최소 12초이고, 조각이 길면 TPM 250k에 맞춰 늘린다(130분 조각이면 60초). Python `live_gap_seconds`와 같다.
+- 완료(`done`)되면 `.md`가 기록이므로 `Units`와 `Batch`를 비워 `items.json`을 작게 유지한다.
+- 키 추가 시 확인(`models.get`)은 키가 거부될 때(401·403·`API_KEY_INVALID`)만 저장을 막는다. 네트워크 오류면 그대로 저장한다(Python `check_key`와 같다).
 
 ### 5-4. 프런트와 백엔드 계약 (Wails 바인딩)
 
