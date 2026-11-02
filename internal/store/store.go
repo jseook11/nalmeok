@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// FormatVersion is written to items.json as "version". Files without it are
+// version 1; new fields with empty defaults do not need a bump.
+const FormatVersion = 1
+
 // ErrNotFound is returned when an item ID does not exist.
 var ErrNotFound = errors.New("항목이 없어요")
 
@@ -240,8 +244,9 @@ func (s *Store) saveLocked() error {
 		items = []Item{}
 	}
 	data, err := json.MarshalIndent(struct {
-		Items []Item `json:"items"`
-	}{Items: items}, "", "  ")
+		Version int    `json:"version"`
+		Items   []Item `json:"items"`
+	}{Version: FormatVersion, Items: items}, "", "  ")
 	if err != nil {
 		return err
 	}
