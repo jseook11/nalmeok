@@ -7,73 +7,102 @@
 | 문서 | 소유하는 내용 |
 |---|---|
 | `README.md` | 설치, 처음 사용, 다운로드 |
-| `docs/usage.md` | 대시보드, CLI, 무료 live, 비용, API 키 발급, FAQ |
-| `docs/drop-target.md` | 드래그앤드롭 입력 정규화·작업 폴더·결과 복사 결정 |
-| `docs/windows-support.md` | Windows 지원 범위, 배포물 구조, 런처 계약, CI |
-| `docs/macos-app.md` | 앱 번들, 부트스트랩, DMG, 업데이트, 서명(선택) |
+| `docs/usage.md` | 화면 사용법, 비용, API 키 발급, FAQ |
+| `old/` | 기존 Python 앱과 그 문서 (보존용) |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
-## 프로젝트 구조
+## Go 앱 (재설계, 진행 중)
+
+[`redesign-2026-11.md`](redesign-2026-11.md)에 따라 Go + Wails로 다시 만들고 있다. 기존 Python 앱은 `old/`에 보존한다.
 
 ```text
-app.py                     # 실행 진입점 (./app.py)
-nalmeok/                   # 앱 패키지
-  constants.py             # 버전·상수·공통 설정값
-  runtime.py               # 로깅, 경로·설정 파일, 잠금, 원자적 쓰기
-  keys.py                  # API 키 레지스트리
-  update.py                # venv/SDK, manifest, 앱 패키지 업데이트, ffmpeg 설치
-  term.py                  # 터미널 입력·렌더링·메뉴 (프롬프트 포함)
-  media.py                 # ffmpeg/변환, 길이·비용 추정, 사용량·상태 표시
-  engine.py                # Batch·live·혼합 파이프라인, 감시 프로세스
-  screens.py               # 대시보드·폴더·세션 화면
-  cli.py                   # 인자 파싱, 진입점
-tests/test_nalmeok.py      # 순수 로직·상태 전이 테스트
-tests/test_free_key_rotation.py  # 무료 키 429 순환 테스트
-scripts/                   # 배포 빌드
-  build_windows.py  build_macos.py  verify-windows.cmd
-  installer.cmd  install.ps1  shortcuts.ps1  messages.ps1
-  nalmeok.cmd  nalmeok-drop.cmd  bootstrap.ps1  bootstrap.env
-macos/                     # Swift 런처, Info.plist, run.command, bootstrap.command
-docs/                      # 플랫폼·사용·개발 문서
-pyproject.toml             # 패키지 정의와 nalmeok 콘솔 스크립트
+cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
+internal/config     설정 폴더, config.json(키·gui.mode)
+internal/store      items.json(처리 목록), 검색
+internal/media      입력 스캔, MP4 AAC→M4A 리먹스·분할, MP3·WAV 분할 (표준 라이브러리만)
+internal/plan       조각 계획(130분), 예상 비용
+internal/gemini     genai SDK 래퍼: 업로드, live, Batch
+internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
+internal/output     결과 병합, .md 쓰기
+internal/app        Wails 바인딩
+internal/notify     완료 알림: macOS 앱 번들은 UNUserNotificationCenter, 번들 밖은 osascript, Windows는 토스트
+internal/i18n       문구 카탈로그 읽기: T(키), Error(키)
+frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
+frontend/dist/i18n  문구 카탈로그 (ko.json)
 ```
 
-기존 모듈 사이의 호출은 `import nalmeok as app` 후 `app.<name>`으로 합니다. 상수도 `app.<NAME>`으로 씁니다. `nalmeok/__init__.py`의 `_export`가 각 모듈이 정의한 이름을 `app`에 자동으로 올리므로, 함수를 추가해도 따로 등록할 필요가 없습니다. 테스트의 `mock.patch.object(app, ...)`는 이 공용 이름을 바꿉니다.
-
-구조 정리(`docs/review-2026-11.md` §4)에서 새로 떼어 내는 모듈은 일반 import를 쓰고, 테스트는 그 모듈 경로를 패치합니다.
-
-## 정적 검사
+### 빌드
 
 ```bash
-uv run ruff check .
+go test ./...
+go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
+scripts/build_mac_app.sh      # build/Nalmeok.app (arm64·amd64 범용, 아이콘 포함, 서명 정보 없으면 ad-hoc 서명)
+scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.exe
 ```
 
-규칙은 `pyproject.toml`의 `[tool.ruff.lint]`에 고정했고, macOS CI가 같은 버전으로 검사합니다.
+`build/nalmeok`은 개발용 네이티브 바이너리다. `.app`에는 들어가지 않는다. `scripts/build_mac_app.sh`는 arm64와 amd64를 따로 빌드해 `lipo -create`로 하나로 합친다. Wails의 macOS 백엔드가 cgo를 쓰므로 각 조각을 `CC="clang -arch ..."`와 `CGO_CFLAGS`·`CGO_LDFLAGS="-arch ..."`로 빌드한다. 확인은 `lipo -archs build/Nalmeok.app/Contents/MacOS/nalmeok`(→ `x86_64 arm64`).
 
-## 테스트
+아이콘 원본은 꽉 찬 정사각형 그림 `assets/nalmeok-art.png`(1024px, 모서리 없음)다. 여기서 두 단계로 만든다. 결과물은 모두 커밋해 두고, 그림이 바뀔 때만 다시 만든다.
 
-표준 라이브러리 `unittest`만 씁니다. SDK나 API 키 없이 실행됩니다.
+1. `uv run --no-project --with pillow python -I scripts/make_icon_master.py assets/nalmeok-art.png assets/nalmeok.png assets/nalmeok.ico` — macOS 격자(1024 안에 824 몸체, 둥근 모서리, 옅은 밝은 테두리, 그림자)로 자른 `assets/nalmeok.png`와 Windows용 여러 크기 `assets/nalmeok.ico`.
+2. `scripts/make_icns.sh` — `assets/nalmeok.png`에서 `assets/nalmeok.icns`(sips로 크기별 PNG, iconutil로 묶음).
+
+빌드 스크립트는 이 파일을 `Contents/Resources`에 복사하고 `CFBundleIconFile`로 가리킨다.
+
+Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 Windows 백엔드는 순수 Go라 cgo가 필요 없다. exe의 아이콘과 애플리케이션 매니페스트는 `cmd/nalmeok/rsrc_windows_amd64.syso`·`rsrc_windows_arm64.syso`에 들어 있다. `GOOS=windows`로 빌드하면 Go 링커가 이 파일을 알아서 넣고, 다른 OS 빌드는 무시한다. `assets/nalmeok.ico`나 `scripts/winres/nalmeok.exe.manifest`를 바꾸면 저장소 루트에서 `go run ./scripts/winres`로 다시 만들어 커밋한다. 표준 라이브러리만 쓰는 작은 생성기라 따로 설치할 도구는 없다. 아이콘 그룹 ID는 3이다. Wails가 창 아이콘을 이 번호로 읽는다. 매니페스트는 asInvoker, Common Controls v6, PerMonitorV2 DPI, Windows 10·11, UTF-8 코드 페이지를 지정한다. `go test ./scripts/winres`는 커밋된 `.syso`가 지금 아이콘·매니페스트와 다르면 실패한다.
+
+서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 없으면 임시 서명(ad-hoc)한 `.app`만 만든다.
+
+### 플랫폼별 동작
+
+- 완료 알림(`internal/notify`): 실행기는 `Options.Notify`로 알림 함수를 받는다(테스트는 가짜를 넣고, 기본은 알리지 않음). macOS는 `.app` 안에서 실행될 때만 `UNUserNotificationCenter`를 쓴다. 번들 식별자가 없으면 이 API가 예외를 던지므로 `build/nalmeok`·CLI는 osascript로 보낸다(스크립트 편집기 이름으로 뜸). 첫 알림 때 권한을 묻고, 시스템이 거부 오류를 주면 osascript로 대신한다. 알림을 누르면 앱을 활성화하고 창을 앞으로(두 번째 실행과 같은 `showWindow`). 해당 행 강조는 하지 않는다. 확인은 Finder나 `open build/Nalmeok.app`으로 연 앱에서 한다(터미널에서 실행 파일을 바로 띄우면 거부될 수 있다).
+- Windows 알림: PowerShell의 WinRT 연결로 토스트를 띄운다. 스크립트는 `-EncodedCommand`, 프로세스는 `CREATE_NO_WINDOW`. 앱 ID `kr.nalmeok.app`을 `HKCU\Software\Classes\AppUserModelId`에 이름·아이콘(`%LOCALAPPDATA%\Nalmeok\notify-icon.png`, `assets/nalmeok.ico`의 256px)과 함께 등록한다. 누르면 아무 일도 없다.
+- Windows 폴더 열기·파일 열기: `explorer.exe /select,"<경로>"`·`explorer.exe "<경로>"`를 `SysProcAttr.CmdLine`으로 그대로 넘긴다. explorer는 성공해도 종료 코드 1이라 시작만 확인한다.
+- Windows CLI 출력: exe가 `-H windowsgui`라 콘솔이 없다. 인자가 있으면 `AttachConsole(ATTACH_PARENT_PROCESS)`로 부모 콘솔에 붙어 출력한다. cmd·PowerShell은 GUI 프로그램을 기다리지 않으므로 출력이 프롬프트 뒤에 찍히고 종료 코드도 바로 안 나온다. 기다리려면 `start /wait Nalmeok.exe doctor`(cmd) 또는 `Start-Process -Wait -NoNewWindow .\Nalmeok.exe doctor`(PowerShell).
+- `scripts/build_mac_app.sh`는 서명 정보가 없으면 `.app`을 임시 서명(ad-hoc)한다. Info.plist와 번들 식별자를 묶어 알림이 앱 이름으로 붙게 한다.
+
+### CLI: 테스트·AI 에이전트용
+
+CLI는 **사용자용 기능이 아니다.** 실제 API 회귀 테스트, AI 에이전트의 자동화, 문제 보고(`doctor`)에만 쓴다. README와 `usage.md`에는 싣지 않는다. 전사 로직은 GUI와 같은 실행기·저장소를 쓴다.
 
 ```bash
-uv run python -m unittest discover -s tests -v
-# 또는
-python -m unittest discover -s tests -v
+build/nalmeok [--free|--batch] <파일 또는 폴더>...   # 끝날 때까지 상태를 한 줄씩 출력. 모두 완료면 0, 아니면 1
+build/nalmeok doctor                                  # 버전·OS·설정 폴더·등급별 키 개수 (키 값은 출력하지 않음)
+build/nalmeok --version
 ```
 
-`tests/__init__.py`가 있어 저장소 루트에서 `python -m unittest discover`만 실행해도 테스트를 찾습니다.
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 옛 Python 앱이 쓴 내용을 지우지 않는다.
 
-테스트 범위: Batch 가격 계산, 토큰 집계, 상태 판정, live 그룹핑(7×20분 → 2요청, 130분 상한), 무료/유료 키 레지스트리와 라벨·마이그레이션, 무료 키 429 순환, 혼합 배분(130/130/40), 혼합 결과 병합, live 상태·아카이브·CLI 인자, 설정 파일 권한, 원자적 쓰기, 경로 파싱, 재시도 대상 선택, 드롭 입력 정규화, 패키징(버전 동기화, `.cmd` ASCII, `.ps1` BOM), 업데이트 매니페스트.
+### 문구 (문자열 카탈로그)
 
-## 빌드
+사용자에게 보이는 문구는 모두 `frontend/dist/i18n/ko.json` 한 파일에 있다. 화면, 오류 메시지, 항목 상태, 파일 선택 창, 알림, CLI 출력이 다 여기서 나온다. 평평한 JSON 객체이고 키는 `영역.이름`(`error.emptyResult`, `status.transcribing`, `cli.done` 등)이다. 값 안의 `{name}`, `{minutes}` 같은 자리는 부르는 쪽이 채운다. 한국어라 복수형 처리는 없다.
 
-| 대상 | 명령 | 문서 |
-|---|---|---|
-| Windows thin ZIP | `python scripts/build_windows.py` | [`scripts/README.md`](../scripts/README.md) |
-| Windows offline ZIP | `python scripts/build_windows.py --offline` (Windows에서만) | [`docs/windows-support.md`](windows-support.md) |
-| macOS DMG | `python3 scripts/build_macos.py` | [`docs/macos-app.md`](macos-app.md) |
+- Go: `i18n.T("cli.done", "name", name, "output", path)`는 문구를, `i18n.Error(키, ...)`는 그 문구를 메시지로 하는 오류를 돌려준다. `i18n.Wrap(키, err, ...)`는 원래 오류를 감싸고 문구의 `{error}` 자리에 넣는다. 오류 문구는 `Error()`를 부를 때 찾으므로 패키지 변수로 만든 오류도 언어를 따라간다. 파일은 `frontend` 패키지의 embed로 실행 파일에 들어간다.
+- 화면: `app.js`가 시작할 때 `i18n/ko.json`을 `fetch`로 읽는다(앱 안의 파일이라 오프라인에서도 된다). 코드에서는 `t("row.waitingMinutes", { minutes })`를 쓰고, `index.html`의 고정 문구는 비워 두고 `data-i18n="키"`로 채운다. 속성은 `data-i18n-aria-label`, `data-i18n-title`, `data-i18n-placeholder`를 쓴다.
+- 없는 키는 키 이름이 그대로 보인다. `go test ./internal/i18n`이 이것을 막는다. 코드(Go·JS·HTML)가 쓰는 키가 모두 ko.json에 있는지, ko.json에 안 쓰는 키가 없는지, Go 문자열과 JS·HTML·CSS에 카탈로그 밖 한글이 없는지 검사한다. 주석, `_test.go`, 전사 프롬프트(`internal/gemini/prompt.go`)는 예외다. 키는 문자열 그대로 써야 한다(`t(변수)`는 검사가 못 보므로 실패한다).
+- 로그(`nalmeok.log`)와 개발자용 메시지는 카탈로그에 넣지 않는다.
+
+문구를 추가할 때는 ko.json에 키를 넣고 코드에서 그 키를 부른다. 다른 언어를 추가할 때는 `frontend/dist/i18n/en.json`처럼 같은 키로 파일을 하나 만든다. 빠진 키는 ko 문구로 대신한다. 테스트가 ko에 없는 키나 `{자리}`가 다른 문구를 잡는다. 언어를 고르는 곳은 Go의 `i18n.SetLanguage("en")`와 `app.js` 맨 위의 `LANG`이다(지금은 둘 다 ko 고정).
+
+### 화면 미리보기 (스크린샷용)
+
+`NALMEOK_UI_PREVIEW=1`이면 GUI가 실제 실행기 대신 `StubRunner`를 쓴다. 저장된 `items.json` 상태가 그대로 남고 네트워크를 쓰지 않는다. 키 확인도 건너뛰므로 가짜 키를 넣은 임시 설정으로 화면을 볼 수 있다.
+
+```bash
+XDG_CONFIG_HOME=/tmp/uiseed NALMEOK_UI_PREVIEW=1 build/nalmeok
+#   NALMEOK_UI_APPEARANCE=light|dark   창 모양을 고정한다
+#   NALMEOK_UI_PREVIEW_JS='...'        DOM이 준비되고 1초 뒤 실행할 JS (시트 열기, 검색어 넣기 등)
+```
+
+창만 찍는다. 창 번호는 `CGWindowListCopyWindowInfo`를 PID로 걸러 얻고 `screencapture -x -o -l<창 번호>`로 저장한다. 화면 전체는 찍지 않는다.
+
+## 기존 Python 앱 (`old/`)
+
+기존 TUI 앱은 `old/`에 그대로 옮겨 보존한다. 구조·테스트·빌드는 [`old/docs/development.md`](../old/docs/development.md)를 따르고, 명령은 `old/`에서 실행한다(`cd old && python -m unittest discover -s tests -v`). CI(`.github/workflows/`)도 지금은 `old/`에서 Python 테스트·빌드만 돈다. Go 앱용 CI는 PR이 머지된 뒤 새로 만든다.
+
+`internal/gemini/prompt_python_test.go`는 Go 프롬프트가 `old/nalmeok/constants.py`와 같은지 확인한다.
 
 ## 작업 규칙 요약
 
 - 동작·배포·구조를 바꾸면 관련 문서를 먼저 고친다. 문서가 코드와 어긋나 있으면 문서를 먼저 바로잡는다.
-- `.cmd`는 순수 ASCII, 한국어는 UTF-8 BOM `.ps1`이 소유한다(`docs/windows-support.md` D19).
 - 폐기된 제약(코드서명 필수, 런타임 의존성 금지, 단일 `nalmeok.py`)은 `CLAUDE.md`의 제약 조정 절을 따른다.

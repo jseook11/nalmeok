@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# The Python app now lives in old/. The Go app gets its own CI after merge.
+defaults:
+  run:
+    working-directory: old
+
 concurrency:
   group: windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -128,9 +133,9 @@ jobs:
         with:
           name: nalmeok-windows-${{ github.sha }}
           path: |
-            dist/*.zip
-            dist/nalmeok-app.zip
-            dist/manifest.json
-            dist/SHA256SUMS.txt
+            old/dist/*.zip
+            old/dist/nalmeok-app.zip
+            old/dist/manifest.json
+            old/dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
