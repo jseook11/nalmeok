@@ -9,32 +9,89 @@
 // window's drop highlight (WebKit shows it as "Files") and then added nothing.
 //
 // Install (macOS only) hooks Wails' WailsWebView so a drop with no file URLs
-// but with file promises is received into <work>/dropped/<time>-*/ under the
-// promised name, and the received paths go to the handler in one batch per
-// drop. Every other drop runs Wails' code unchanged. On other platforms
-// Install does nothing.
+// but with file promises is received into a folder the user can see
+// (~/Documents/Nalmeok/<voice memos>, see Dir). The transcript is written next
+// to its source, so it lands there too. Every other drop runs Wails' code
+// unchanged. On other platforms Install does nothing.
 package macdrop
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // batchDelay is how long the collector waits after the last received file
 // before handing the batch on. Promised files arrive one at a time.
 const batchDelay = 300 * time.Millisecond
 
-// newDropDir makes a fresh folder for one drop under <root>/dropped. The
-// received files stay there: they are the items' sources until the items
-// finish, and the transcript is written next to them.
-func newDropDir(root string, now time.Time) (string, error) {
-	parent := filepath.Join(root, "dropped")
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+// stagePrefix names the hidden folder a promise is first written into. It
+// sits inside the destination so the move into place is a rename on the same
+// volume.
+const stagePrefix = ".receiving-"
+
+// Dir is where received recordings are kept: ~/Documents/Nalmeok/<name>,
+// with the last part from the string catalog.
+func Dir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(parent, now.Format("20060102-150405")+"-")
+	return filepath.Join(home, "Documents", "Nalmeok", i18n.T("folder.voiceMemos")), nil
+}
+
+// newStageDir makes the destination when needed and a fresh hidden folder in
+// it for one promise. The source writes the file there under its own name.
+func newStageDir(dest string) (string, error) {
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(dest, stagePrefix)
+}
+
+// place moves a received file from its stage folder into dest under the
+// promised name. When that name is taken, " 2", " 3", … go before the
+// extension. Each candidate is claimed with an exclusive create, so two
+// files received at once never take the same name; the rename then replaces
+// the empty claim.
+func place(staged, dest string) (string, error) {
+	name := filepath.Base(staged)
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for n := 1; n <= 10000; n++ {
+		candidate := filepath.Join(dest, name)
+		if n > 1 {
+			candidate = filepath.Join(dest, fmt.Sprintf("%s %d%s", stem, n, ext))
+		}
+		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		f.Close()
+		if err := os.Rename(staged, candidate); err != nil {
+			os.Remove(candidate)
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("no free name for %s in %s", name, dest)
+}
+
+// removeStageDir drops a stage folder once its files are moved out. A folder
+// that still holds something (a file that could not be moved) is left alone.
+func removeStageDir(dir string) {
+	if strings.HasPrefix(filepath.Base(dir), stagePrefix) {
+		_ = os.Remove(dir)
+	}
 }
 
 // collector groups paths that arrive close together into one call.

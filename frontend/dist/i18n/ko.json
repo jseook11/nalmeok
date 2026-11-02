@@ -114,6 +114,8 @@
 
   "field.name": "이름",
 
+  "folder.voiceMemos": "음성 메모",
+
   "gemini.badResultLine": "결과 {line}행을 읽지 못했어요: {error}",
   "gemini.emptyResults": "서버 결과가 비어 있어요",
   "gemini.noRequestID": "요청 ID를 받지 못했어요",

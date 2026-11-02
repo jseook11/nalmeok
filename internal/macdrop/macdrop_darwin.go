@@ -13,40 +13,39 @@ import "C"
 import (
 	"log"
 	"sync"
-	"time"
 )
 
 var (
 	mu      sync.Mutex
-	root    string
+	dest    string
 	batches *collector
 	once    sync.Once
 )
 
-// Install hooks the window's web view once. Received paths reach handler on
-// a Go goroutine, batched per drop; handler should hand them to the same code
-// a normal drop uses. Calling Install again only replaces the folder and the
-// handler.
-func Install(workDir string, handler func(paths []string)) {
-	if workDir == "" || handler == nil {
+// Install hooks the window's web view once. Promised files are received into
+// dir (see Dir) and reach handler on a Go goroutine, batched per drop;
+// handler should hand them to the same code a normal drop uses. Calling
+// Install again only replaces the folder and the handler.
+func Install(dir string, handler func(paths []string)) {
+	if dir == "" || handler == nil {
 		return
 	}
 	mu.Lock()
-	root = workDir
+	dest = dir
 	batches = newCollector(batchDelay, handler)
 	mu.Unlock()
 	once.Do(func() { C.macdropInstall() })
 }
 
-// macdropNewDir returns a new folder for one drop, or "" when it cannot be
-// made. The caller frees the string.
+// macdropStageDir returns a new hidden folder for one promise, or "" when it
+// cannot be made. The caller frees the string.
 //
-//export macdropNewDir
-func macdropNewDir() *C.char {
+//export macdropStageDir
+func macdropStageDir() *C.char {
 	mu.Lock()
-	dir := root
+	dir := dest
 	mu.Unlock()
-	path, err := newDropDir(dir, time.Now())
+	path, err := newStageDir(dir)
 	if err != nil {
 		log.Printf("macdrop: %v", err)
 		return C.CString("")
@@ -54,17 +53,30 @@ func macdropNewDir() *C.char {
 	return C.CString(path)
 }
 
-// macdropReceived is called once per promised file the source wrote.
+// macdropReceived is called once per promised file the source wrote. The
+// file is moved into the destination and queued for the handler.
 //
 //export macdropReceived
 func macdropReceived(path *C.char) {
-	p := C.GoString(path)
+	staged := C.GoString(path)
 	mu.Lock()
-	c := batches
+	dir, c := dest, batches
 	mu.Unlock()
-	if c != nil {
-		c.add(p)
+	final, err := place(staged, dir)
+	if err != nil {
+		log.Printf("macdrop: %v", err)
+		return
 	}
+	if c != nil {
+		c.add(final)
+	}
+}
+
+// macdropStageDone is called when every file of one promise has arrived.
+//
+//export macdropStageDone
+func macdropStageDone(dir *C.char) {
+	removeStageDir(C.GoString(dir))
 }
 
 // macdropFailed reports a promised file the source did not write.

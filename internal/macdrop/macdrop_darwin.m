@@ -45,31 +45,39 @@ static BOOL isPromiseDrag(NSPasteboard *pb) {
     return [pb canReadObjectForClasses:@[ [NSFilePromiseReceiver class] ] options:nil];
 }
 
+// receivePromises gives each promise its own hidden stage folder inside the
+// destination; Go moves every file that arrives into place under a free name
+// and drops the stage folder once the promise's files are all in.
 static void receivePromises(NSArray *receivers) {
-    char *cdir = macdropNewDir();
-    NSString *dir = cdir ? [NSString stringWithUTF8String:cdir] : @"";
-    free(cdir);
-    if (dir.length == 0) {
-        macdropFailed((char *)"could not make a folder for the dropped files");
-        return;
-    }
-    NSURL *dest = [NSURL fileURLWithPath:dir isDirectory:YES];
     for (NSFilePromiseReceiver *receiver in receivers) {
         if (debugDrops) {
             NSLog(@"nalmeok drop: promise types %@", receiver.fileTypes);
         }
-        [receiver receivePromisedFilesAtDestination:dest
+        char *cdir = macdropStageDir();
+        NSString *dir = cdir ? [NSString stringWithUTF8String:cdir] : @"";
+        free(cdir);
+        if (dir.length == 0) {
+            macdropFailed((char *)"could not make a folder for the dropped file");
+            continue;
+        }
+        NSURL *stage = [NSURL fileURLWithPath:dir isDirectory:YES];
+        // The reader runs once per promised file, on the serial receiveQueue.
+        __block NSUInteger remaining = MAX((NSUInteger)1, receiver.fileTypes.count);
+        [receiver receivePromisedFilesAtDestination:stage
                                             options:@{}
                                      operationQueue:receiveQueue
                                              reader:^(NSURL *fileURL, NSError *error) {
             if (error != nil) {
                 macdropFailed((char *)[[error localizedDescription] UTF8String]);
-                return;
+            } else {
+                if (debugDrops) {
+                    NSLog(@"nalmeok drop: received %@", fileURL.path);
+                }
+                macdropReceived((char *)[fileURL fileSystemRepresentation]);
             }
-            if (debugDrops) {
-                NSLog(@"nalmeok drop: received %@", fileURL.path);
+            if (remaining > 0 && --remaining == 0) {
+                macdropStageDone((char *)[stage fileSystemRepresentation]);
             }
-            macdropReceived((char *)[fileURL fileSystemRepresentation]);
         }];
     }
 }

@@ -169,10 +169,11 @@ func runGUI() {
 		}
 		application.Startup(ctx)
 		// macOS: recordings dragged from Voice Memos arrive as file promises.
-		// Once received they take the normal drop path (OnFileDrop in
-		// internal/app). No-op elsewhere.
-		if workDir, err := config.WorkDir(); err == nil {
-			macdrop.Install(workDir, func(paths []string) {
+		// They are saved in ~/Documents/Nalmeok/<voice memos> (the transcript
+		// goes next to them) and then take the normal drop path (OnFileDrop
+		// in internal/app). No-op elsewhere.
+		if dropDir, err := macdrop.Dir(); err == nil {
+			macdrop.Install(dropDir, func(paths []string) {
 				wailsruntime.EventsEmit(ctx, "wails:file-drop", 0, 0, paths)
 			})
 		}
