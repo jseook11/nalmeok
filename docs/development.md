@@ -38,7 +38,17 @@ docs/                      # 플랫폼·사용·개발 문서
 pyproject.toml             # 패키지 정의와 nalmeok 콘솔 스크립트
 ```
 
-모듈 사이의 호출은 `import nalmeok as app` 후 `app.<name>`으로 합니다. 이렇게 하면 테스트의 `mock.patch.object(app, ...)`가 그대로 동작하고, 모듈을 나눠도 패치 지점이 바뀌지 않습니다. 상수는 `from .constants import *`로 직접 가져옵니다.
+기존 모듈 사이의 호출은 `import nalmeok as app` 후 `app.<name>`으로 합니다. 상수도 `app.<NAME>`으로 씁니다. `nalmeok/__init__.py`의 `_export`가 각 모듈이 정의한 이름을 `app`에 자동으로 올리므로, 함수를 추가해도 따로 등록할 필요가 없습니다. 테스트의 `mock.patch.object(app, ...)`는 이 공용 이름을 바꿉니다.
+
+구조 정리(`docs/review-2026-11.md` §4)에서 새로 떼어 내는 모듈은 일반 import를 쓰고, 테스트는 그 모듈 경로를 패치합니다.
+
+## 정적 검사
+
+```bash
+uv run ruff check .
+```
+
+규칙은 `pyproject.toml`의 `[tool.ruff.lint]`에 고정했고, macOS CI가 같은 버전으로 검사합니다.
 
 ## 테스트
 

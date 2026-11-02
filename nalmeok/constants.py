@@ -1,66 +1,9 @@
-"""Constants and module metadata."""
+"""상수와 버전 정보. 사용법은 `nalmeok --help`와 docs/usage.md에 있습니다."""
 
-
-import nalmeok as app  # noqa: E402
-#!/usr/bin/env python3
-"""Gemini Batch 또는 무료 live로 강의 음성을 저렴하게 전사합니다.
-
-유료 Batch는 일반 API의 절반 요금이라 1시간 오디오가 약 $0.053(74원 내외)이고,
-무료 등급은 live로 한도 내에서 $0로 사용할 수 있습니다.
-같은 모델을 일반 API로 부르면 두 배, gpt-4o-transcribe로 하면 약 7배가 됩니다.
-
-사용법:
-  nalmeok                           # 키 → 대시보드 → 진행
-  nalmeok estimate ./lecture        # 길이·토큰·예상 비용
-  nalmeok convert ./lecture         # MP4 -> M4A (ffmpeg, 원본 유지)
-  nalmeok upload ./lecture          # M4A 없으면 자동 변환 후 Batch 제출
-  nalmeok live ./lecture            # 무료 키로 live 전사
-  nalmeok auto ./lecture            # 무료 키 먼저, 남는 분량은 유료 Batch
-  nalmeok status ./lecture          # Batch 상태
-  nalmeok wait ./lecture --download # 완료까지 대기 후 자동 다운로드
-  nalmeok download ./lecture        # 결과 병합 후 실제 비용 보고
-  nalmeok stats                     # 지금까지 쓴 금액 합계와 평균
-  nalmeok drop ./lecture ./week1.mp4 # 드롭한 폴더·파일 전사 후 Documents\nalmeok
-
-인자 없이 실행하면 키 → 대시보드 → 진행 순서로 이어집니다. 키가 없을 때만 첫 화면에서
-물어보고, Enter 를 누르면 과금 없이 확인한 뒤 저장해 다음 실행부터는 묻지 않습니다
-(~/.config/nalmeok/config.json). 폴더를 고르면 상태에 맞는 작업이 한 화면에서 이어지고,
-대기 중 Esc 또는 b 를 누르면 백그라운드로 전환되어 메뉴로 돌아옵니다. 여러 폴더를 골라
-한꺼번에 제출할 수도 있습니다.
-
-google-genai SDK가 없으면 처음 실행할 때 설치할지 물어보고, 저장소 안에 .venv 를
-만들어 거기서 다시 실행합니다. convert·estimate·stats 는 SDK 없이도 동작합니다.
-
-폴더 이름이 제목이 되고, 폴더에 PDF가 하나 있으면 참고자료로 함께 보냅니다.
-Batch 상태와 임시 파일은 모두 그 폴더 안에 남습니다. 새 작업을 시작하면 기존 기록은
-폴더 안 .nalmeok-archive/ 로 옮겨 보존합니다.
-
-upload 는 M4A가 없고 MP4만 있으면 MP4를 먼저 M4A로 변환합니다. 최근에 쓴 작업
-폴더는 설정 파일에 남겨 두고 대시보드에 상태와 함께 다시 보여줍니다.
-"""
-
-import argparse
-import contextlib
-import getpass
-import hashlib
-import json
-import math
 import os
-import platform
 import re
-import select
-import shlex
-import shutil
-import signal
-import subprocess
-import sys
-import tempfile
-import threading
-import time
-import unicodedata
-import uuid
-import zipfile
-from pathlib import Path
+
+import nalmeok as app
 
 try:
     import fcntl
