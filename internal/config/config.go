@@ -264,6 +264,34 @@ func (c *Config) SetMode(mode string) error {
 	return nil
 }
 
+// Tiers reports which processing tiers have at least one key.
+func (c *Config) Tiers() (free, paid bool) {
+	for _, key := range c.AllKeys() {
+		if key.Tier == "free" {
+			free = true
+		} else {
+			paid = true
+		}
+	}
+	return free, paid
+}
+
+// EffectiveMode returns the mode the next item will use. When only one tier
+// has keys that tier wins; when both or neither do, the stored preference
+// stands. The stored preference is never changed here, so adding the other
+// tier later restores the user's last choice.
+func (c *Config) EffectiveMode() string {
+	free, paid := c.Tiers()
+	switch {
+	case free && !paid:
+		return "free"
+	case paid && !free:
+		return "batch"
+	default:
+		return c.Mode()
+	}
+}
+
 // SavedKeys returns a copy of the keys stored in config.json, without the
 // read-only environment key.
 func (c *Config) SavedKeys() []Key {

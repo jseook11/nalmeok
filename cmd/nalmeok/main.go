@@ -211,7 +211,7 @@ func runCLI(args []string) int {
 		return 2
 	}
 
-	mode := cfg.Mode()
+	mode := cfg.EffectiveMode()
 	if *batch {
 		mode = "batch"
 	} else if *free {

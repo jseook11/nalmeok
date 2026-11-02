@@ -253,6 +253,71 @@ func TestSetModeRejectsUnknown(t *testing.T) {
 	}
 }
 
+func TestEffectiveModeFollowsAvailableTiers(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY_TIER", "")
+
+	tests := []struct {
+		name   string
+		stored string
+		tiers  []string
+		want   string
+	}{
+		{name: "no keys keeps free", stored: "free", want: "free"},
+		{name: "no keys keeps batch", stored: "batch", want: "batch"},
+		{name: "free only forces free", stored: "batch", tiers: []string{"free"}, want: "free"},
+		{name: "paid only forces batch", stored: "free", tiers: []string{"paid"}, want: "batch"},
+		{name: "both keeps free", stored: "free", tiers: []string{"free", "paid"}, want: "free"},
+		{name: "both keeps batch", stored: "batch", tiers: []string{"free", "paid"}, want: "batch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := LoadFrom(filepath.Join(t.TempDir(), "config.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetMode(tt.stored); err != nil {
+				t.Fatal(err)
+			}
+			for _, tier := range tt.tiers {
+				if _, err := cfg.AddKey("", tier, "fake-"+tier); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if got := cfg.EffectiveMode(); got != tt.want {
+				t.Fatalf("EffectiveMode = %q, want %q", got, tt.want)
+			}
+			if got := cfg.Mode(); got != tt.stored {
+				t.Fatalf("stored preference = %q, want %q (it must not change)", got, tt.stored)
+			}
+		})
+	}
+}
+
+func TestEffectiveModeUsesEnvironmentKeyTier(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "fake-env-key")
+	t.Setenv("GEMINI_API_KEY_TIER", "paid")
+
+	cfg, err := LoadFrom(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetMode("free"); err != nil {
+		t.Fatal(err)
+	}
+	free, paid := cfg.Tiers()
+	if free || !paid {
+		t.Fatalf("Tiers = free:%v paid:%v, want paid only", free, paid)
+	}
+	if got := cfg.EffectiveMode(); got != "batch" {
+		t.Fatalf("EffectiveMode = %q, want batch", got)
+	}
+	if got := cfg.Mode(); got != "free" {
+		t.Fatalf("stored preference = %q, want free", got)
+	}
+}
+
 func TestLegacyAPIKeyIsMigrated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"api_key":"fake-legacy"}`), 0o600); err != nil {

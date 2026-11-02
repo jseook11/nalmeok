@@ -40,6 +40,7 @@
     items: [],
     keys: [],
     mode: "free",
+    available: { free: false, paid: false },
     query: "",
     keyTier: "free",
   };
@@ -105,18 +106,15 @@
 
   // ── Mode ──────────────────────────────────────────────────
 
-  function tiers() {
-    return {
-      free: state.keys.some((key) => key.Tier === "free"),
-      paid: state.keys.some((key) => key.Tier === "paid"),
-    };
-  }
-
+  // Which tiers have keys, and the mode in effect, come from the backend so
+  // the GUI and CLI agree. A tier without keys is disabled, not hidden.
   function renderMode() {
-    const { free, paid } = tiers();
-    modeToggle.hidden = !(free && paid);
+    const { free, paid } = state.available;
+    modeToggle.hidden = !free && !paid;
     for (const button of modeToggle.querySelectorAll("button")) {
-      button.setAttribute("aria-selected", String(button.dataset.mode === state.mode));
+      const selected = button.dataset.mode === state.mode;
+      button.setAttribute("aria-selected", String(selected));
+      button.disabled = button.dataset.mode === "batch" ? !paid : !free;
     }
   }
 
@@ -134,10 +132,20 @@
     }
   }
 
-  async function syncMode() {
-    const { free, paid } = tiers();
-    if (!free && paid) await setMode("batch");
-    else if (free && !paid) await setMode("free");
+  async function loadModeState() {
+    try {
+      const modeState = await call("ModeState");
+      state.available = {
+        free: Boolean(modeState.Free),
+        paid: Boolean(modeState.Paid),
+      };
+      if (modeState.Mode === "free" || modeState.Mode === "batch") {
+        state.mode = modeState.Mode;
+      }
+    } catch (error) {
+      showToast(errorText(error));
+    }
+    renderMode();
   }
 
   // ── Rows ──────────────────────────────────────────────────
@@ -202,7 +210,9 @@
       case "free_exhausted":
         return {
           status: `<div class="status"><span>오늘 무료 사용량을 다 썼어요</span></div>`,
-          aside: `<button class="pill-button" type="button" data-action="batch" data-id="${id}">유료로 이어서</button>`,
+          aside: state.available.paid
+            ? `<button class="pill-button" type="button" data-action="batch" data-id="${id}">유료로 이어서</button>`
+            : "",
         };
       case "done":
         return {
@@ -594,7 +604,7 @@
           await call("Retry", id);
           break;
         case "batch":
-          if (!tiers().paid) {
+          if (!state.available.paid) {
             openKeys("paid");
             return;
           }
@@ -633,7 +643,8 @@
         entries.push(["cancel", "취소"]);
         break;
       case "free_exhausted":
-        entries.push(["batch", "유료로 이어서"], ["cancel", "취소"]);
+        if (state.available.paid) entries.push(["batch", "유료로 이어서"]);
+        entries.push(["cancel", "취소"]);
         break;
       case "failed":
       case "canceled":
@@ -708,8 +719,9 @@
     const keys = await call("Keys");
     state.keys = Array.isArray(keys) ? keys : [];
     renderKeys();
-    await syncMode();
-    renderMode();
+    await loadModeState();
+    // Availability decides whether "유료로 이어서" shows on exhausted rows.
+    renderItems();
   }
 
   function showKeyError(message) {
@@ -933,18 +945,10 @@
     bindEvents();
 
     try {
-      const mode = await call("GetMode");
-      if (mode === "free" || mode === "batch") state.mode = mode;
-    } catch (_) {
-      // Keep the default; the first drop reports the real error.
-    }
-
-    try {
       await loadKeys();
     } catch (error) {
       showToast(errorText(error));
     }
-    renderMode();
 
     try {
       await loadItems();

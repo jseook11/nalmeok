@@ -41,6 +41,15 @@ type KeyView struct {
 	Source       string `json:"Source"`
 }
 
+// ModeState is the processing mode in effect and which tiers have keys. Mode
+// can differ from the stored preference when only one tier is registered; the
+// stored preference itself is left untouched.
+type ModeState struct {
+	Mode string `json:"Mode"`
+	Free bool   `json:"Free"`
+	Paid bool   `json:"Paid"`
+}
+
 var (
 	errNotReady = errors.New("아직 준비 중이에요")
 	errNoOutput = errors.New("결과 파일이 없어요")
@@ -310,14 +319,28 @@ func (a *App) readyOutput(id string) (string, error) {
 	return item.Output, nil
 }
 
-// GetMode returns "free" or "batch".
+// GetMode returns the mode the next drop will use: the stored preference when
+// both tiers have keys, or the only available tier.
 func (a *App) GetMode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cfg == nil {
 		return "free"
 	}
-	return a.cfg.Mode()
+	return a.cfg.EffectiveMode()
+}
+
+// ModeState reports the effective mode and which tiers have keys, so the
+// toggle can select the only available tier without changing the stored
+// preference.
+func (a *App) ModeState() ModeState {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return ModeState{Mode: "free"}
+	}
+	free, paid := a.cfg.Tiers()
+	return ModeState{Mode: a.cfg.EffectiveMode(), Free: free, Paid: paid}
 }
 
 // SetMode stores the processing mode for the next drop.

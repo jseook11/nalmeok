@@ -113,6 +113,77 @@ func TestModePersists(t *testing.T) {
 	}
 }
 
+func TestModeStateFollowsKeysWithoutChangingPreference(t *testing.T) {
+	ta := newTestApp(t)
+
+	if state := ta.app.ModeState(); state.Mode != "free" || state.Free || state.Paid {
+		t.Fatalf("empty ModeState = %+v", state)
+	}
+	if err := ta.app.SetMode("free"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only paid keys: paid wins for the next drop, but the stored preference
+	// stays free until the user chooses otherwise.
+	if err := ta.app.AddKey("", "paid", "AIzaFAKE-paid-0001"); err != nil {
+		t.Fatal(err)
+	}
+	state := ta.app.ModeState()
+	if state.Mode != "batch" || state.Free || !state.Paid {
+		t.Fatalf("paid-only ModeState = %+v", state)
+	}
+	if got := ta.app.GetMode(); got != "batch" {
+		t.Fatalf("GetMode = %q, want batch", got)
+	}
+	reloaded, err := config.LoadFrom(ta.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Mode(); got != "free" {
+		t.Fatalf("stored preference = %q, want free", got)
+	}
+	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ta.app.ListItems("")[0].Mode; got != "batch" {
+		t.Fatalf("new item mode = %q, want batch", got)
+	}
+
+	// Adding a free key restores the user's last stored choice.
+	if err := ta.app.AddKey("", "free", "AIzaFAKE-free-0001"); err != nil {
+		t.Fatal(err)
+	}
+	if state := ta.app.ModeState(); state.Mode != "free" || !state.Free || !state.Paid {
+		t.Fatalf("both-tiers ModeState = %+v", state)
+	}
+
+	// A new choice is stored while both tiers exist.
+	if err := ta.app.SetMode("batch"); err != nil {
+		t.Fatal(err)
+	}
+	freeID, paidID := "", ""
+	for _, key := range ta.app.Keys() {
+		switch key.Tier {
+		case "free":
+			freeID = key.ID
+		case "paid":
+			paidID = key.ID
+		}
+	}
+	if err := ta.app.DeleteKey(freeID); err != nil {
+		t.Fatal(err)
+	}
+	if state := ta.app.ModeState(); state.Mode != "batch" || state.Free || !state.Paid {
+		t.Fatalf("paid-only after delete = %+v", state)
+	}
+	if err := ta.app.DeleteKey(paidID); err != nil {
+		t.Fatal(err)
+	}
+	if state := ta.app.ModeState(); state.Mode != "batch" || state.Free || state.Paid {
+		t.Fatalf("no-keys ModeState = %+v", state)
+	}
+}
+
 func TestKeysAddShowAndDelete(t *testing.T) {
 	ta := newTestApp(t)
 
