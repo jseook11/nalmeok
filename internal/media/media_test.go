@@ -140,7 +140,6 @@ func TestScanErrors(t *testing.T) {
 		{"empty", nil, "오디오 파일이 없어요"},
 		{"only pdf and text", []string{"a.pdf", "note.txt"}, "오디오 파일이 없어요"},
 		{"eleven", []string{"1.mp3", "2.mp3", "3.mp3", "4.mp3", "5.mp3", "6.mp3", "7.mp3", "8.mp3", "9.mp3", "10.mp3", "11.mp3"}, "11개, 최대 10개"},
-		{"two pdfs", []string{"1.mp3", "a.pdf", "b.PDF"}, "PDF는 한 폴더에 하나만"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -193,8 +192,8 @@ func TestScanFolder(t *testing.T) {
 	if in.Kind != "folder" || in.Name != "강의" || in.Source != dir {
 		t.Errorf("input = %+v", in)
 	}
-	if in.PDF != filepath.Join(dir, "용어.pdf") {
-		t.Errorf("PDF = %q", in.PDF)
+	if !slices.Equal(in.PDFs, []string{filepath.Join(dir, "용어.pdf")}) {
+		t.Errorf("PDFs = %q", in.PDFs)
 	}
 	var names, formats []string
 	for _, tr := range in.Tracks {
@@ -215,7 +214,7 @@ func TestScanFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if file.Kind != "file" || file.Name != "10강" || len(file.Tracks) != 1 || file.PDF != "" {
+	if file.Kind != "file" || file.Name != "10강" || len(file.Tracks) != 1 || len(file.PDFs) != 0 {
 		t.Errorf("file input = %+v", file)
 	}
 }

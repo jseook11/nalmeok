@@ -36,8 +36,16 @@ func (m *fakeMedia) Scan(path string) (Input, error) {
 		return Input{}, fmt.Errorf("파일을 찾을 수 없습니다: %s", filepath.Base(path))
 	}
 	if info.IsDir() {
+		var pdfs []string
+		entries, _ := os.ReadDir(path)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".pdf") {
+				pdfs = append(pdfs, filepath.Join(path, e.Name()))
+			}
+		}
 		return Input{Source: path, Kind: "folder", Name: filepath.Base(path),
-			Tracks: []Track{{Path: filepath.Join(path, "a.m4a"), Format: "aac-mp4", Seconds: 120}}}, nil
+			Tracks: []Track{{Path: filepath.Join(path, "a.m4a"), Format: "aac-mp4", Seconds: 120}},
+			PDFs:   pdfs}, nil
 	}
 	return Input{Source: path, Kind: "file", Name: filepath.Base(path),
 		Tracks: []Track{{Path: path, Format: "aac-mp4", Seconds: 120}}}, nil

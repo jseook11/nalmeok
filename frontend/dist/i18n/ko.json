@@ -25,7 +25,7 @@
   "cli.nothingAdded": "추가된 항목이 없어요",
   "cli.transcribing": "{name}: 전사 중 {percent}%",
   "cli.usage": "사용법:",
-  "cli.usageIntro": "테스트·AI 에이전트용 CLI예요. 보통은 인자 없이 실행해 앱 창을 쓰세요.",
+  "cli.usageIntro": "테스트·AI 에이전트용 CLI예요. 보통은 인자 없이 실행해 앱 창을 쓰세요. 폴더 안 PDF는 여러 개여도 모두 참고자료로 보내요.",
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...",
   "cli.waiting": "{name}: 기다리는 중 · {minutes}분",
 
@@ -153,7 +153,6 @@
   "media.mp4NotAAC": "AAC 오디오가 아닌 MP4는 지원하지 않아요",
   "media.mp4Unsupported": "지원하지 않는 MP4 형식이에요 ({detail})",
   "media.noAudio": "폴더에 오디오 파일이 없어요",
-  "media.onePDF": "PDF는 한 폴더에 하나만 둘 수 있어요",
   "media.openFailed": "파일을 열지 못했어요: {name}",
   "media.readDirFailed": "폴더를 읽지 못했어요: {name}",
   "media.tooMany": "오디오 파일이 너무 많아요 ({count}개, 최대 {max}개)",

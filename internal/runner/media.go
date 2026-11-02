@@ -18,7 +18,7 @@ func (DefaultMedia) Scan(path string) (Input, error) {
 	for _, t := range in.Tracks {
 		tracks = append(tracks, Track{Path: t.Path, Format: t.Format, Seconds: t.Seconds})
 	}
-	return Input{Source: in.Source, Kind: in.Kind, Name: in.Name, Tracks: tracks, PDF: in.PDF}, nil
+	return Input{Source: in.Source, Kind: in.Kind, Name: in.Name, Tracks: tracks, PDFs: in.PDFs}, nil
 }
 
 // Prepare writes upload-ready pieces of one track into dir.

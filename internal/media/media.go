@@ -41,7 +41,10 @@ type Input struct {
 	Kind   string // "file" | "folder"
 	Name   string // display name
 	Tracks []Track
-	PDF    string // optional reference PDF (folder only)
+	// PDFs are the reference PDFs directly inside a dropped folder, in
+	// natural order. A file input has none. Which of them the requests use
+	// is the item's choice (see runner).
+	PDFs []string
 }
 
 // Seconds is the total audio length.
@@ -117,7 +120,7 @@ func Scan(path string) (Input, error) {
 		switch {
 		case FormatOf(name) != "":
 			audio = append(audio, full)
-		case strings.EqualFold(filepath.Ext(name), ".pdf"):
+		case IsPDF(name):
 			pdfs = append(pdfs, full)
 		}
 	}
@@ -128,14 +131,9 @@ func Scan(path string) (Input, error) {
 	if len(audio) > MaxFiles {
 		return Input{}, i18n.Error("media.tooMany", "count", len(audio), "max", MaxFiles)
 	}
-	if len(pdfs) > 1 {
-		return Input{}, i18n.Error("media.onePDF")
-	}
 	SortNatural(audio)
-	in := Input{Source: abs, Kind: "folder", Name: filepath.Base(abs)}
-	if len(pdfs) == 1 {
-		in.PDF = pdfs[0]
-	}
+	SortNatural(pdfs)
+	in := Input{Source: abs, Kind: "folder", Name: filepath.Base(abs), PDFs: pdfs}
 	for _, p := range audio {
 		track, err := readTrack(p, FormatOf(p))
 		if err != nil {
@@ -144,6 +142,36 @@ func Scan(path string) (Input, error) {
 		in.Tracks = append(in.Tracks, track)
 	}
 	return in, nil
+}
+
+// IsPDF reports whether name has a .pdf extension (any case).
+func IsPDF(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), ".pdf")
+}
+
+// FolderPDFs lists the PDFs directly inside dir in natural order, the same
+// ones Scan finds: hidden files and anything that is not a regular file are
+// skipped, subfolders are not searched. A path that is not a readable folder
+// has none.
+func FolderPDFs(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var pdfs []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || !IsPDF(name) {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		if st, err := os.Stat(full); err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		pdfs = append(pdfs, full)
+	}
+	SortNatural(pdfs)
+	return pdfs
 }
 
 // dropConvertedMP4 removes an .mp4 when an .m4a with the same name sits next

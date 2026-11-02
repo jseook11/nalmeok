@@ -56,8 +56,13 @@ const (
 	freeTPM               = 250_000
 	freeRPM               = 5
 	rateTokensPerSecond   = 32
-	pdfName               = "reference.pdf"
-	mimePDF               = "application/pdf"
+	// Reference PDFs are copied into the work directory as
+	// reference-001.pdf, reference-002.pdf, … in the order chosen. Work
+	// directories made before several PDFs were allowed hold reference.pdf;
+	// pdfGlob finds both.
+	pdfPattern = "reference-%03d.pdf"
+	pdfGlob    = "reference*.pdf"
+	mimePDF    = "application/pdf"
 )
 
 // Input, Track, Piece and UnitPlan mirror the media and plan packages so the
@@ -67,7 +72,8 @@ type Input struct {
 	Kind   string
 	Name   string
 	Tracks []Track
-	PDF    string
+	// PDFs are the reference PDFs in a folder input.
+	PDFs []string
 }
 
 // Track is one source audio file.
@@ -271,15 +277,43 @@ func (r *Runner) Start(ctx context.Context) {
 
 // Add creates one item per path and queues them. A non-empty keyID pins the
 // items to that key, and the key's tier decides the mode (free key → free,
-// paid key → batch). An empty keyID picks keys by priority.
+// paid key → batch). An empty keyID picks keys by priority. A folder added
+// here uses every PDF in it; AddWithPDFs records a choice instead.
 func (r *Runner) Add(paths []string, mode, keyID string) error {
+	mode, err := r.resolveMode(mode, keyID)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		if err := r.addItem(path, mode, keyID, nil, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddWithPDFs adds one folder with the reference PDFs the user picked. An
+// empty pdfs transcribes without a PDF. The choice is stored on the item, so
+// a retry or a move to Batch never asks again.
+func (r *Runner) AddWithPDFs(path string, pdfs []string, mode, keyID string) error {
+	mode, err := r.resolveMode(mode, keyID)
+	if err != nil {
+		return err
+	}
+	return r.addItem(path, mode, keyID, append([]string{}, pdfs...), true)
+}
+
+// resolveMode checks that a key exists and returns the mode new items run
+// in: the asked one when its tier has keys, the other tier otherwise, and the
+// pinned key's tier when keyID is set.
+func (r *Runner) resolveMode(mode, keyID string) (string, error) {
 	if r.opts.Store == nil {
-		return i18n.Error("error.notReady")
+		return "", i18n.Error("error.notReady")
 	}
 	keys := r.opts.Keys()
 	free, paid := splitKeys(keys)
 	if len(free) == 0 && len(paid) == 0 {
-		return i18n.Error("error.keyRequired")
+		return "", i18n.Error("error.keyRequired")
 	}
 	if mode != "batch" {
 		mode = "free"
@@ -292,41 +326,47 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 	if keyID != "" {
 		key, ok := findKey(keys, keyID)
 		if !ok {
-			return errPinnedMissing
+			return "", errPinnedMissing
 		}
 		mode = modeForTier(key.Tier)
 	}
+	return mode, nil
+}
 
-	for _, path := range paths {
-		if abs, err := filepath.Abs(path); err == nil {
-			path = abs
-		}
-		kind := "file"
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			kind = "folder"
-		}
-		item := store.Item{
-			ID:     store.NewID(),
-			Source: path,
-			Kind:   kind,
-			Name:   filepath.Base(path),
-			Mode:   mode,
-			State:  StateRunning,
-			Detail: i18n.T("status.queued"),
-			KeyID:  keyID,
-		}
-		if err := r.opts.Store.Add(item); err != nil {
-			return err
-		}
-		if keyID != "" {
-			r.logf("item %s added: %s (%s, key %s)", item.ID, path, mode, keyID)
-		} else {
-			r.logf("item %s added: %s (%s)", item.ID, path, mode)
-		}
-		r.enqueue(item.ID, mode)
-		if r.opts.EarlyEstimate {
-			go r.estimate(item.ID, path)
-		}
+func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool) error {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	kind := "file"
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		kind = "folder"
+	}
+	item := store.Item{
+		ID:        store.NewID(),
+		Source:    path,
+		Kind:      kind,
+		Name:      filepath.Base(path),
+		Mode:      mode,
+		State:     StateRunning,
+		Detail:    i18n.T("status.queued"),
+		KeyID:     keyID,
+		PDFChosen: pdfChosen,
+		PDFs:      pdfs,
+	}
+	if err := r.opts.Store.Add(item); err != nil {
+		return err
+	}
+	switch {
+	case pdfChosen:
+		r.logf("item %s added: %s (%s, key %q, %d PDFs chosen)", item.ID, path, mode, keyID, len(pdfs))
+	case keyID != "":
+		r.logf("item %s added: %s (%s, key %s)", item.ID, path, mode, keyID)
+	default:
+		r.logf("item %s added: %s (%s)", item.ID, path, mode)
+	}
+	r.enqueue(item.ID, mode)
+	if r.opts.EarlyEstimate {
+		go r.estimate(item.ID, path)
 	}
 	return nil
 }
@@ -792,9 +832,13 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 	if pieces == 0 {
 		return item, userError{i18n.Error("error.noAudio")}
 	}
-	if input.PDF != "" {
-		if err := copyFile(input.PDF, filepath.Join(dir, pdfName)); err != nil {
-			return item, err
+	pdfs := input.PDFs
+	if item.PDFChosen {
+		pdfs = item.PDFs
+	}
+	for i, p := range pdfs {
+		if err := copyFile(p, filepath.Join(dir, fmt.Sprintf(pdfPattern, i+1))); err != nil {
+			return item, userError{i18n.Error("media.openFailed", "name", filepath.Base(p))}
 		}
 	}
 	plans := r.opts.Media.Units(tracks, r.opts.UnitMaxSeconds)
@@ -904,12 +948,23 @@ func unitsReady(units []store.Unit) bool {
 	return true
 }
 
-func (r *Runner) pdfPath(id string) string {
-	path := filepath.Join(r.workDir(id), pdfName)
-	if _, err := os.Stat(path); err == nil {
-		return path
+// pdfPaths lists the reference PDFs prepared for an item, in the order they
+// go into each request.
+func (r *Runner) pdfPaths(id string) []string {
+	dir := r.workDir(id)
+	entries, err := os.ReadDir(dir) // sorted by name
+	if err != nil {
+		return nil
 	}
-	return ""
+	var paths []string
+	for _, e := range entries {
+		// Match the name only: the work directory itself may hold glob
+		// characters.
+		if ok, _ := filepath.Match(pdfGlob, e.Name()); ok && e.Type().IsRegular() {
+			paths = append(paths, filepath.Join(dir, e.Name()))
+		}
+	}
+	return paths
 }
 
 // ---- free live -------------------------------------------------------------
@@ -924,7 +979,7 @@ const (
 
 func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 	id := item.ID
-	pdf := r.pdfPath(id)
+	pdfs := r.pdfPaths(id)
 	for i := range item.Units {
 		if item.Units[i].Text != "" {
 			continue
@@ -945,7 +1000,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		done := false
 		for k := 0; k < len(candidates) && !done; k++ {
 			key := candidates[k]
-			res, outcome, err := r.freeAttempt(ctx, id, key, unit, pdf)
+			res, outcome, err := r.freeAttempt(ctx, id, key, unit, pdfs)
 			if err != nil {
 				return err
 			}
@@ -1042,12 +1097,12 @@ func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, e
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
 // outcome tells the caller whether to rotate to the next key.
 // The result's Text is trimmed.
-func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdf string) (gemini.Result, keyOutcome, error) {
+func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdfs []string) (gemini.Result, keyOutcome, error) {
 	client, err := r.client(key)
 	if err != nil {
 		return gemini.Result{}, keyRejected, nil
 	}
-	parts, err := r.uploadParts(ctx, client, key.ID, unit, pdf)
+	parts, err := r.uploadParts(ctx, client, key.ID, unit, pdfs)
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
 			return gemini.Result{}, outcome, nil
@@ -1212,15 +1267,15 @@ func defaultBackoff(n int) time.Duration {
 	return d
 }
 
-// uploadParts builds [prompt, pdf?, audio...] for one key, uploading files
+// uploadParts builds [prompt, pdfs..., audio...] for one key, uploading files
 // that are not yet uploaded for that key or are close to the 48 h expiry.
-func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID string, unit store.Unit, pdf string) ([]gemini.Part, error) {
+func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID string, unit store.Unit, pdfs []string) ([]gemini.Part, error) {
 	prompt := gemini.Prompt
 	if len(unit.Files) > 1 {
 		prompt = gemini.LivePrompt
 	}
 	parts := []gemini.Part{{Text: prompt}}
-	if pdf != "" {
+	for _, pdf := range pdfs {
 		up, err := r.cachedUpload(ctx, client, keyID, pdf, mimePDF)
 		if err != nil {
 			return nil, err
@@ -1380,10 +1435,10 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 			}
 		}
 	}
-	pdf := r.pdfPath(id)
+	pdfs := r.pdfPaths(id)
 	type needFile struct{ path, mime string }
 	need := []needFile{}
-	if pdf != "" {
+	for _, pdf := range pdfs {
 		need = append(need, needFile{pdf, mimePDF})
 	}
 	for _, u := range pending {
@@ -1416,7 +1471,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 			prompt = gemini.LivePrompt
 		}
 		parts := []gemini.Part{{Text: prompt}}
-		if pdf != "" {
+		for _, pdf := range pdfs {
 			parts = append(parts, gemini.Part{FileURI: uploads[pdf].URI, MIME: uploads[pdf].MIME})
 		}
 		for _, f := range u.Files {

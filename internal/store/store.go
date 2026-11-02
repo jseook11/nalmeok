@@ -64,6 +64,12 @@ type Item struct {
 	// (items finished before usage was recorded).
 	Usage   *Usage `json:"Usage,omitempty"`
 	CostKRW *int   `json:"CostKRW,omitempty"`
+	// PDFChosen marks that the user picked the folder's reference PDFs when
+	// adding it; PDFs is that choice (empty = transcribe without a PDF).
+	// Retries keep using it. Without a choice every PDF in the folder is
+	// used.
+	PDFChosen bool     `json:"PDFChosen,omitempty"`
+	PDFs      []string `json:"PDFs,omitempty"`
 }
 
 // Usage is the token count Gemini reported (usageMetadata). Text is every
@@ -322,6 +328,9 @@ func cloneItem(item Item) Item {
 			}
 		}
 		item.Units = units
+	}
+	if item.PDFs != nil {
+		item.PDFs = append([]string(nil), item.PDFs...)
 	}
 	if item.Usage != nil {
 		u := *item.Usage
