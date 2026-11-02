@@ -1022,6 +1022,7 @@
       el: fresh,
       minTop: items[0].offsetTop,
       maxBottom: last.offsetTop + last.offsetHeight,
+      gap: items.length > 1 ? items[1].offsetTop - (items[0].offsetTop + items[0].offsetHeight) : 0,
       pointer: event.pointerId,
       startY: event.clientY,
       originTop: fresh.offsetTop,
@@ -1047,11 +1048,20 @@
     const top = Math.max(drag.minTop, Math.min(drag.maxBottom - height, drag.originTop + dy));
     dy = top - drag.originTop;
 
-    const center = top + height / 2;
     const others = items.filter((item) => item !== drag.el);
-    // <= so the clamped top position (center exactly on the first row's
-    // center) still lands in first place.
-    const target = others.find((item) => center <= item.offsetTop + item.offsetHeight / 2) || null;
+    // Pick the slot whose top is closest to the dragged row's top. Slot tops
+    // come from the other rows' heights, not their live DOM positions (which
+    // move as the dragged row moves). Half a row in either direction swaps;
+    // clamped to the top it lands first, clamped to the bottom it lands last.
+    let slotTop = drag.minTop;
+    let index = 0;
+    let best = Math.abs(top - slotTop);
+    others.forEach((item, i) => {
+      slotTop += item.offsetHeight + drag.gap;
+      const distance = Math.abs(top - slotTop);
+      if (distance < best) { best = distance; index = i + 1; }
+    });
+    const target = others[index] || null;
     const next = target || (others.length ? others[others.length - 1].nextSibling : null);
     if (drag.el.nextSibling !== next && drag.el !== next) {
       const tops = new Map(others.map((item) => [item, item.offsetTop]));
