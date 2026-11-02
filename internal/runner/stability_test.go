@@ -308,6 +308,64 @@ func TestUnchangedSourceKeepsFinishedUnits(t *testing.T) {
 	}
 }
 
+// ---- a cancel that loses the race with the end of the run --------------------
+
+// Cancel reads the item, then stops the run and marks it canceled. When the
+// run finishes in between, the finished item must stay done: marking it
+// canceled would hide the result and a retry would transcribe it (and on
+// Batch, pay for it) again.
+func TestCancelAfterFinishKeepsDone(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	item := h.addOne(h.source("lec.m4a"), "free") // not started: stays queued
+
+	h.r.mu.Lock() // Cancel waits here after reading the running item
+	errc := make(chan error, 1)
+	go func() { errc <- h.r.Cancel(item.ID) }()
+	time.Sleep(100 * time.Millisecond)
+	// Meanwhile the run finished.
+	if err := h.st.Update(item.ID, func(it *store.Item) {
+		it.State = StateDone
+		it.Output = "/tmp/lec.md"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.r.mu.Unlock()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.Get(item.ID); got.State != StateDone {
+		t.Fatalf("state = %q, want done", got.State)
+	}
+}
+
+// The same race when the run submitted its Batch in between: the cancel goes
+// on to cancel that job instead of leaving it running and paid for.
+func TestCancelAfterSubmitCancelsJob(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	item := h.addOne(h.source("lec.m4a"), "batch") // not started: stays queued
+
+	h.r.mu.Lock()
+	errc := make(chan error, 1)
+	go func() { errc <- h.r.Cancel(item.ID) }()
+	time.Sleep(100 * time.Millisecond)
+	if err := h.st.Update(item.ID, func(it *store.Item) {
+		it.State = StateBatchWaiting
+		it.Batch = &store.BatchRef{KeyID: "p1", Name: "batches/9"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.r.mu.Unlock()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.Get(item.ID); got.State != StateCanceled {
+		t.Fatalf("state = %q, want canceled", got.State)
+	}
+	if got := h.world.cancelledNames(); len(got) != 1 || got[0] != "batches/9" {
+		t.Fatalf("cancelled jobs = %v, want [batches/9]", got)
+	}
+}
+
 // ---- a stop that lands while a run is starting -------------------------------
 
 // Cancel, Remove and SendToBatch stop the active run before they change the

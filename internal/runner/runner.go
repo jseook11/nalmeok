@@ -407,10 +407,23 @@ func (r *Runner) Cancel(id string) error {
 		}
 		r.stopActiveLocked(id)
 		r.mu.Unlock()
-		return r.update(id, func(it *store.Item) {
+		moved := ""
+		if err := r.update(id, func(it *store.Item) {
+			// The run may have finished, or submitted its Batch, since the
+			// read above; a finished result is kept.
+			if it.State != StateRunning && it.State != StateFreeExhausted {
+				moved = it.State
+				return
+			}
 			it.State = StateCanceled
 			it.Detail = i18n.T("status.canceled")
-		})
+		}); err != nil {
+			return err
+		}
+		if moved == StateBatchWaiting {
+			return r.Cancel(id) // cancel the job it just submitted
+		}
+		return nil
 	case StateBatchWaiting:
 		r.pollMu.Lock()
 		defer r.pollMu.Unlock()
