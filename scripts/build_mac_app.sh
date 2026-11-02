@@ -17,7 +17,13 @@ BIN="build/nalmeok"
 UNIVERSAL="build/nalmeok-universal"
 APP="build/Nalmeok.app"
 CONTENTS="$APP/Contents"
+ICNS="assets/nalmeok.icns"
 LDFLAGS="-s -w -X main.version=$VERSION"
+
+if [ ! -f "$ICNS" ]; then
+	echo "아이콘이 없어요: $ICNS (scripts/make_icns.sh로 만드세요)" >&2
+	exit 1
+fi
 
 mkdir -p build
 # -o is required: without it the binary is named `nalmeok` and collides with
@@ -41,6 +47,7 @@ echo "아키텍처: $(lipo -archs "$UNIVERSAL")"
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$UNIVERSAL" "$CONTENTS/MacOS/nalmeok"
+cp "$ICNS" "$CONTENTS/Resources/nalmeok.icns"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +62,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<string>kr.nalmeok.app</string>
 	<key>CFBundleExecutable</key>
 	<string>nalmeok</string>
+	<key>CFBundleIconFile</key>
+	<string>nalmeok.icns</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
