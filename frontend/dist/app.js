@@ -16,6 +16,9 @@
   const keysIntro = $("keys-intro");
   const keySource = $("key-source");
   const keyList = $("key-list");
+  const keyCaption = $("key-caption");
+  const keyPicker = $("key-picker");
+  const keyPickerLabel = $("key-picker-label");
   const keyForm = $("key-form");
   const keyTier = $("key-tier");
   const keyValue = $("key-value");
@@ -43,6 +46,8 @@
     available: { free: false, paid: false },
     query: "",
     keyTier: "free",
+    newItemKey: "", // toolbar choice for new files; "" = automatic
+    openKey: "", // key whose settings panel is expanded
   };
 
   const GLYPHS = {
@@ -55,8 +60,12 @@
     reveal: `<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor"
       stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
       <path d="M2.5 4.5h4.5l1.5 1.5h7v8.5h-13z"/><path d="M6.5 10.3h5M9.7 8.5l1.8 1.8-1.8 1.8"/></svg>`,
-    close: `<svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
-      stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="m2 2 6 6M8 2 2 8"/></svg>`,
+    handle: `<svg width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5h11M1.5 5h11M1.5 8.5h11"/></svg>`,
+    chevron: `<svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor"
+      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m1.5 1.5 4 4-4 4"/></svg>`,
+    check: `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+      stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg>`,
   };
 
   // ── Backend ───────────────────────────────────────────────
@@ -116,6 +125,7 @@
       button.setAttribute("aria-selected", String(selected));
       button.disabled = button.dataset.mode === "batch" ? !paid : !free;
     }
+    renderPicker();
   }
 
   async function setMode(mode) {
@@ -197,15 +207,16 @@
       case "running": {
         const progress = Number(item.Progress) || 0;
         const detail = item.Detail || "";
+        const aside = keyTag(item);
         if (progress <= 0 && detail && detail !== "전사 중") {
-          return { status: `<div class="status"><span>${esc(detail)}</span></div>` };
+          return { status: `<div class="status"><span>${esc(detail)}</span></div>`, aside };
         }
-        return { status: progressHTML(progress) };
+        return { status: progressHTML(progress), aside };
       }
       case "batch_waiting": {
         const minutes = minutesSince(item.CreatedAt);
         const text = minutes < 1 ? "기다리는 중" : `기다리는 중 · ${minutes}분째`;
-        return { status: `<div class="status"><span>${text}</span></div>` };
+        return { status: `<div class="status"><span>${text}</span></div>`, aside: keyTag(item) };
       }
       case "free_exhausted":
         return {
@@ -233,8 +244,16 @@
           aside: `<button class="accent-button" type="button" data-action="retry" data-id="${id}">다시 시도</button>`,
         };
       default:
-        return { status: `<div class="status"><span>${esc(item.Detail || "대기 중")}</span></div>` };
+        return {
+          status: `<div class="status"><span>${esc(item.Detail || "대기 중")}</span></div>`,
+          aside: keyTag(item),
+        };
     }
+  }
+
+  // Rows pinned to one key say which, quietly. Automatic rows say nothing.
+  function keyTag(item) {
+    return item.KeyLabel ? `<span class="key-tag">${esc(item.KeyLabel)}</span>` : "";
   }
 
   function isActive(item) {
@@ -692,6 +711,7 @@
   function closeMenu() {
     if (menu.hidden) return;
     menu.hidden = true;
+    menu.classList.remove("has-checks");
     if (menuRow) menuRow.classList.remove("is-menu");
     menuRow = null;
   }
@@ -715,20 +735,48 @@
 
   // ── Keys ──────────────────────────────────────────────────
 
+  const tierName = (tier) => (tier === "free" ? "무료" : "유료");
+
+  function keyPanelHTML(key) {
+    if (key.Source === "env") {
+      return `
+        <div class="key-panel">
+          <p class="key-panel-note">환경변수 키는 바꿀 수 없어요</p>
+        </div>`;
+    }
+    const tierButton = (tier) => `<button type="button" role="tab" data-key-tier="${tier}"
+      aria-selected="${key.Tier === tier}">${tierName(tier)}</button>`;
+    return `
+      <div class="key-panel">
+        <label class="key-field-label" for="key-name">이름</label>
+        <input class="field key-name" id="key-name" type="text" spellcheck="false"
+               autocomplete="off" value="${esc(key.Label)}" data-original="${esc(key.Label)}">
+        <span class="key-field-label">등급</span>
+        <div class="segmented segmented-wide" role="tablist" aria-label="등급">
+          ${tierButton("free")}${tierButton("paid")}
+        </div>
+        <button class="danger-button" type="button" data-key-delete="${esc(key.ID)}">키 삭제</button>
+      </div>`;
+  }
+
   function keyHTML(key) {
-    const tier = key.Tier === "free" ? "무료" : "유료";
+    const tier = tierName(key.Tier);
     const isEnv = key.Source === "env";
+    const isOpen = state.openKey === key.ID;
     const showTier = !String(key.Label || "").includes(tier);
     return `
-      <div class="key-row">
-        <span class="key-label" title="${esc(key.Label)}">${esc(key.Label)}</span>
-        ${showTier ? `<span class="key-meta">${tier}</span>` : ""}
-        ${isEnv && key.Label !== "환경변수" ? `<span class="key-meta">환경변수</span>` : ""}
-        <span class="key-mask">${esc(key.Masked)}</span>
-        ${isEnv
-          ? `<span class="key-delete-spacer"></span>`
-          : `<button class="key-delete" type="button" data-key-delete="${esc(key.ID)}"
-              aria-label="키 삭제" title="삭제">${GLYPHS.close}</button>`}
+      <div class="key-item${isOpen ? " is-open" : ""}${isEnv ? " is-env" : ""}" data-key-id="${esc(key.ID)}">
+        <div class="key-row" role="button" tabindex="0" aria-expanded="${isOpen}">
+          ${isEnv
+            ? `<span class="key-handle-spacer"></span>`
+            : `<span class="key-handle" title="끌어서 순서 바꾸기">${GLYPHS.handle}</span>`}
+          <span class="key-label" title="${esc(key.Label)}">${esc(key.Label)}</span>
+          ${showTier ? `<span class="key-meta">${tier}</span>` : ""}
+          ${isEnv && key.Label !== "환경변수" ? `<span class="key-meta">환경변수</span>` : ""}
+          <span class="key-mask">${esc(key.Masked)}</span>
+          <span class="key-chevron">${GLYPHS.chevron}</span>
+        </div>
+        ${isOpen ? keyPanelHTML(key) : ""}
       </div>`;
   }
 
@@ -744,14 +792,16 @@
       .catch((error) => showToast(errorText(error)))
       .finally(async () => {
         hiddenKeys.delete(id);
-        await loadKeys();
+        await reloadKeys();
       });
   }
 
   function deleteKeyWithUndo(id) {
     commitKeyDelete();
     hiddenKeys.add(id);
+    if (state.openKey === id) state.openKey = "";
     renderKeys();
+    renderPicker();
     pendingKeyDelete = { id, timer: setTimeout(commitKeyDelete, UNDO_MS) };
     showToast("키를 지웠어요", {
       action: "실행 취소",
@@ -762,25 +812,83 @@
         pendingKeyDelete = null;
         hiddenKeys.delete(id);
         renderKeys();
+        renderPicker();
       },
     });
   }
 
+  function visibleKeys() {
+    return state.keys.filter((key) => !hiddenKeys.has(key.ID));
+  }
+
+  function keyByID(id) {
+    return state.keys.find((key) => key.ID === id) || null;
+  }
+
   function renderKeys() {
-    keyList.innerHTML = state.keys.filter((key) => !hiddenKeys.has(key.ID)).map(keyHTML).join("");
+    if (keyDrag) return; // the drag owns the list until it drops
+    const keys = visibleKeys();
+    if (state.openKey && !keys.some((key) => key.ID === state.openKey)) state.openKey = "";
+
+    // A refresh while the name field has focus keeps what was typed.
+    const active = document.activeElement;
+    const typing = active && active.classList.contains("key-name") && keyList.contains(active)
+      ? { value: active.value, start: active.selectionStart, end: active.selectionEnd }
+      : null;
+
+    keyList.innerHTML = keys.map(keyHTML).join("");
+    keyCaption.hidden = keys.length < 2;
     keysIntro.hidden = state.keys.length > 0;
     for (const button of keyTier.querySelectorAll("button")) {
       button.setAttribute("aria-selected", String(button.dataset.tier === state.keyTier));
     }
+
+    if (typing) {
+      const input = keyList.querySelector(".key-name");
+      if (input) {
+        input.value = typing.value;
+        input.focus();
+        input.setSelectionRange(typing.start, typing.end);
+      }
+    }
   }
 
   async function loadKeys() {
-    const keys = await call("Keys");
+    const [keys, newItemKey] = await Promise.all([
+      call("Keys"),
+      call("NewItemKey").catch(() => ""),
+    ]);
     state.keys = Array.isArray(keys) ? keys : [];
+    state.newItemKey = typeof newItemKey === "string" ? newItemKey : "";
     renderKeys();
-    await loadModeState();
+    await loadModeState(); // also renders the picker
     // Availability decides whether "유료로 이어서" shows on exhausted rows.
     renderItems();
+  }
+
+  // "keys:changed" can arrive right after a call that already reloads, so
+  // overlapping reloads collapse into one more run.
+  let keysLoading = null;
+  let keysReloadAgain = false;
+
+  function reloadKeys() {
+    if (keysLoading) {
+      keysReloadAgain = true;
+      return keysLoading;
+    }
+    keysLoading = (async () => {
+      try {
+        do {
+          keysReloadAgain = false;
+          await loadKeys();
+        } while (keysReloadAgain);
+      } catch (error) {
+        showToast(errorText(error));
+      } finally {
+        keysLoading = null;
+      }
+    })();
+    return keysLoading;
   }
 
   function showKeyError(message) {
@@ -788,12 +896,240 @@
     keyError.hidden = false;
   }
 
+  // ── Key settings panel ────────────────────────────────────
+
+  function toggleKeyPanel(id) {
+    state.openKey = state.openKey === id ? "" : id;
+    keyError.hidden = true;
+    renderKeys();
+  }
+
+  function collapseKeyPanel() {
+    if (!state.openKey) return false;
+    state.openKey = "";
+    renderKeys();
+    return true;
+  }
+
+  async function commitKeyName(input) {
+    const id = input.closest(".key-item")?.dataset.keyId;
+    const original = input.dataset.original || "";
+    const value = input.value.trim();
+    if (!input.isConnected) return; // removed by a refresh, not a real blur
+    if (!id || !value || value === original) {
+      input.value = original;
+      return;
+    }
+    input.dataset.original = value; // a second blur does not resend
+    try {
+      await call("RenameKey", id, value);
+      keyError.hidden = true;
+    } catch (error) {
+      input.dataset.original = original;
+      showKeyError(errorText(error));
+    }
+    await reloadKeys();
+  }
+
+  async function setKeyTier(id, tier) {
+    const key = keyByID(id);
+    if (!key || key.Tier === tier) return;
+    keyError.hidden = true;
+    key.Tier = tier; // show the choice at once; the reload confirms it
+    renderKeys();
+    try {
+      await call("SetKeyTier", id, tier);
+    } catch (error) {
+      showKeyError(errorText(error));
+    }
+    await reloadKeys();
+  }
+
+  // ── Key order (drag) ──────────────────────────────────────
+  //
+  // Pointer events instead of HTML5 drag and drop, which is unreliable in
+  // WKWebView. The item follows the pointer; the list reorders under it.
+
+  let keyDrag = null; // { el, pointer, startY, originTop, active, before }
+
+  function savedKeyItems() {
+    return [...keyList.querySelectorAll(".key-item:not(.is-env)")];
+  }
+
+  // Siblings slide into their new place instead of jumping.
+  function slideFrom(tops) {
+    for (const [el, top] of tops) {
+      const delta = top - el.offsetTop;
+      if (!delta) continue;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${delta}px)`;
+      void el.offsetWidth; // apply the start position before animating
+      el.style.transition = "transform 0.15s ease";
+      el.style.transform = "";
+    }
+  }
+
+  function onKeyDragStart(event) {
+    if (event.button !== 0) return;
+    const handle = event.target.closest(".key-handle");
+    if (!handle) return;
+    event.preventDefault();
+    const el = handle.closest(".key-item");
+    const active = document.activeElement;
+    if (active && active.classList.contains("key-name")) active.blur(); // commits
+    if (state.openKey) {
+      // Panels change row heights; close them before measuring.
+      state.openKey = "";
+      renderKeys();
+    }
+    const fresh = keyList.querySelector(`.key-item[data-key-id="${CSS.escape(el.dataset.keyId)}"]`);
+    if (!fresh) return;
+    const items = savedKeyItems();
+    const last = items[items.length - 1];
+    keyDrag = {
+      el: fresh,
+      minTop: items[0].offsetTop,
+      maxBottom: last.offsetTop + last.offsetHeight,
+      pointer: event.pointerId,
+      startY: event.clientY,
+      originTop: fresh.offsetTop,
+      active: false,
+      before: savedKeyItems().map((item) => item.dataset.keyId).join("\n"),
+    };
+    try { keyList.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+  }
+
+  function onKeyDragMove(event) {
+    const drag = keyDrag;
+    if (!drag || event.pointerId !== drag.pointer) return;
+    let dy = event.clientY - drag.startY;
+    if (!drag.active) {
+      if (Math.abs(dy) < 3) return;
+      drag.active = true;
+      drag.el.classList.add("is-dragging");
+      keyList.classList.add("is-sorting");
+    }
+    const items = savedKeyItems();
+    const height = drag.el.offsetHeight;
+    // Stay within the saved keys; the environment key keeps the top.
+    const top = Math.max(drag.minTop, Math.min(drag.maxBottom - height, drag.originTop + dy));
+    dy = top - drag.originTop;
+
+    const center = top + height / 2;
+    const others = items.filter((item) => item !== drag.el);
+    const target = others.find((item) => center < item.offsetTop + item.offsetHeight / 2) || null;
+    const next = target || (others.length ? others[others.length - 1].nextSibling : null);
+    if (drag.el.nextSibling !== next && drag.el !== next) {
+      const tops = new Map(others.map((item) => [item, item.offsetTop]));
+      keyList.insertBefore(drag.el, next);
+      slideFrom(tops);
+    }
+    drag.el.style.transform = `translateY(${drag.originTop + dy - drag.el.offsetTop}px)`;
+  }
+
+  async function onKeyDragEnd(event) {
+    const drag = keyDrag;
+    if (!drag || event.pointerId !== drag.pointer) return;
+    keyDrag = null;
+    try { keyList.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    if (!drag.active) return;
+
+    drag.el.style.transition = "transform 0.15s ease";
+    drag.el.style.transform = "";
+    keyList.classList.remove("is-sorting");
+    setTimeout(() => {
+      drag.el.classList.remove("is-dragging");
+      drag.el.style.transition = "";
+    }, 150);
+
+    const order = savedKeyItems().map((item) => item.dataset.keyId);
+    if (order.join("\n") === drag.before) return;
+    // Keys waiting on an undo still exist in the backend; keep them listed.
+    for (const id of hiddenKeys) if (!order.includes(id)) order.push(id);
+
+    const position = new Map(order.map((id, index) => [id, index]));
+    state.keys.sort((a, b) => {
+      if (a.Source === "env" || b.Source === "env") return a.Source === "env" ? -1 : 1;
+      return (position.get(a.ID) ?? 0) - (position.get(b.ID) ?? 0);
+    });
+    keyError.hidden = true;
+    try {
+      await call("SetKeyOrder", order);
+    } catch (error) {
+      showKeyError(errorText(error));
+    }
+    await reloadKeys();
+  }
+
+  // ── Toolbar key picker ────────────────────────────────────
+
+  function pickerTier() {
+    return state.mode === "batch" ? "paid" : "free";
+  }
+
+  function pickerKeys() {
+    return visibleKeys().filter((key) => key.Tier === pickerTier());
+  }
+
+  // Shown only when the current tier has a real choice. A choice that no
+  // longer fits the tier (mode switched, key retiered) goes back to automatic.
+  function renderPicker() {
+    const keys = pickerKeys();
+    const show = !modeToggle.hidden && keys.length >= 2;
+    const chosen = keys.find((key) => key.ID === state.newItemKey) || null;
+    if (state.newItemKey && (!chosen || !show)) setNewItemKey("");
+    keyPicker.hidden = !show;
+    keyPickerLabel.textContent = chosen && show ? chosen.Label : "자동";
+    if (!show && menuRow === keyPicker) closeMenu();
+  }
+
+  async function setNewItemKey(id) {
+    const previous = state.newItemKey;
+    state.newItemKey = id;
+    if (id !== previous) renderPicker();
+    try {
+      await call("SetNewItemKey", id);
+    } catch (error) {
+      state.newItemKey = previous;
+      renderPicker();
+      showToast(errorText(error));
+    }
+  }
+
+  function openPickerMenu() {
+    if (menuRow === keyPicker) {
+      closeMenu();
+      return;
+    }
+    closeMenu();
+    const entry = (id, label) => {
+      const selected = state.newItemKey === id;
+      return `<button type="button" role="menuitemradio" aria-checked="${selected}"
+        data-pick="${esc(id)}"><span class="menu-check">${selected ? GLYPHS.check : ""}</span>${esc(label)}</button>`;
+    };
+    menu.innerHTML = entry("", "자동 (우선순위대로)") + "<hr>"
+      + pickerKeys().map((key) => entry(key.ID, key.Label)).join("");
+    menu.classList.add("has-checks");
+    delete menu.dataset.id;
+    menu.hidden = false;
+    menuRow = keyPicker;
+    keyPicker.classList.add("is-menu");
+
+    const anchor = keyPicker.getBoundingClientRect();
+    const rect = menu.getBoundingClientRect();
+    const x = Math.min(anchor.left - 6, window.innerWidth - rect.width - 6);
+    menu.style.left = `${Math.max(6, x)}px`;
+    menu.style.top = `${anchor.bottom + 4}px`;
+  }
+
+
   // ── Sheets ────────────────────────────────────────────────
 
   function openKeys(tier) {
     closeMenu();
     if (tier) state.keyTier = tier;
     keyError.hidden = true;
+    state.openKey = "";
     renderKeys();
     keysSheet.hidden = false;
     if (state.keys.length === 0) keyValue.focus();
@@ -853,6 +1189,7 @@
       const button = event.target.closest("button[data-mode]");
       if (button) setMode(button.dataset.mode);
     });
+    keyPicker.addEventListener("click", openPickerMenu);
 
     let searchTimer = null;
     search.addEventListener("input", () => {
@@ -910,6 +1247,12 @@
     });
 
     menu.addEventListener("click", (event) => {
+      const pick = event.target.closest("button[data-pick]");
+      if (pick) {
+        closeMenu();
+        setNewItemKey(pick.dataset.pick);
+        return;
+      }
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const id = menu.dataset.id;
@@ -918,7 +1261,7 @@
     });
 
     document.addEventListener("pointerdown", (event) => {
-      if (!menu.hidden && !menu.contains(event.target)) closeMenu();
+      if (!menu.hidden && !menu.contains(event.target) && !keyPicker.contains(event.target)) closeMenu();
       if (swipe.offsets.size && !event.target.closest(".row")) closeOtherRows(null);
     }, true);
     list.addEventListener("scroll", closeMenu, { passive: true });
@@ -948,6 +1291,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         if (!menu.hidden) closeMenu();
+        else if (!keysSheet.hidden && collapseKeyPanel()) return;
         else if (sheetOpen()) closeSheets();
         else if (swipe.offsets.size) closeOtherRows(null);
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !sheetOpen()) {
@@ -967,11 +1311,46 @@
     trackHover(keyList, ".key-row");
     trackHover(list, ".row");
 
-    keyList.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-key-delete]");
-      if (!button) return;
-      deleteKeyWithUndo(button.dataset.keyDelete);
+    keyList.addEventListener("click", (event) => {
+      const del = event.target.closest("[data-key-delete]");
+      if (del) {
+        deleteKeyWithUndo(del.dataset.keyDelete);
+        return;
+      }
+      const tier = event.target.closest("button[data-key-tier]");
+      if (tier) {
+        setKeyTier(tier.closest(".key-item").dataset.keyId, tier.dataset.keyTier);
+        return;
+      }
+      if (event.target.closest(".key-handle")) return;
+      const row = event.target.closest(".key-row");
+      if (row) toggleKeyPanel(row.parentElement.dataset.keyId);
     });
+    keyList.addEventListener("keydown", (event) => {
+      const row = event.target.closest(".key-row");
+      if (row && event.target === row && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        toggleKeyPanel(row.parentElement.dataset.keyId);
+        return;
+      }
+      if (!event.target.classList.contains("key-name") || event.isComposing) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.target.blur(); // commits on blur
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.target.value = event.target.dataset.original || "";
+        event.target.blur();
+      }
+    });
+    keyList.addEventListener("focusout", (event) => {
+      if (event.target.classList.contains("key-name")) commitKeyName(event.target);
+    });
+    keyList.addEventListener("pointerdown", onKeyDragStart);
+    keyList.addEventListener("pointermove", onKeyDragMove);
+    keyList.addEventListener("pointerup", onKeyDragEnd);
+    keyList.addEventListener("pointercancel", onKeyDragEnd);
 
     keyForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1017,6 +1396,7 @@
 
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
       window.runtime.EventsOn("items:changed", refreshItems);
+      window.runtime.EventsOn("keys:changed", reloadKeys);
     }
 
     // Keep "기다리는 중 · N분째" current without a backend round trip.

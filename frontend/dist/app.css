@@ -205,6 +205,49 @@ button {
   box-shadow: var(--control-shadow);
 }
 
+/* The mode toggle stays centered; the key picker hangs off its right. */
+.topbar-center {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.picker-button {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 112px;
+  height: 22px;
+  padding: 0 7px 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.picker-button:hover,
+.picker-button.is-menu {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-button svg {
+  flex: 0 0 auto;
+}
+
 .tool-button {
   display: grid;
   place-items: center;
@@ -442,6 +485,16 @@ button {
   flex: 0 0 auto;
 }
 
+.key-tag {
+  display: block;
+  max-width: 120px;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .accent-button {
   padding: 3px 2px;
   border: none;
@@ -615,6 +668,18 @@ button {
   color: var(--danger-text);
 }
 
+.menu.has-checks button {
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+}
+
+.menu-check {
+  display: grid;
+  flex: 0 0 18px;
+  place-items: center;
+}
+
 .menu hr {
   height: 0.5px;
   margin: 5px 10px;
@@ -698,13 +763,53 @@ button {
   margin: -12px 0 22px;
 }
 
+.key-caption {
+  margin: -10px 0 4px;
+  color: var(--secondary);
+  font-size: 12px;
+}
+
+.key-caption:not([hidden]) + .key-list {
+  margin-top: 0;
+}
+
+.key-item {
+  position: relative;
+  border-bottom: 0.5px solid var(--separator);
+  background: var(--bg);
+}
+
 .key-row {
   display: flex;
   align-items: center;
   gap: 10px;
   height: 40px;
-  border-bottom: 0.5px solid var(--separator);
   font-size: 13.5px;
+}
+
+.key-row:focus-visible {
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.key-handle,
+.key-handle-spacer {
+  flex: 0 0 18px;
+  width: 18px;
+}
+
+.key-handle {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  color: var(--tertiary);
+  cursor: grab;
+  touch-action: none;
+  transition: color 0.12s ease;
+}
+
+.key-row.is-hover .key-handle {
+  color: var(--secondary);
 }
 
 .key-label {
@@ -726,35 +831,97 @@ button {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.key-delete {
+.key-chevron {
   display: grid;
+  flex: 0 0 12px;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
+  color: var(--tertiary);
+  transition: transform 0.15s ease, color 0.12s ease;
+}
+
+.key-row.is-hover .key-chevron {
   color: var(--secondary);
-  visibility: hidden;
 }
 
-/* Hover is tracked in JS (one row at a time): WKWebView can leave :hover
-   stuck on rows the pointer has already left. */
-.key-row.is-hover .key-delete,
-.key-delete:focus-visible {
-  visibility: visible;
+.key-item.is-open .key-chevron {
+  transform: rotate(90deg);
 }
 
-.key-delete:hover {
+.key-panel {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+  padding: 14px 14px 10px;
+  border-radius: 10px;
   background: var(--fill);
-  color: var(--danger-text);
+  animation: fade-in 0.12s ease-out;
 }
 
-.key-delete-spacer {
-  width: 20px;
+.key-field-label {
+  color: var(--secondary);
+  font-size: 12.5px;
+}
+
+.key-panel .field {
+  background: var(--bg);
+}
+
+.segmented-wide {
+  display: flex;
+  background: var(--fill-strong);
+}
+
+.segmented-wide button {
+  flex: 1 1 0;
+  height: 26px;
+  font-size: 13px;
+}
+
+.danger-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 2px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--danger-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.danger-button:hover {
+  opacity: 0.75;
+}
+
+.key-panel-note {
+  grid-column: 1 / -1;
+  margin: -2px 0 2px;
+  color: var(--secondary);
+  font-size: 12.5px;
+}
+
+/* Lifted while dragged by the handle. */
+.key-item.is-dragging {
+  z-index: 2;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border-bottom-color: transparent;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14), 0 0 0 0.5px var(--separator);
+}
+
+.key-item.is-dragging .key-handle {
+  color: var(--secondary);
+  cursor: grabbing;
+}
+
+.key-list.is-sorting {
+  cursor: grabbing;
 }
 
 .key-form {

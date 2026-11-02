@@ -10,9 +10,19 @@
 <div id="app" class="is-empty">
   <header class="chrome">
     <div class="topbar">
-      <div class="segmented" id="mode-toggle" role="tablist" aria-label="처리 방식" hidden>
-        <button type="button" role="tab" data-mode="free" aria-selected="true">무료</button>
-        <button type="button" role="tab" data-mode="batch" aria-selected="false">유료</button>
+      <div class="topbar-center">
+        <div class="segmented" id="mode-toggle" role="tablist" aria-label="처리 방식" hidden>
+          <button type="button" role="tab" data-mode="free" aria-selected="true">무료</button>
+          <button type="button" role="tab" data-mode="batch" aria-selected="false">유료</button>
+        </div>
+        <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu"
+                aria-label="새 파일에 쓸 키" title="새 파일에 쓸 키" hidden>
+          <span class="picker-label" id="key-picker-label">자동</span>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+               stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m2 3.5 3 3 3-3"/>
+          </svg>
+        </button>
       </div>
       <button class="tool-button add-button" id="add" type="button" aria-label="파일 추가" title="파일 추가">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
@@ -68,6 +78,7 @@
       Gemini API 키가 필요해요.
       <button class="text-button" id="key-source" type="button">키 받는 곳</button>
     </p>
+    <p class="key-caption" id="key-caption" hidden>위에 있는 키부터 써요</p>
     <div class="key-list" id="key-list"></div>
     <form class="key-form" id="key-form" novalidate>
       <div class="segmented segmented-small" id="key-tier" role="tablist" aria-label="등급">
