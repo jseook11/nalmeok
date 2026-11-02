@@ -1,9 +1,12 @@
 #!/bin/sh
 # Build the macOS .app bundle without the Wails CLI.
 #
+# The bundle carries a universal (arm64 + amd64) binary. build/nalmeok stays a
+# native binary for development.
+#
 # Optional signing/notarization:
 #   NALMEOK_SIGN_IDENTITY="Developer ID Application: ..." \
-#   NALMEOK_NOTARY_PROFILE="nalmeok" ./scripts/build_mac_app.sh
+#   NALMEOK_NOTARY_PROFILE="nalmeok-notary" ./scripts/build_mac_app.sh
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -11,17 +14,33 @@ cd "$ROOT"
 
 VERSION="${VERSION:-0.7.0}"
 BIN="build/nalmeok"
+UNIVERSAL="build/nalmeok-universal"
 APP="build/Nalmeok.app"
 CONTENTS="$APP/Contents"
+LDFLAGS="-s -w -X main.version=$VERSION"
 
 mkdir -p build
 # -o is required: without it the binary is named `nalmeok` and collides with
 # the Python package directory `nalmeok/` at the repository root.
-go build -tags desktop,production -ldflags "-s -w -X main.version=$VERSION" -o "$BIN" ./cmd/nalmeok
+go build -tags desktop,production -ldflags "$LDFLAGS" -o "$BIN" ./cmd/nalmeok
+
+# Wails' macOS backend uses cgo, so cross-building needs clang's -arch both for
+# compiling and linking. Each slice is built on its own and joined with lipo.
+for arch in arm64 amd64; do
+	env CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
+		CC="clang -arch $arch" \
+		CGO_CFLAGS="-arch $arch" \
+		CGO_LDFLAGS="-arch $arch" \
+		go build -tags desktop,production -ldflags "$LDFLAGS" \
+		-o "build/nalmeok-$arch" ./cmd/nalmeok
+done
+lipo -create build/nalmeok-arm64 build/nalmeok-amd64 -output "$UNIVERSAL"
+rm -f build/nalmeok-arm64 build/nalmeok-amd64
+echo "아키텍처: $(lipo -archs "$UNIVERSAL")"
 
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-cp "$BIN" "$CONTENTS/MacOS/nalmeok"
+cp "$UNIVERSAL" "$CONTENTS/MacOS/nalmeok"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
