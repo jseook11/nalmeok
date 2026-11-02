@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,6 +39,11 @@ type Config struct {
 	raw  map[string]json.RawMessage
 	keys []Key
 	mode string
+	// keyExtra holds fields of a key entry this app does not use, by key ID;
+	// keyRest holds entries that could not be read as keys. Both are written
+	// back on save so nothing written by another version is lost.
+	keyExtra map[string]map[string]json.RawMessage
+	keyRest  []json.RawMessage
 }
 
 // Dir returns the application's config directory:
@@ -135,7 +142,7 @@ func LoadFrom(path string) (*Config, error) {
 	c.mode = parseMode(raw["gui"])
 
 	if _, ok := raw["keys"]; ok {
-		c.keys = parseKeys(raw["keys"])
+		c.keys, c.keyExtra, c.keyRest = parseKeys(raw["keys"])
 	} else if legacy := legacyKey(raw["api_key"]); legacy != nil {
 		// The Python app read a single top-level api_key as a paid key.
 		c.keys = []Key{*legacy}
@@ -162,65 +169,99 @@ func legacyKey(raw json.RawMessage) *Key {
 }
 
 func parseMode(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return "free"
-	}
-	var gui struct {
-		Mode string `json:"mode"`
-	}
+	var gui map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &gui); err != nil {
 		return "free"
 	}
-	if gui.Mode == "batch" {
+	if text(gui["mode"]) == "batch" {
 		return "batch"
 	}
 	return "free"
 }
 
-func parseKeys(raw json.RawMessage) []Key {
+// keyFields are the key fields this app reads; anything else in a key entry
+// is kept as it was.
+var keyFields = []string{"id", "label", "tier", "api_key", "limit_minutes"}
+
+// parseKeys reads the "keys" list. It is forgiving about value types (a
+// number written as a string, a label written as a number) because a key
+// that fails to parse would otherwise vanish on the next save. Entries that
+// still cannot be used are returned in rest and written back unchanged.
+func parseKeys(raw json.RawMessage) (keys []Key, extra map[string]map[string]json.RawMessage, rest []json.RawMessage) {
+	keys = []Key{}
+	extra = map[string]map[string]json.RawMessage{}
 	var entries []json.RawMessage
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return []Key{}
+		return keys, extra, nil
 	}
 
-	keys := make([]Key, 0, len(entries))
 	for i, entry := range entries {
-		var obj struct {
-			ID           string `json:"id"`
-			Label        string `json:"label"`
-			Tier         string `json:"tier"`
-			APIKey       string `json:"api_key"`
-			LimitMinutes *int   `json:"limit_minutes"`
-		}
-		if err := json.Unmarshal(entry, &obj); err != nil {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(entry, &obj); err != nil || obj == nil {
+			rest = append(rest, entry)
 			continue
 		}
-		apiKey := strings.TrimSpace(obj.APIKey)
+		apiKey := strings.TrimSpace(text(obj["api_key"]))
 		if apiKey == "" {
+			rest = append(rest, entry)
 			continue
 		}
 
-		label := strings.TrimSpace(obj.Label)
+		label := strings.TrimSpace(text(obj["label"]))
 		if label == "" {
 			label = fmt.Sprintf("key%d", i+1)
 		}
-		id := strings.TrimSpace(obj.ID)
+		id := strings.TrimSpace(text(obj["id"]))
 		if id == "" {
 			id = fmt.Sprintf("key_%03d", i+1)
 		}
 		limit := DefaultFreeMinutes
-		if obj.LimitMinutes != nil && *obj.LimitMinutes != 0 {
-			limit = *obj.LimitMinutes
+		if n, ok := number(obj["limit_minutes"]); ok && n != 0 {
+			limit = n
 		}
 		keys = append(keys, Key{
 			ID:           id,
 			Label:        label,
-			Tier:         normalizeTier(obj.Tier),
+			Tier:         normalizeTier(text(obj["tier"])),
 			APIKey:       apiKey,
 			LimitMinutes: clampMinutes(limit),
 		})
+		for _, name := range keyFields {
+			delete(obj, name)
+		}
+		if len(obj) > 0 {
+			extra[id] = obj
+		}
 	}
-	return keys
+	return keys, extra, rest
+}
+
+// text reads a JSON string, or the literal text of a number or boolean.
+func text(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err == nil {
+		switch v.(type) {
+		case float64, bool:
+			return strings.TrimSpace(string(raw))
+		}
+	}
+	return ""
+}
+
+// number reads a JSON number or a numeric string, rounded to an int.
+func number(raw json.RawMessage) (int, bool) {
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int(math.Round(f)), true
+	}
+	if f, err := strconv.ParseFloat(strings.TrimSpace(text(raw)), 64); err == nil {
+		return int(math.Round(f)), true
+	}
+	return 0, false
 }
 
 func normalizeTier(tier string) string {
@@ -550,20 +591,19 @@ func (c *Config) SaveTo(path string) error {
 		raw[name] = value
 	}
 
-	keys := c.keys
-	if keys == nil {
-		keys = []Key{}
-	}
-	keysJSON, err := json.Marshal(keys)
+	keysJSON, err := c.keysJSON()
 	if err != nil {
 		return err
 	}
 	raw["keys"] = keysJSON
 	delete(raw, "api_key")
 
-	gui := make(map[string]json.RawMessage)
+	var gui map[string]json.RawMessage
 	if existing, ok := raw["gui"]; ok {
 		_ = json.Unmarshal(existing, &gui)
+	}
+	if gui == nil {
+		gui = make(map[string]json.RawMessage)
 	}
 	modeJSON, err := json.Marshal(c.Mode())
 	if err != nil {
@@ -582,6 +622,35 @@ func (c *Config) SaveTo(path string) error {
 	}
 	data = append(data, '\n')
 	return writeAtomic(path, data, 0o600)
+}
+
+// keysJSON is the "keys" list: saved keys with their unknown fields, then the
+// entries that could not be read.
+func (c *Config) keysJSON() ([]byte, error) {
+	entries := make([]json.RawMessage, 0, len(c.keys)+len(c.keyRest))
+	for _, key := range c.keys {
+		data, err := json.Marshal(key)
+		if err != nil {
+			return nil, err
+		}
+		if extra := c.keyExtra[key.ID]; len(extra) > 0 {
+			var obj map[string]json.RawMessage
+			if err := json.Unmarshal(data, &obj); err != nil {
+				return nil, err
+			}
+			for name, value := range extra {
+				if _, ok := obj[name]; !ok {
+					obj[name] = value
+				}
+			}
+			if data, err = json.Marshal(obj); err != nil {
+				return nil, err
+			}
+		}
+		entries = append(entries, data)
+	}
+	entries = append(entries, c.keyRest...)
+	return json.Marshal(entries)
 }
 
 func newKeyID() string {
