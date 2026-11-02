@@ -26,6 +26,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -150,6 +151,24 @@ func runGUI() {
 		Mac: &mac.Options{
 			TitleBar:   mac.TitleBarHiddenInset(),
 			Appearance: appearance,
+		},
+		Windows: &windows.Options{
+			// The native title bar takes the page colour so the top bar reads
+			// as one surface. Windows 10 ignores these colours.
+			CustomTheme: &windows.ThemeSettings{
+				LightModeTitleBar:          windows.RGB(0xff, 0xff, 0xff),
+				LightModeTitleBarInactive:  windows.RGB(0xff, 0xff, 0xff),
+				LightModeTitleText:         windows.RGB(0x1d, 0x1d, 0x1f),
+				LightModeTitleTextInactive: windows.RGB(0x86, 0x86, 0x8b),
+				LightModeBorder:            windows.RGB(0xff, 0xff, 0xff),
+				LightModeBorderInactive:    windows.RGB(0xff, 0xff, 0xff),
+				DarkModeTitleBar:           windows.RGB(0x1e, 0x1e, 0x1e),
+				DarkModeTitleBarInactive:   windows.RGB(0x1e, 0x1e, 0x1e),
+				DarkModeTitleText:          windows.RGB(0xf5, 0xf5, 0xf7),
+				DarkModeTitleTextInactive:  windows.RGB(0x98, 0x98, 0x9d),
+				DarkModeBorder:             windows.RGB(0x1e, 0x1e, 0x1e),
+				DarkModeBorderInactive:     windows.RGB(0x1e, 0x1e, 0x1e),
+			},
 		},
 		OnStartup:  application.Startup,
 		OnDomReady: onDomReady,

@@ -2,7 +2,6 @@
   color-scheme: light dark;
 
   --bg: #ffffff;
-  --chrome: #f6f6f6;
   --text: #1d1d1f;
   --secondary: #86868b;
   --tertiary: #b4b4b9;
@@ -29,7 +28,6 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1e1e1e;
-    --chrome: #262626;
     --text: #f5f5f7;
     --secondary: #98989d;
     --tertiary: #636366;
@@ -137,8 +135,15 @@ button {
 .chrome {
   flex: 0 0 auto;
   padding: 8px 12px 10px;
-  border-bottom: 0.5px solid var(--separator);
-  background: var(--chrome);
+  border-bottom: 0.5px solid transparent;
+  background: var(--bg);
+  transition: border-color 0.15s ease;
+}
+
+/* The list and the top bar are one surface. A hairline appears only when
+   content is scrolled underneath it. */
+#app.is-scrolled .chrome {
+  border-bottom-color: var(--separator);
 }
 
 .topbar {
@@ -545,11 +550,6 @@ button {
   justify-content: flex-end;
   gap: 8px;
   padding: 6px 12px 7px;
-  border-top: 0.5px solid var(--separator);
-}
-
-#app.is-empty .footer {
-  border-top-color: transparent;
 }
 
 .round-button {
@@ -634,7 +634,7 @@ button {
   justify-content: center;
   height: 44px;
   border-bottom: 0.5px solid var(--separator);
-  background: var(--chrome);
+  background: var(--bg);
 }
 
 .is-mac .sheet-head {

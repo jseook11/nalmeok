@@ -259,6 +259,11 @@
     return state.items.filter((item) => !hidden.has(item.ID));
   }
 
+  // The top bar gets a hairline only while the list is scrolled.
+  function syncScrolled() {
+    appEl.classList.toggle("is-scrolled", list.scrollTop > 0);
+  }
+
   function renderItems() {
     const items = visibleItems();
     const isEmpty = items.length === 0 && !state.query;
@@ -267,6 +272,7 @@
     if (items.length === 0) {
       rowCache.clear();
       list.innerHTML = state.query ? `<p class="list-note">결과 없음</p>` : "";
+      syncScrolled();
       return;
     }
     const note = list.querySelector(".list-note");
@@ -305,6 +311,7 @@
         swipe.offsets.delete(id);
       }
     }
+    syncScrolled();
   }
 
   function itemByID(id) {
@@ -844,6 +851,7 @@
       if (swipe.offsets.size && !event.target.closest(".row")) closeOtherRows(null);
     }, true);
     list.addEventListener("scroll", closeMenu, { passive: true });
+    list.addEventListener("scroll", syncScrolled, { passive: true });
     window.addEventListener("blur", closeMenu);
 
     toastAction.addEventListener("click", () => {
