@@ -300,8 +300,10 @@ func (c *Config) SavedKeys() []Key {
 	return out
 }
 
-// AllKeys returns the environment key first, then saved keys, with duplicate
-// API keys removed. It mirrors nalmeok/keys.py.
+// AllKeys returns the environment key first, then saved keys in priority
+// order, with duplicate API keys removed. It mirrors nalmeok/keys.py. The
+// environment key cannot be reordered, so it always comes first within its
+// tier.
 func (c *Config) AllKeys() []Key {
 	seen := make(map[string]bool)
 	out := make([]Key, 0, len(c.keys)+1)
@@ -385,8 +387,18 @@ func (c *Config) AddKey(label, tier, apiKey string) (Key, error) {
 }
 
 func (c *Config) uniqueLabel(label string) string {
+	return c.uniqueLabelExcept(label, "")
+}
+
+// uniqueLabelExcept numbers label ("무료2") when another saved key already
+// uses it. The key with ID except is ignored, so renaming a key to its own
+// label keeps it.
+func (c *Config) uniqueLabelExcept(label, except string) string {
 	labels := make(map[string]bool, len(c.keys))
 	for _, key := range c.keys {
+		if except != "" && key.ID == except {
+			continue
+		}
 		labels[key.Label] = true
 	}
 	if !labels[label] {
@@ -398,6 +410,102 @@ func (c *Config) uniqueLabel(label string) string {
 			return candidate
 		}
 	}
+}
+
+// Errors returned by the key editing methods.
+var (
+	ErrKeyNotFound = errors.New("키가 없어요")
+	ErrEnvKey      = errors.New("환경변수 키는 여기서 바꿀 수 없어요")
+	errKeyOrder    = errors.New("키 목록이 맞지 않아요")
+)
+
+// isEnvID reports whether id names the read-only GEMINI_API_KEY entry rather
+// than a saved key.
+func (c *Config) isEnvID(id string) bool {
+	return id == "env" && EnvKey() != nil && c.savedIndex(id) < 0
+}
+
+func (c *Config) savedIndex(id string) int {
+	for i := range c.keys {
+		if c.keys[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// editKey applies fn to the saved key id and persists, restoring the previous
+// keys when the write fails.
+func (c *Config) editKey(id string, fn func(*Key)) (Key, error) {
+	if c.isEnvID(id) {
+		return Key{}, ErrEnvKey
+	}
+	index := c.savedIndex(id)
+	if index < 0 {
+		return Key{}, ErrKeyNotFound
+	}
+	previous := make([]Key, len(c.keys))
+	copy(previous, c.keys)
+	fn(&c.keys[index])
+	if err := c.Save(); err != nil {
+		c.keys = previous
+		return Key{}, err
+	}
+	return c.keys[index], nil
+}
+
+// RenameKey changes a saved key's label. The label is trimmed and numbered
+// when another key already uses it.
+func (c *Config) RenameKey(id, label string) (Key, error) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return Key{}, errors.New("이름을 입력하세요")
+	}
+	return c.editKey(id, func(k *Key) {
+		k.Label = c.uniqueLabelExcept(label, id)
+	})
+}
+
+// SetKeyTier changes a saved key's tier to "free" or "paid". The processing
+// mode is not stored here; EffectiveMode follows the new set of tiers.
+func (c *Config) SetKeyTier(id, tier string) (Key, error) {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier != "free" && tier != "paid" {
+		return Key{}, errors.New("등급이 올바르지 않아요")
+	}
+	return c.editKey(id, func(k *Key) { k.Tier = tier })
+}
+
+// SetKeyOrder reorders the saved keys. The order of "keys" in config.json is
+// the priority: free work starts on the first usable free key and paid Batch
+// uses the first paid key. ids must name every saved key exactly once; the
+// environment key is not part of the list.
+func (c *Config) SetKeyOrder(ids []string) error {
+	for _, id := range ids {
+		if c.isEnvID(id) {
+			return ErrEnvKey
+		}
+	}
+	if len(ids) != len(c.keys) {
+		return errKeyOrder
+	}
+	ordered := make([]Key, 0, len(ids))
+	used := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		index := c.savedIndex(id)
+		if index < 0 || used[id] {
+			return errKeyOrder
+		}
+		used[id] = true
+		ordered = append(ordered, c.keys[index])
+	}
+	previous := c.keys
+	c.keys = ordered
+	if err := c.Save(); err != nil {
+		c.keys = previous
+		return err
+	}
+	return nil
 }
 
 // DeleteKey removes a saved key by ID. It reports whether a key was removed.
