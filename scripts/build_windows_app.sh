@@ -2,8 +2,8 @@
 # Build the Windows executables from macOS or Linux.
 #
 # Wails' Windows backend is pure Go, so a plain cross compile works (CGO off).
-# The Windows icon and application manifest are not embedded yet; that waits on
-# a tool decision (docs/handoff-2026-11-02.md §4).
+# The icon and application manifest come from cmd/nalmeok/rsrc_windows_*.syso,
+# which the linker embeds on its own (regenerate with `go run ./scripts/winres`).
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
