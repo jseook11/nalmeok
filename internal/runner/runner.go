@@ -127,8 +127,9 @@ type Options struct {
 
 // Runner implements app.Runner.
 type Runner struct {
-	opts Options
-	log  *log.Logger
+	opts    Options
+	log     *log.Logger
+	logFile *logFile
 
 	mu        sync.Mutex
 	queue     []string
@@ -195,11 +196,50 @@ func New(opts Options) *Runner {
 	if opts.LogPath != "" {
 		if err := os.MkdirAll(filepath.Dir(opts.LogPath), 0o700); err == nil {
 			if f, err := os.OpenFile(opts.LogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
-				r.log = log.New(f, "", log.LstdFlags)
+				r.logFile = &logFile{f: f}
+				r.log = log.New(r.logFile, "", log.LstdFlags)
 			}
 		}
 	}
 	return r
+}
+
+// Close releases the log file. Background goroutines may still be finishing;
+// anything they log afterwards is dropped. Close is safe to call more than
+// once. Windows cannot delete an open file, so callers close the runner on
+// shutdown.
+func (r *Runner) Close() error {
+	if r.logFile == nil {
+		return nil
+	}
+	return r.logFile.Close()
+}
+
+// logFile is the log destination. Writes after Close are dropped instead of
+// failing, so a worker still unwinding after shutdown cannot hit a closed file.
+type logFile struct {
+	mu sync.Mutex
+	f  *os.File
+}
+
+func (l *logFile) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f == nil {
+		return len(p), nil
+	}
+	return l.f.Write(p)
+}
+
+func (l *logFile) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f == nil {
+		return nil
+	}
+	err := l.f.Close()
+	l.f = nil
+	return err
 }
 
 // Start resumes interrupted work and launches the worker and poller.

@@ -301,6 +301,26 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+type closeSpy struct {
+	*StubRunner
+	closed int
+}
+
+func (r *closeSpy) Close() error {
+	r.closed++
+	return nil
+}
+
+func TestShutdownClosesRunner(t *testing.T) {
+	spy := &closeSpy{StubRunner: NewStubRunner(nil)}
+	New(nil, nil, spy).Shutdown(context.Background())
+	if spy.closed != 1 {
+		t.Fatalf("runner Close calls = %d, want 1", spy.closed)
+	}
+	// A runner without Close is left alone.
+	New(nil, nil, NewStubRunner(nil)).Shutdown(context.Background())
+}
+
 type removeSpy struct {
 	*StubRunner
 	removed []string

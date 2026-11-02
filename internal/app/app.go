@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,8 +112,13 @@ func (a *App) Startup(ctx context.Context) {
 	}
 }
 
-// Shutdown is called by Wails when the window closes.
-func (a *App) Shutdown(context.Context) {}
+// Shutdown is called by Wails when the window closes. A runner that holds
+// resources (the real one keeps the log file open) is closed here.
+func (a *App) Shutdown(context.Context) {
+	if c, ok := a.runner.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
 
 func (a *App) context() context.Context {
 	return a.ctx.get()

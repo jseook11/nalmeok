@@ -104,6 +104,9 @@ func runGUI() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// The app closes the engine on shutdown; this also covers preview mode,
+	// where the engine is never handed to the app. Close is idempotent.
+	defer engine.Close()
 
 	var application *app.App
 	var onDomReady func(context.Context)
@@ -189,6 +192,7 @@ func runCLI(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	defer engine.Close()
 
 	flags := flag.NewFlagSet("nalmeok", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)

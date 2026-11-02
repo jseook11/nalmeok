@@ -265,7 +265,7 @@ func newHarness(t *testing.T, keys ...config.Key) *harness {
 }
 
 func (h *harness) newRunner() *Runner {
-	return New(Options{
+	r := New(Options{
 		Store:     h.st,
 		Media:     h.media,
 		NewClient: h.world.newClient,
@@ -286,6 +286,10 @@ func (h *harness) newRunner() *Runner {
 			return nil
 		},
 	})
+	// The log file must be closed before TempDir cleanup: Windows refuses to
+	// delete an open file.
+	h.t.Cleanup(func() { _ = r.Close() })
+	return r
 }
 
 func freeKey(id string) config.Key {
@@ -712,6 +716,26 @@ func TestDefaultBackoffSchedule(t *testing.T) {
 		if got := r.opts.Backoff(i); got != want[i-1] {
 			t.Errorf("Backoff(%d) = %v, want %v", i, got, want[i-1])
 		}
+	}
+}
+
+func TestCloseReleasesLogFile(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	logPath := filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log")
+	h.r.logf("before close")
+	if err := h.r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := h.r.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	h.r.logf("after close") // dropped, must not fail
+	// Windows refuses to remove a file that is still open.
+	if err := os.Remove(logPath); err != nil {
+		t.Fatalf("remove log after Close: %v", err)
+	}
+	if err := New(Options{}).Close(); err != nil {
+		t.Fatalf("Close without a log file: %v", err)
 	}
 }
 
