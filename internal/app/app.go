@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -747,26 +745,4 @@ func maskKey(key string) string {
 		return "••••"
 	}
 	return "••••" + key[len(key)-4:]
-}
-
-func openPath(path string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", path).Run()
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Run()
-	default:
-		return exec.Command("xdg-open", path).Run()
-	}
-}
-
-func revealPath(path string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", "-R", path).Run()
-	case "windows":
-		return exec.Command("explorer", "/select,"+path).Run()
-	default:
-		return exec.Command("xdg-open", filepath.Dir(path)).Run()
-	}
 }
