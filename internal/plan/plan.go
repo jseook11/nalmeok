@@ -37,19 +37,26 @@ type UnitPlan struct {
 	Seconds float64
 }
 
-// Units packs pieces in order, greedily, so each unit holds at most
-// maxSeconds of audio. A single piece longer than maxSeconds gets its own unit.
-func Units(pieces []media.Piece, maxSeconds float64) []UnitPlan {
+// Units plans one request per source file. tracks holds the prepared pieces of
+// each source file in order. Pieces of one file are packed greedily up to
+// maxSeconds; a file longer than maxSeconds becomes several units. Pieces of
+// different files are never put in the same request: Gemini blocked a folder
+// whose two lectures shared one request (2026-11-02 measurement), while each
+// file alone passed.
+func Units(tracks [][]media.Piece, maxSeconds float64) []UnitPlan {
 	var units []UnitPlan
-	for _, p := range pieces {
-		n := len(units)
-		if n == 0 || units[n-1].Seconds+p.Seconds > maxSeconds+1e-6 {
-			units = append(units, UnitPlan{Index: n})
-			n++
+	for _, pieces := range tracks {
+		first := len(units) // first unit of this file
+		for _, p := range pieces {
+			n := len(units)
+			if n == first || units[n-1].Seconds+p.Seconds > maxSeconds+1e-6 {
+				units = append(units, UnitPlan{Index: n})
+				n++
+			}
+			u := &units[n-1]
+			u.Pieces = append(u.Pieces, p)
+			u.Seconds += p.Seconds
 		}
-		u := &units[n-1]
-		u.Pieces = append(u.Pieces, p)
-		u.Seconds += p.Seconds
 	}
 	return units
 }

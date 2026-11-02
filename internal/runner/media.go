@@ -34,11 +34,16 @@ func (DefaultMedia) Prepare(t Track, dir string, maxSeconds float64) ([]Piece, e
 	return out, nil
 }
 
-// Units groups pieces into requests of at most maxSeconds.
-func (DefaultMedia) Units(pieces []Piece, maxSeconds float64) []UnitPlan {
-	in := make([]media.Piece, 0, len(pieces))
-	for _, p := range pieces {
-		in = append(in, media.Piece{Path: p.Path, MIME: p.MIME, Seconds: p.Seconds})
+// Units groups the pieces of each source file into requests of at most
+// maxSeconds, never mixing two files in one request.
+func (DefaultMedia) Units(tracks [][]Piece, maxSeconds float64) []UnitPlan {
+	in := make([][]media.Piece, 0, len(tracks))
+	for _, pieces := range tracks {
+		track := make([]media.Piece, 0, len(pieces))
+		for _, p := range pieces {
+			track = append(track, media.Piece{Path: p.Path, MIME: p.MIME, Seconds: p.Seconds})
+		}
+		in = append(in, track)
 	}
 	plans := plan.Units(in, maxSeconds)
 	out := make([]UnitPlan, 0, len(plans))

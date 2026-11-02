@@ -59,8 +59,12 @@ func (m *fakeMedia) Prepare(t Track, dir string, maxSeconds float64) ([]Piece, e
 	return out, nil
 }
 
-func (m *fakeMedia) Units(pieces []Piece, maxSeconds float64) []UnitPlan {
+func (m *fakeMedia) Units(tracks [][]Piece, maxSeconds float64) []UnitPlan {
 	var out []UnitPlan
+	var pieces []Piece
+	for _, ps := range tracks {
+		pieces = append(pieces, ps...)
+	}
 	for i, p := range pieces {
 		out = append(out, UnitPlan{Index: i, Pieces: []Piece{p}, Seconds: p.Seconds})
 	}

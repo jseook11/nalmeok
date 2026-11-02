@@ -91,7 +91,9 @@ type UnitPlan struct {
 type Media interface {
 	Scan(path string) (Input, error)
 	Prepare(t Track, dir string, maxSeconds float64) ([]Piece, error)
-	Units(pieces []Piece, maxSeconds float64) []UnitPlan
+	// Units takes the pieces of each source file in order and returns one
+	// request per file (long files may take several).
+	Units(tracks [][]Piece, maxSeconds float64) []UnitPlan
 }
 
 // Options configures a Runner. Zero values get production defaults where a
@@ -554,7 +556,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return item, err
 	}
-	var pieces []Piece
+	tracks := make([][]Piece, 0, len(input.Tracks))
 	for _, track := range input.Tracks {
 		if err := ctx.Err(); err != nil {
 			return item, err
@@ -563,9 +565,13 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		if err != nil {
 			return item, userError{err}
 		}
-		pieces = append(pieces, ps...)
+		tracks = append(tracks, ps)
 	}
-	if len(pieces) == 0 {
+	pieces := 0
+	for _, ps := range tracks {
+		pieces += len(ps)
+	}
+	if pieces == 0 {
 		return item, userError{errors.New("전사할 오디오가 없어요")}
 	}
 	if input.PDF != "" {
@@ -573,7 +579,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 			return item, err
 		}
 	}
-	plans := r.opts.Media.Units(pieces, r.opts.UnitMaxSeconds)
+	plans := r.opts.Media.Units(tracks, r.opts.UnitMaxSeconds)
 	units := make([]store.Unit, 0, len(plans))
 	var total float64
 	for i, p := range plans {
