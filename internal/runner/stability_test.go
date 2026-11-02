@@ -307,3 +307,34 @@ func TestUnchangedSourceKeepsFinishedUnits(t *testing.T) {
 		t.Errorf("generates = %d, want 3", n)
 	}
 }
+
+// ---- a stop that lands while a run is starting -------------------------------
+
+// Cancel, Remove and SendToBatch stop the active run before they change the
+// item. When the worker has taken the item but not yet set its cancel
+// function, that stop only marks the lane; the run must still start
+// canceled. Otherwise it reads the still-running item and transcribes (or
+// submits a paid job) after the user canceled it.
+func TestStopBeforeRunStartsCancelsRun(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	// Not started: the test drives the lane by hand.
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	l := h.r.lanes["batch"]
+	id, ok := h.r.next(l)
+	if !ok || id != item.ID {
+		t.Fatalf("next = %q, %v", id, ok)
+	}
+	// The first half of Cancel: the run is stopped before the state changes.
+	h.r.mu.Lock()
+	h.r.stopActiveLocked(id)
+	h.r.mu.Unlock()
+
+	h.r.runItem(h.ctx, l, id)
+
+	if n := h.world.submitCallsNow(); n != 0 {
+		t.Fatalf("SubmitBatch calls = %d after a stop, want 0", n)
+	}
+	if got, _ := h.st.Get(id); got.State != StateRunning {
+		t.Fatalf("state = %q (%s), want running (the canceler sets canceled)", got.State, got.Detail)
+	}
+}

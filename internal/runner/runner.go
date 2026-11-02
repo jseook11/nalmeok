@@ -702,6 +702,11 @@ func (r *Runner) runItem(parent context.Context, l *lane, id string) {
 	ctx, cancel := context.WithCancel(parent)
 	r.mu.Lock()
 	l.cancel = cancel
+	if l.canceled {
+		// Stopped between next and here, before there was anything to
+		// cancel: start canceled so the stop is not lost.
+		cancel()
+	}
 	r.mu.Unlock()
 	defer func() {
 		cancel()
