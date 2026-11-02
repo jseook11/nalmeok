@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# The Python app now lives in old/. The Go app gets its own CI after merge.
+defaults:
+  run:
+    working-directory: old
+
 concurrency:
   group: macos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -60,8 +65,8 @@ jobs:
         with:
           name: nalmeok-macos-unsigned-${{ github.sha }}
           path: |
-            dist/UNSIGNED.txt
-            dist/*.dmg
-            dist/nalmeok-app.zip
-            dist/manifest.json
-            dist/SHA256SUMS.txt
+            old/dist/UNSIGNED.txt
+            old/dist/*.dmg
+            old/dist/nalmeok-app.zip
+            old/dist/manifest.json
+            old/dist/SHA256SUMS.txt

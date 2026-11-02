@@ -9,9 +9,9 @@ import (
 )
 
 // TestPromptMatchesPython keeps the Go prompts byte-identical to the Python
-// app's while nalmeok/constants.py still exists.
+// app's while old/nalmeok/constants.py still exists.
 func TestPromptMatchesPython(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "nalmeok", "constants.py"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "old", "nalmeok", "constants.py"))
 	if err != nil {
 		t.Skip("Python constants.py not present")
 	}
