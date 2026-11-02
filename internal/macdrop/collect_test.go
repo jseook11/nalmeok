@@ -59,8 +59,8 @@ func TestPlaceKeepsNameAndNumbersClashes(t *testing.T) {
 
 	want := []string{
 		filepath.Join(dest, "New Recording 12.m4a"),
-		filepath.Join(dest, "New Recording 12 2.m4a"),
-		filepath.Join(dest, "New Recording 12 3.m4a"),
+		filepath.Join(dest, "New Recording 12 (2).m4a"),
+		filepath.Join(dest, "New Recording 12 (3).m4a"),
 	}
 	if got := []string{first, second, third}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("placed at %q, want %q", got, want)

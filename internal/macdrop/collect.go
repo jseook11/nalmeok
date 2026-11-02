@@ -56,10 +56,11 @@ func newStageDir(dest string) (string, error) {
 }
 
 // place moves a received file from its stage folder into dest under the
-// promised name. When that name is taken, " 2", " 3", … go before the
-// extension. Each candidate is claimed with an exclusive create, so two
-// files received at once never take the same name; the rename then replaces
-// the empty claim.
+// promised name. When that name is taken, " (2)", " (3)", … go before the
+// extension, the same style as transcripts (output.UniquePath). UniquePath
+// only checks for existence, so the numbering is mirrored here with each
+// candidate claimed by an exclusive create: two files received at once never
+// take the same name, and the rename then replaces the empty claim.
 func place(staged, dest string) (string, error) {
 	name := filepath.Base(staged)
 	ext := filepath.Ext(name)
@@ -67,7 +68,7 @@ func place(staged, dest string) (string, error) {
 	for n := 1; n <= 10000; n++ {
 		candidate := filepath.Join(dest, name)
 		if n > 1 {
-			candidate = filepath.Join(dest, fmt.Sprintf("%s %d%s", stem, n, ext))
+			candidate = filepath.Join(dest, fmt.Sprintf("%s (%d)%s", stem, n, ext))
 		}
 		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, os.ErrExist) {
