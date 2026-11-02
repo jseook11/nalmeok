@@ -54,6 +54,21 @@ func (r *StubRunner) Add(paths []string, mode, keyID string) error {
 	return nil
 }
 
+// AddWithPDFs records one folder like Add, keeping the PDF choice.
+func (r *StubRunner) AddWithPDFs(path string, pdfs []string, mode, keyID string) error {
+	if err := r.Add([]string{path}, mode, keyID); err != nil {
+		return err
+	}
+	items := r.store.List("")
+	if len(items) == 0 {
+		return nil
+	}
+	return r.store.Update(items[0].ID, func(item *store.Item) {
+		item.PDFChosen = true
+		item.PDFs = append([]string{}, pdfs...)
+	})
+}
+
 // Cancel marks an item canceled.
 func (r *StubRunner) Cancel(id string) error {
 	return r.update(id, func(item *store.Item) {

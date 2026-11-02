@@ -25,6 +25,9 @@ type Runner interface {
 	// Add queues paths. keyID pins the items to one key; empty means
 	// automatic by priority.
 	Add(paths []string, mode, keyID string) error
+	// AddWithPDFs adds one folder with the reference PDFs the user picked
+	// (empty = none) and keeps that choice on the item.
+	AddWithPDFs(path string, pdfs []string, mode, keyID string) error
 	Cancel(id string) error
 	Retry(id string) error
 	SendToBatch(id string) error
@@ -85,6 +88,10 @@ type App struct {
 	// listWidth is the window width before the transcript pane widened it,
 	// restored when the pane closes. Guarded by mu.
 	listWidth int
+
+	// pdf holds folders waiting for the user to pick their reference PDFs
+	// (pdfchoice.go).
+	pdf pdfChoices
 
 	// ValidateKey is an optional, non-billing check run before saving a key.
 	// Phase 2 sets this to a models.get call; it is nil in phase 1.
@@ -259,7 +266,13 @@ func (a *App) AddPathsWithKey(paths []string, keyID string) error {
 			return errPinnedKey
 		}
 	}
-	return a.runner.Add(cleaned, a.GetMode(), keyID)
+	mode := a.GetMode()
+	// Folders with several PDFs wait for the PDF sheet; the rest start now.
+	cleaned = a.holdPDFChoices(cleaned, mode, keyID)
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return a.runner.Add(cleaned, mode, keyID)
 }
 
 // SetItemKey pins a finished-with-error, canceled or free_exhausted item to
