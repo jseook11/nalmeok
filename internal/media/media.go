@@ -120,6 +120,7 @@ func Scan(path string) (Input, error) {
 			pdfs = append(pdfs, full)
 		}
 	}
+	audio = dropConvertedMP4(audio)
 	if len(audio) == 0 {
 		return Input{}, errors.New("폴더에 오디오 파일이 없어요")
 	}
@@ -142,6 +143,28 @@ func Scan(path string) (Input, error) {
 		in.Tracks = append(in.Tracks, track)
 	}
 	return in, nil
+}
+
+// dropConvertedMP4 removes an .mp4 when an .m4a with the same name sits next
+// to it: the .m4a is the audio already taken out of that video, and sending
+// both would transcribe (and bill) the lecture twice. The Python app did the
+// same. Names compare case-insensitively, as on macOS and Windows disks.
+func dropConvertedMP4(paths []string) []string {
+	m4a := make(map[string]bool)
+	for _, p := range paths {
+		if strings.EqualFold(filepath.Ext(p), ".m4a") {
+			m4a[strings.ToLower(strings.TrimSuffix(p, filepath.Ext(p)))] = true
+		}
+	}
+	out := paths[:0:0]
+	for _, p := range paths {
+		ext := filepath.Ext(p)
+		if strings.EqualFold(ext, ".mp4") && m4a[strings.ToLower(strings.TrimSuffix(p, ext))] {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func readTrack(path, format string) (Track, error) {
