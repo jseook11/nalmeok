@@ -24,6 +24,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/macdrop"
+	"github.com/jseook11/nalmeok/internal/notify"
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
@@ -104,6 +105,7 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 		LogPath:        logPath,
 		UnitMaxSeconds: plan.UnitMaxSeconds,
 		EarlyEstimate:  true,
+		Notify:         notify.Send,
 	})
 	return cfg, history, engine, nil
 }
@@ -171,6 +173,9 @@ func runGUI() {
 			return
 		}
 		application.Startup(ctx)
+		// macOS app bundle: clicking a completion notification brings the
+		// window forward, like a second launch does.
+		notify.OnClick(func() { showWindow(ctx) })
 		// macOS: recordings dragged from Voice Memos arrive as file promises.
 		// They are saved in ~/Documents/Nalmeok/<voice memos> (the transcript
 		// goes next to them) and then take the normal drop path (OnFileDrop
@@ -238,9 +243,7 @@ func runGUI() {
 				if ctx == nil {
 					return
 				}
-				wailsruntime.WindowUnminimise(*ctx)
-				wailsruntime.Show(*ctx)
-				wailsruntime.WindowShow(*ctx)
+				showWindow(*ctx)
 			},
 		},
 		OnStartup:  onStartup,
@@ -251,6 +254,13 @@ func runGUI() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// showWindow brings the hidden or minimised window back to the front.
+func showWindow(ctx context.Context) {
+	wailsruntime.WindowUnminimise(ctx)
+	wailsruntime.Show(ctx)
+	wailsruntime.WindowShow(ctx)
 }
 
 // runCLI transcribes the given paths without opening a window. It prints one

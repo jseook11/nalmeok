@@ -16,9 +16,7 @@ import (
 	"log"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -119,7 +117,8 @@ type Options struct {
 	WorkDir string
 	// LogPath is the log file; empty disables logging.
 	LogPath string
-	// Notify shows an OS notification. nil uses the platform default.
+	// Notify shows an OS notification when an item finishes. nil shows
+	// none; the app and CLI pass notify.Send.
 	Notify func(title, message string)
 
 	UnitMaxSeconds float64
@@ -189,7 +188,7 @@ func New(opts Options) *Runner {
 		opts.NewClient = gemini.New
 	}
 	if opts.Notify == nil {
-		opts.Notify = notify
+		opts.Notify = func(title, message string) {}
 	}
 	r := &Runner{
 		opts:      opts,
@@ -1993,18 +1992,4 @@ func (r *Runner) redactString(s string) string {
 		}
 	}
 	return s
-}
-
-func notify(title, message string) {
-	if runtime.GOOS != "darwin" {
-		return
-	}
-	script := fmt.Sprintf("display notification %s with title %s", appleQuote(message), appleQuote(title))
-	_ = exec.Command("osascript", "-e", script).Run()
-}
-
-func appleQuote(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + s + `"`
 }

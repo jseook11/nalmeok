@@ -98,7 +98,10 @@ if [ -n "${NALMEOK_SIGN_IDENTITY:-}" ]; then
 		echo "공증과 스테이플링을 마쳤습니다: $APP"
 	fi
 else
-	echo "서명하지 않은 앱입니다: $APP"
+	# Ad-hoc signature: binds Info.plist so the bundle identifier
+	# (kr.nalmeok.app) is the app's identity, which macOS notifications use.
+	codesign --force --sign - "$APP"
+	echo "임시 서명(ad-hoc)만 한 앱입니다: $APP"
 fi
 
 echo "빌드 완료: $APP"
