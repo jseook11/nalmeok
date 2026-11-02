@@ -693,6 +693,23 @@
     menuRow = null;
   }
 
+  // WKWebView can leave :hover stuck on rows the pointer already left (seen
+  // when moving straight up the key list), so rows get an is-hover class from
+  // JS instead, one row at a time.
+  function trackHover(container, selector) {
+    let current = null;
+    const set = (row) => {
+      if (row === current) return;
+      current?.classList.remove("is-hover");
+      current = row;
+      row?.classList.add("is-hover");
+    };
+    container.addEventListener("pointermove", (event) => {
+      set(event.target.closest(selector));
+    });
+    container.addEventListener("pointerleave", () => set(null));
+  }
+
   // ── Keys ──────────────────────────────────────────────────
 
   function keyHTML(key) {
@@ -909,6 +926,9 @@
       state.keyTier = button.dataset.tier;
       renderKeys();
     });
+
+    trackHover(keyList, ".key-row");
+    trackHover(list, ".row");
 
     keyList.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-key-delete]");

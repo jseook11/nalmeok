@@ -324,7 +324,7 @@ button {
   display: none;
 }
 
-.row.is-done .row-main:hover,
+.row.is-done.is-hover .row-main,
 .row.is-menu .row-main {
   background: linear-gradient(var(--hover), var(--hover)), var(--bg);
 }
@@ -739,13 +739,14 @@ button {
   border-radius: 50%;
   background: transparent;
   color: var(--secondary);
-  opacity: 0;
-  transition: opacity 0.12s ease;
+  visibility: hidden;
 }
 
-.key-row:hover .key-delete,
+/* Hover is tracked in JS (one row at a time): WKWebView can leave :hover
+   stuck on rows the pointer has already left. */
+.key-row.is-hover .key-delete,
 .key-delete:focus-visible {
-  opacity: 1;
+  visibility: visible;
 }
 
 .key-delete:hover {
