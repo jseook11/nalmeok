@@ -21,15 +21,22 @@ import (
 // Runner owns transcription work. Phase 1 ships a stub; phase 2 replaces it.
 type Runner interface {
 	Start(ctx context.Context)
-	Add(paths []string, mode string) error
+	// Add queues paths. keyID pins the items to one key; empty means
+	// automatic by priority.
+	Add(paths []string, mode, keyID string) error
 	Cancel(id string) error
 	Retry(id string) error
 	SendToBatch(id string) error
 	Remove(id string) error
 }
 
-// Item is the frontend-facing history item.
-type Item = store.Item
+// Item is the frontend-facing history item: the stored item (its fields are
+// flattened into the same JSON object) plus the pinned key's current label.
+// KeyLabel is empty when KeyID is empty or names a deleted key.
+type Item struct {
+	store.Item
+	KeyLabel string `json:"KeyLabel"`
+}
 
 // KeyView is a key as shown in settings. It never contains the full API key.
 type KeyView struct {
@@ -51,10 +58,12 @@ type ModeState struct {
 }
 
 var (
-	errNotReady = errors.New("아직 준비 중이에요")
-	errNoOutput = errors.New("결과 파일이 없어요")
-	errNoConfig = errors.New("설정을 불러오지 못했어요")
-	errNoKey    = errors.New("키가 없어요")
+	errNotReady  = errors.New("아직 준비 중이에요")
+	errNoOutput  = errors.New("결과 파일이 없어요")
+	errNoConfig  = errors.New("설정을 불러오지 못했어요")
+	errNoKey     = errors.New("키가 없어요")
+	errPinnedKey = errors.New("선택한 키가 없어요")
+	errEnvKey    = errors.New("환경변수 키는 바꿀 수 없어요")
 )
 
 // App is the object bound to the frontend.
@@ -66,6 +75,11 @@ type App struct {
 	ctx atomicContext
 
 	mu sync.Mutex // serializes config reads and writes
+
+	// newItemKey is the toolbar key picker's choice for newly added items
+	// ("" = automatic). It lives in memory only, so each launch starts on
+	// automatic. Guarded by mu.
+	newItemKey string
 
 	// ValidateKey is an optional, non-billing check run before saving a key.
 	// Phase 2 sets this to a models.get call; it is nil in phase 1.
@@ -134,11 +148,81 @@ func (a *App) ListItems(query string) []Item {
 	if a.store == nil {
 		return []Item{}
 	}
-	return a.store.List(query)
+	labels := a.keyLabels()
+	stored := a.store.List(query)
+	items := make([]Item, len(stored))
+	for i, it := range stored {
+		items[i] = Item{Item: it}
+		if it.KeyID != "" {
+			items[i].KeyLabel = labels[it.KeyID]
+		}
+	}
+	return items
 }
 
-// AddPaths hands dropped or picked paths to the runner using the saved mode.
+func (a *App) keyLabels() map[string]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	labels := map[string]string{}
+	if a.cfg == nil {
+		return labels
+	}
+	for _, key := range a.cfg.AllKeys() {
+		labels[key.ID] = key.Label
+	}
+	return labels
+}
+
+// findKeyLocked looks up a key (saved or environment) by ID. a.mu must be held.
+func (a *App) findKeyLocked(id string) (config.Key, bool) {
+	if a.cfg == nil {
+		return config.Key{}, false
+	}
+	for _, key := range a.cfg.AllKeys() {
+		if key.ID == id {
+			return key, true
+		}
+	}
+	return config.Key{}, false
+}
+
+// AddPaths hands dropped or picked paths to the runner using the saved mode
+// and the toolbar's key choice (see SetNewItemKey).
 func (a *App) AddPaths(paths []string) error {
+	return a.AddPathsWithKey(paths, a.NewItemKey())
+}
+
+// SetNewItemKey sets the toolbar key picker: files dropped or picked from now
+// on are pinned to keyID. An empty keyID means automatic (priority order).
+func (a *App) SetNewItemKey(keyID string) error {
+	keyID = strings.TrimSpace(keyID)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if keyID != "" {
+		if _, ok := a.findKeyLocked(keyID); !ok {
+			return errPinnedKey
+		}
+	}
+	a.newItemKey = keyID
+	return nil
+}
+
+// NewItemKey returns the toolbar key picker's choice. A key deleted since it
+// was chosen falls back to automatic ("").
+func (a *App) NewItemKey() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.newItemKey != "" {
+		if _, ok := a.findKeyLocked(a.newItemKey); !ok {
+			a.newItemKey = ""
+		}
+	}
+	return a.newItemKey
+}
+
+// AddPathsWithKey is AddPaths pinned to one key. An empty keyID is automatic.
+// A pinned key's tier decides the mode: free key → free, paid key → Batch.
+func (a *App) AddPathsWithKey(paths []string, keyID string) error {
 	if a.runner == nil {
 		return errNotReady
 	}
@@ -152,11 +236,66 @@ func (a *App) AddPaths(paths []string) error {
 	if len(cleaned) == 0 {
 		return errors.New("추가할 파일이 없어요")
 	}
-	return a.runner.Add(cleaned, a.GetMode())
+	keyID = strings.TrimSpace(keyID)
+	if keyID != "" {
+		a.mu.Lock()
+		_, ok := a.findKeyLocked(keyID)
+		a.mu.Unlock()
+		if !ok {
+			return errPinnedKey
+		}
+	}
+	return a.runner.Add(cleaned, a.GetMode(), keyID)
 }
 
-// PickFiles opens the OS file picker and adds the selection.
+// SetItemKey pins a finished-with-error, canceled or free_exhausted item to
+// one key (empty = automatic). It takes effect on the next Retry. Pinning
+// also sets the item's mode from the key's tier so the row shows the right
+// badge before the retry.
+func (a *App) SetItemKey(id, keyID string) error {
+	if a.store == nil {
+		return store.ErrNotFound
+	}
+	keyID = strings.TrimSpace(keyID)
+	mode := ""
+	if keyID != "" {
+		a.mu.Lock()
+		key, ok := a.findKeyLocked(keyID)
+		a.mu.Unlock()
+		if !ok {
+			return errPinnedKey
+		}
+		mode = "batch"
+		if key.Tier == "free" {
+			mode = "free"
+		}
+	}
+	item, ok := a.store.Get(id)
+	if !ok {
+		return store.ErrNotFound
+	}
+	switch item.State {
+	case "failed", "canceled", "free_exhausted":
+	default:
+		return errors.New("진행 중이거나 끝난 항목은 키를 바꿀 수 없어요")
+	}
+	return a.store.Update(id, func(it *store.Item) {
+		it.KeyID = keyID
+		if mode != "" {
+			it.Mode = mode
+		}
+	})
+}
+
+// PickFiles opens the OS file picker and adds the selection with the
+// toolbar's key choice.
 func (a *App) PickFiles() error {
+	return a.PickFilesWithKey(a.NewItemKey())
+}
+
+// PickFilesWithKey opens the OS file picker and adds the selection pinned to
+// keyID ("" = automatic).
+func (a *App) PickFilesWithKey(keyID string) error {
 	ctx := a.context()
 	if ctx == nil {
 		return errNotReady
@@ -173,7 +312,7 @@ func (a *App) PickFiles() error {
 	if len(paths) == 0 {
 		return nil
 	}
-	return a.AddPaths(paths)
+	return a.AddPathsWithKey(paths, keyID)
 }
 
 // Cancel stops an in-flight item.
@@ -356,7 +495,8 @@ func (a *App) SetMode(mode string) error {
 	return a.cfg.SetMode(mode)
 }
 
-// Keys returns saved keys plus the read-only environment key.
+// Keys returns the read-only environment key (if any) first, then saved keys
+// in priority order. The list order is the order keys are tried in.
 func (a *App) Keys() []KeyView {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -416,6 +556,7 @@ func (a *App) AddKey(label, tier, key string) error {
 	if _, err := a.cfg.AddKey(label, tier, key); err != nil {
 		return err
 	}
+	a.emitKeysChanged()
 	return nil
 }
 
@@ -462,6 +603,109 @@ func (a *App) DeleteKey(id string) error {
 	if !deleted {
 		return errNoKey
 	}
+	a.emitKeysChanged()
+	return nil
+}
+
+func (a *App) isEnvKey(id string) bool {
+	if id != "env" || config.EnvKey() == nil {
+		return false
+	}
+	for _, key := range a.cfg.SavedKeys() {
+		if key.ID == id {
+			return false
+		}
+	}
+	return true
+}
+
+// emitKeysChanged tells the window that labels, tiers or order changed. The
+// mode toggle should re-read ModeState on this event.
+func (a *App) emitKeysChanged() {
+	ctx := a.context()
+	if ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(ctx, "keys:changed")
+}
+
+// RenameKey changes a saved key's label. A label already used by another key
+// gets a number ("무료 12").
+func (a *App) RenameKey(id, label string) error {
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	a.mu.Lock()
+	if a.isEnvKey(id) {
+		a.mu.Unlock()
+		return errEnvKey
+	}
+	_, err := a.cfg.RenameKey(id, label)
+	a.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	a.emitKeysChanged()
+	a.emitItemsChanged() // rows show the pinned key's label
+	return nil
+}
+
+// SetKeyTier switches a saved key between "free" and "paid". The effective
+// mode follows the new tiers (see ModeState); the stored preference is kept.
+func (a *App) SetKeyTier(id, tier string) error {
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	a.mu.Lock()
+	if a.isEnvKey(id) {
+		a.mu.Unlock()
+		return errEnvKey
+	}
+	_, err := a.cfg.SetKeyTier(id, tier)
+	a.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	a.emitKeysChanged()
+	return nil
+}
+
+// SetKeyOrder sets the key priority. ids lists the saved keys (Source
+// "config") from highest to lowest priority, each exactly once. The
+// environment key cannot be moved; it always stays first.
+func (a *App) SetKeyOrder(ids []string) error {
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	a.mu.Lock()
+	for _, id := range ids {
+		if a.isEnvKey(id) {
+			a.mu.Unlock()
+			return errEnvKey
+		}
+	}
+	// A saved key that duplicates the environment key is hidden from Keys(),
+	// so the window cannot list it. Keep it at the end.
+	listed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		listed[id] = true
+	}
+	visible := map[string]bool{}
+	for _, key := range a.cfg.AllKeys() {
+		visible[key.ID] = true
+	}
+	full := append([]string(nil), ids...)
+	for _, key := range a.cfg.SavedKeys() {
+		if !listed[key.ID] && !visible[key.ID] {
+			full = append(full, key.ID)
+		}
+	}
+	err := a.cfg.SetKeyOrder(full)
+	a.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	a.emitKeysChanged()
 	return nil
 }
 
