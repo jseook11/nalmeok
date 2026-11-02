@@ -134,6 +134,7 @@ type Upload struct { URI, MIME string; UploadedAt time.Time }
 - **무료 live**: 무료 키를 순서대로 쓴다. 429를 받으면 다음 키로 넘긴다. 요청 시작 간격은 최소 12초(키별). 일시 오류(5xx, 네트워크)는 지수 백오프로 3회 재시도한다. 모든 무료 키가 429면 `free_exhausted`.
 - **유료 Batch**: 유료 키로 미완 조각마다 요청 하나를 만든다. 요청 키(`key`)는 `unit-<index>`다. JSONL 파일을 올리거나 inline 요청으로 Batch를 만든다. 성공하면 결과를 키로 맞춰 `Unit.Text`에 넣고, 실패한 요청이 있으면 `failed`로 두고 "다시 시도"에서 그 조각만 다시 보낸다.
 - 결과 텍스트가 비어 있거나 `MAX_TOKENS`로 끊기면 그 조각을 실패로 본다.
+- `promptFeedback.blockReason`이 오면 그 조각은 `BLOCKED_<reason>`으로 실패 처리한다(live·Batch 모두). 화면에는 "Gemini가 이 오디오를 처리하지 않았어요"만 보여 주고, 원인은 로그에 남긴다.
 - 무료 키 요청 간격은 키별 최소 12초이고, 조각이 길면 TPM 250k에 맞춰 늘린다(130분 조각이면 60초). Python `live_gap_seconds`와 같다.
 - 완료(`done`)되면 `.md`가 기록이므로 `Units`와 `Batch`를 비워 `items.json`을 작게 유지한다.
 - 키 추가 시 확인(`models.get`)은 키가 거부될 때(401·403·`API_KEY_INVALID`)만 저장을 막는다. 네트워크 오류면 그대로 저장한다(Python `check_key`와 같다).

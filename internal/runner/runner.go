@@ -776,7 +776,24 @@ func keyFailure(err error) (keyOutcome, bool) {
 	return keyOK, false
 }
 
+// blockedMessage is what the user sees when Gemini refuses the audio. The
+// server's reason goes to the log instead.
+const blockedMessage = "Gemini가 이 오디오를 처리하지 않았어요"
+
+// blockedError carries the server's block reason out of checkText.
+type blockedError struct{ reason string }
+
+func (e blockedError) Error() string {
+	if e.reason == "" {
+		return blockedMessage
+	}
+	return blockedMessage + " (" + e.reason + ")"
+}
+
 func checkText(text, finish string) error {
+	if strings.HasPrefix(finish, gemini.FinishBlocked) {
+		return blockedError{reason: strings.TrimPrefix(finish, gemini.FinishBlocked)}
+	}
 	if finish == gemini.FinishMaxTokens {
 		return userError{errors.New("결과가 너무 길어서 잘렸어요")}
 	}
@@ -1116,6 +1133,7 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 		return
 	}
 	failed := 0
+	blocked := false
 	firstReason := ""
 	err = r.update(id, func(it *store.Item) {
 		for i := range it.Units {
@@ -1132,6 +1150,10 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 			default:
 				if cerr := checkText(res.Text, res.Finish); cerr != nil {
 					reason = cerr.Error()
+					var be blockedError
+					if errors.As(cerr, &be) {
+						blocked = true
+					}
 				}
 			}
 			if reason != "" {
@@ -1150,6 +1172,11 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 		return
 	}
 	if failed > 0 {
+		if blocked {
+			r.logf("item %s batch blocked: %s", id, firstReason)
+			r.batchFail(id, blockedMessage)
+			return
+		}
 		r.logf("item %s batch: %d units failed (%s)", id, failed, firstReason)
 		r.batchFail(id, fmt.Sprintf("%d개 조각을 받지 못했어요", failed))
 		return
@@ -1329,7 +1356,10 @@ func (e userError) Unwrap() error { return e.err }
 // userMessage turns an error into one short Korean sentence for Item.Detail.
 func userMessage(err error) string {
 	var ue userError
+	var be blockedError
 	switch {
+	case errors.As(err, &be):
+		return blockedMessage
 	case errors.As(err, &ue):
 		return clip(ue.Error())
 	case gemini.IsAuth(err):

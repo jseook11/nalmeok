@@ -128,6 +128,10 @@ func (c *fakeClient) BatchResults(ctx context.Context, name string) (map[string]
 	reqs := c.w.batches[name]
 	out := make(map[string]gemini.Result)
 	for _, r := range reqs {
+		if res, ok := c.w.batchResults[r.Key]; ok {
+			out[r.Key] = res
+			continue
+		}
 		if c.w.batchDrop[r.Key] {
 			c.w.batchDrop[r.Key] = false // fail only once
 			out[r.Key] = gemini.Result{Error: "internal"}
@@ -148,21 +152,23 @@ func (c *fakeClient) CancelBatch(ctx context.Context, name string) error {
 func (c *fakeClient) Validate(ctx context.Context) error { return nil }
 
 type fakeWorld struct {
-	mu         sync.Mutex
-	clients    map[string]*fakeClient
-	batches    map[string][]gemini.BatchRequest
-	batchOrder []string
-	batchState string
-	batchDrop  map[string]bool
-	cancelled  []string
+	mu           sync.Mutex
+	clients      map[string]*fakeClient
+	batches      map[string][]gemini.BatchRequest
+	batchOrder   []string
+	batchState   string
+	batchDrop    map[string]bool
+	batchResults map[string]gemini.Result
+	cancelled    []string
 }
 
 func newWorld() *fakeWorld {
 	return &fakeWorld{
-		clients:    map[string]*fakeClient{},
-		batches:    map[string][]gemini.BatchRequest{},
-		batchState: gemini.BatchRunning,
-		batchDrop:  map[string]bool{},
+		clients:      map[string]*fakeClient{},
+		batches:      map[string][]gemini.BatchRequest{},
+		batchState:   gemini.BatchRunning,
+		batchDrop:    map[string]bool{},
+		batchResults: map[string]gemini.Result{},
 	}
 }
 
@@ -193,6 +199,12 @@ func (w *fakeWorld) submit(reqs []gemini.BatchRequest) (string, error) {
 func (w *fakeWorld) setBatchState(s string) {
 	w.mu.Lock()
 	w.batchState = s
+	w.mu.Unlock()
+}
+
+func (w *fakeWorld) setBatchResult(key string, res gemini.Result) {
+	w.mu.Lock()
+	w.batchResults[key] = res
 	w.mu.Unlock()
 }
 
@@ -560,6 +572,41 @@ func TestEmptyTextFailsUnit(t *testing.T) {
 	failed := h.wait(item.ID, StateFailed)
 	if !strings.Contains(failed.Detail, "비어 있어요") {
 		t.Errorf("Detail = %q", failed.Detail)
+	}
+}
+
+func TestBlockedLiveResponseFailsUnit(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
+		return "", gemini.FinishBlocked + "OTHER", nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	failed := h.wait(item.ID, StateFailed)
+	if failed.Detail != blockedMessage {
+		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage)
+	}
+	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
+	if !strings.Contains(logData, "OTHER") {
+		t.Error("log does not contain the block reason")
+	}
+}
+
+func TestBlockedBatchResponseFailsItem(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	h.world.setBatchResult("unit-0", gemini.Result{Finish: gemini.FinishBlocked + "OTHER"})
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	h.wait(item.ID, StateBatchWaiting)
+	h.world.setBatchState(gemini.BatchSucceeded)
+	h.r.PollOnce(h.ctx)
+	failed := h.wait(item.ID, StateFailed)
+	if failed.Detail != blockedMessage {
+		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage)
+	}
+	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
+	if !strings.Contains(logData, "blocked") || !strings.Contains(logData, "OTHER") {
+		t.Error("log does not contain the block reason")
 	}
 }
 

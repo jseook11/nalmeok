@@ -50,6 +50,10 @@ const (
 const (
 	FinishStop      = "STOP"
 	FinishMaxTokens = "MAX_TOKENS"
+	// FinishBlocked prefixes a finish reason when Gemini refuses the request
+	// (promptFeedback.blockReason). The rest of the string is the server's
+	// reason, for example "BLOCKED_OTHER".
+	FinishBlocked = "BLOCKED_"
 )
 
 // Client is everything the runner needs from Gemini.
@@ -195,10 +199,13 @@ func (c *client) Generate(ctx context.Context, parts []Part) (string, string, er
 }
 
 func responseText(resp *genai.GenerateContentResponse) (string, string) {
-	if resp == nil || len(resp.Candidates) == 0 {
-		if resp != nil && resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {
-			return "", string(resp.PromptFeedback.BlockReason)
-		}
+	if resp == nil {
+		return "", ""
+	}
+	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {
+		return "", FinishBlocked + string(resp.PromptFeedback.BlockReason)
+	}
+	if len(resp.Candidates) == 0 {
 		return "", ""
 	}
 	cand := resp.Candidates[0]

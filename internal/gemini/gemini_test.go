@@ -67,6 +67,7 @@ func TestParseResultsJSONL(t *testing.T) {
 	raw := `{"key":"unit-0","response":{"candidates":[{"content":{"parts":[{"text":"생각","thought":true},{"text":"안녕"},{"text":"하세요"}]},"finishReason":"STOP"}]}}
 {"metadata":{"key":"unit-1"},"response":{"candidates":[{"content":{"parts":[{"text":"잘림"}]},"finishReason":"MAX_TOKENS"}]}}
 {"key":"unit-2","error":{"code":500,"message":"internal"}}
+{"key":"unit-3","response":{"promptFeedback":{"blockReason":"OTHER"}}}
 
 `
 	got, err := ParseResultsJSONL([]byte(raw))
@@ -81,6 +82,24 @@ func TestParseResultsJSONL(t *testing.T) {
 	}
 	if r := got["unit-2"]; r.Error != "internal" {
 		t.Errorf("unit-2 = %+v", r)
+	}
+	if r := got["unit-3"]; r.Text != "" || r.Finish != FinishBlocked+"OTHER" || r.Error != "" {
+		t.Errorf("unit-3 = %+v", r)
+	}
+}
+
+func TestBlockedResponse(t *testing.T) {
+	text, finish := responseText(&genai.GenerateContentResponse{
+		PromptFeedback: &genai.GenerateContentResponsePromptFeedback{BlockReason: genai.BlockedReasonOther},
+	})
+	if text != "" || finish != FinishBlocked+"OTHER" {
+		t.Errorf("blocked response = %q, %q", text, finish)
+	}
+	r := inlinedResult(&genai.InlinedResponse{Response: &genai.GenerateContentResponse{
+		PromptFeedback: &genai.GenerateContentResponsePromptFeedback{BlockReason: genai.BlockedReasonSafety},
+	}})
+	if r.Text != "" || r.Finish != FinishBlocked+"SAFETY" || r.Error != "" {
+		t.Errorf("blocked inline result = %+v", r)
 	}
 }
 
