@@ -696,6 +696,10 @@
         entries.push(["open", "열기"], ["copy", "복사"], ["reveal", REVEAL_LABEL]);
         break;
       case "running":
+        // A free item can move to paid mid-run (e.g. while the server is busy).
+        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", "유료로 이어서"]);
+        entries.push(["cancel", "취소"]);
+        break;
       case "batch_waiting":
         entries.push(["cancel", "취소"]);
         break;
@@ -706,6 +710,7 @@
       case "failed":
       case "canceled":
         entries.push(["retry", "다시 시도"]);
+        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", "유료로 이어서"]);
         break;
       default:
         break;
