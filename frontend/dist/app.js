@@ -269,9 +269,14 @@
     return state.items.filter((item) => !hidden.has(item.ID));
   }
 
-  // The top bar gets a hairline only while the list is scrolled.
+  // The top bar gets a hairline only while the list is scrolled; the footer
+  // gets one only while more rows are hidden below.
   function syncScrolled() {
     appEl.classList.toggle("is-scrolled", list.scrollTop > 0);
+    appEl.classList.toggle(
+      "is-more-below",
+      list.scrollTop + list.clientHeight < list.scrollHeight - 1
+    );
   }
 
   function renderItems() {
@@ -864,6 +869,7 @@
     }, true);
     list.addEventListener("scroll", closeMenu, { passive: true });
     list.addEventListener("scroll", syncScrolled, { passive: true });
+    window.addEventListener("resize", syncScrolled);
     window.addEventListener("blur", closeMenu);
 
     toastAction.addEventListener("click", () => {

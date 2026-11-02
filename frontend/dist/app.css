@@ -550,6 +550,14 @@ button {
   justify-content: flex-end;
   gap: 8px;
   padding: 6px 12px 7px;
+  border-top: 0.5px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+/* The footer is part of the same surface. Its hairline shows only while
+   more rows are hidden below the fold. */
+#app.is-more-below .footer {
+  border-top-color: var(--separator);
 }
 
 .round-button {
