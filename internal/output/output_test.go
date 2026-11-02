@@ -39,8 +39,9 @@ func TestTargetPath(t *testing.T) {
 		{source: "/lectures/ch07/", kind: "folder", want: "/lectures/ch07/ch07.md"},
 	}
 	for _, tt := range tests {
-		if got := TargetPath(tt.source, tt.kind); got != tt.want {
-			t.Fatalf("TargetPath(%q, %q) = %q, want %q", tt.source, tt.kind, got, tt.want)
+		source, want := filepath.FromSlash(tt.source), filepath.FromSlash(tt.want)
+		if got := TargetPath(source, tt.kind); got != want {
+			t.Fatalf("TargetPath(%q, %q) = %q, want %q", source, tt.kind, got, want)
 		}
 	}
 }

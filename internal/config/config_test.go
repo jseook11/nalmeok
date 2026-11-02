@@ -30,8 +30,10 @@ func TestConfigDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("configDir: %v", err)
 			}
-			if got != tt.want {
-				t.Fatalf("configDir = %q, want %q", got, tt.want)
+			// The table uses '/' for readability; configDir joins with the
+			// OS separator.
+			if want := filepath.FromSlash(tt.want); got != want {
+				t.Fatalf("configDir = %q, want %q", got, want)
 			}
 		})
 	}
