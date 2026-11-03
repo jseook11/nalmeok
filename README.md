@@ -32,6 +32,8 @@
 3. 음성 파일이나 폴더를 창에 놓아요. 확인 없이 바로 시작해요.
 4. 끝나면 원본 옆에 `.md`가 생겨요. 끝난 행에서 **Finder에서 보기**(Windows는 **탐색기에서 보기**)를 누르면 파일 위치가 열려요.
 
+<img src="docs/images/app/api-keys.png" alt="무료 키와 유료 키를 등록한 API 키 시트" width="60%">
+
 키 발급과 등록은 [무료 Gemini API 키 발급과 등록](docs/gemini-api-key.md)에 사진과 함께 있어요. 무료 키는 바로 전사에, 유료 키는 Batch(대기 후 처리)에 써요. 두 종류를 모두 넣으면 위쪽 **무료** / **유료** 토글로 골라요. Google AI Pro 구독자라면 [월 $10 크레딧으로 유료 키를 쓸 수 있어요](docs/google-ai-pro-credit.md).
 
 파일은 `강의09.m4a`를 놓으면 `강의09.md`, 폴더는 `ch07`을 놓으면 `ch07/ch07.md`로 원본 옆에 저장돼요.
