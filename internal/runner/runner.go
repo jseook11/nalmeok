@@ -1156,7 +1156,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	if err != nil {
 		return gemini.Result{}, keyRejected, nil
 	}
-	parts, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
+	req, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
 			return gemini.Result{}, outcome, nil
@@ -1174,7 +1174,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		r.lastStart[key.ID] = r.opts.Now()
 		r.mu.Unlock()
 		var genErr error
-		res, genErr = client.Generate(ctx, parts)
+		res, genErr = client.Generate(ctx, req)
 		if genErr == nil && strings.TrimSpace(res.Text) == "" && (res.Finish == "" || res.Finish == gemini.FinishStop) {
 			// An empty answer with no reason comes from an overloaded
 			// server; the same request usually works when sent again.
@@ -1321,29 +1321,26 @@ func defaultBackoff(n int) time.Duration {
 	return d
 }
 
-// uploadParts builds [prompt, pdfs..., audio...] for one key, uploading files
-// that are not yet uploaded for that key or are close to the 48 h expiry.
-func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, id, keyID string, unit store.Unit, pdfs []string) ([]gemini.Part, error) {
-	prompt := gemini.Prompt
-	if len(unit.Files) > 1 {
-		prompt = gemini.LivePrompt
-	}
-	parts := []gemini.Part{{Text: prompt}}
+// uploadParts builds the request [pdfs..., audio...] for one key, uploading
+// files that are not yet uploaded for that key or are close to the 48 h
+// expiry. The prompt goes in as the system instruction.
+func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, id, keyID string, unit store.Unit, pdfs []string) (gemini.Request, error) {
+	var parts []gemini.Part
 	for _, pdf := range pdfs {
 		up, err := r.cachedUpload(ctx, client, id, keyID, pdf, mimePDF)
 		if err != nil {
-			return nil, err
+			return gemini.Request{}, err
 		}
 		parts = append(parts, gemini.Part{FileURI: up.URI, MIME: up.MIME})
 	}
 	for i, path := range unit.Files {
 		up, err := r.cachedUpload(ctx, client, id, keyID, path, unitMIME(unit, i))
 		if err != nil {
-			return nil, err
+			return gemini.Request{}, err
 		}
 		parts = append(parts, gemini.Part{FileURI: up.URI, MIME: up.MIME})
 	}
-	return parts, nil
+	return gemini.Request{System: gemini.PromptFor(len(unit.Files)), Parts: parts}, nil
 }
 
 // cachedUpload returns the item's saved upload of path for keyID, uploading
@@ -1532,18 +1529,14 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 
 	reqs := make([]gemini.BatchRequest, 0, len(pending))
 	for _, u := range pending {
-		prompt := gemini.Prompt
-		if len(u.Files) > 1 {
-			prompt = gemini.LivePrompt
-		}
-		parts := []gemini.Part{{Text: prompt}}
+		var parts []gemini.Part
 		for _, pdf := range pdfs {
 			parts = append(parts, gemini.Part{FileURI: uploads[pdf].URI, MIME: uploads[pdf].MIME})
 		}
 		for _, f := range u.Files {
 			parts = append(parts, gemini.Part{FileURI: uploads[f].URI, MIME: uploads[f].MIME})
 		}
-		reqs = append(reqs, gemini.BatchRequest{Key: unitKey(u.Index), Parts: parts})
+		reqs = append(reqs, gemini.BatchRequest{Key: unitKey(u.Index), Request: gemini.Request{System: gemini.PromptFor(len(u.Files)), Parts: parts}})
 	}
 	if err := ctx.Err(); err != nil {
 		return err

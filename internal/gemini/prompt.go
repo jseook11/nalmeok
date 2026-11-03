@@ -35,3 +35,12 @@ Guidelines:
 const LivePrompt = Prompt + `
 
 The audio parts are in chronological order. Transcribe every part in order as one continuous transcript. Do not add file names, headers, or separators.`
+
+// PromptFor is the system instruction for a request with this many audio
+// parts: LivePrompt when there is more than one, Prompt otherwise.
+func PromptFor(audioParts int) string {
+	if audioParts > 1 {
+		return LivePrompt
+	}
+	return Prompt
+}
