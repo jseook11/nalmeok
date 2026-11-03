@@ -567,6 +567,7 @@
   const hidden = new Set(); // ids removed from view while undo is possible
   let renaming = null; // { id, input }
   let shownOrder = []; // ids as last rendered, for picking a neighbour
+  let shownQuery = ""; // the search those ids were rendered for
 
   // The list is a listbox: rows are options it points at through
   // aria-activedescendant, so focus stays on the list while rows are patched.
@@ -592,6 +593,7 @@
     appEl.classList.toggle("is-empty", isEmpty);
     ensureSelection(items);
     shownOrder = items.map((item) => item.ID);
+    shownQuery = state.query;
 
     if (items.length === 0) {
       rowCache.clear();
@@ -681,8 +683,9 @@
   // "items:changed" arrives once per change (a folder of files, a running
   // job), so refreshing on every event would run ListItems once per event.
   // Every refresh funnels through here: at most one request in flight, at most
-  // one trailing request, and never two closer than REFRESH_MIN_GAP_MS. A user
-  // action still lands at once, because the gap is counted from the last load.
+  // one trailing request, and never two closer than REFRESH_MIN_GAP_MS. When
+  // the list is idle a user action loads at once; while events stream in
+  // (a running job) it waits at most for the load in flight plus the gap.
   const REFRESH_MIN_GAP_MS = 120;
 
   let listRequest = 0;
@@ -753,7 +756,9 @@
   // selection to the row that takes its place, or to the new last row.
   function ensureSelection(items) {
     if (state.selected && items.some((item) => item.ID === state.selected)) return;
-    const gone = shownOrder.indexOf(state.selected);
+    // A neighbour only stands in for a row that left the same list (deleted,
+    // hidden for undo); a new search is a different list, not a neighbour.
+    const gone = state.query === shownQuery ? shownOrder.indexOf(state.selected) : -1;
     if (gone >= 0 && items.length) state.selected = items[Math.min(gone, items.length - 1)].ID;
     else state.selected = state.pane && items.length ? items[0].ID : "";
   }
@@ -1907,7 +1912,10 @@
   // The context menu or the key picker's menu, which take every key while
   // open, like a native menu.
   function menuKeys(event) {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" || event.key === "Tab") {
+      // Tab would leave the menu open behind focus; it closes it instead,
+      // and focus goes back to where the menu was opened from.
+      event.preventDefault();
       closeMenu();
     } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
       event.preventDefault();
@@ -2113,9 +2121,11 @@
     // is the innermost one: a modal surface, then the menu, then the focused
     // list, then the window.
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Tab") trapTab(event);
+      // An open menu takes every key, Tab included, as a native menu does;
+      // a menu and a sheet are never open together.
+      if (!menu.hidden) menuKeys(event);
+      else if (event.key === "Tab") trapTab(event);
       else if (sheetOpen()) modalKeys(event);
-      else if (!menu.hidden) menuKeys(event);
       else if (event.target === list && listKeys(event)) return;
       else globalKeys(event);
     });

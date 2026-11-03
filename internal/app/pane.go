@@ -93,19 +93,19 @@ func (a *App) PaneOpen() bool {
 // before the pane opened.
 func (a *App) SetPane(open bool) error {
 	a.mu.Lock()
-	hasCfg := a.cfg != nil
-	previous := hasCfg && a.cfg.Pane()
+	// Only a real change resizes: a repeated call would read the already
+	// widened window and remember that width as the list width. The window's
+	// own state decides, not the saved choice, so a failed save still fits
+	// the window to the pane the user sees.
+	changed := a.paneShown != open
+	a.paneShown = open
 	var err error
-	if hasCfg {
+	if a.cfg != nil {
 		err = a.cfg.SetPane(open)
 	}
 	a.mu.Unlock()
-	// Only a real change resizes: a repeated call would read the already
-	// widened window and remember that width as the list width.
-	if !hasCfg || (err == nil && previous != open) {
-		if ctx := a.context(); ctx != nil {
-			a.fitWindow(open)
-		}
+	if changed && a.context() != nil {
+		a.fitWindow(open)
 	}
 	return err
 }

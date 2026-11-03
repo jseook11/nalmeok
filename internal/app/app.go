@@ -87,6 +87,11 @@ type App struct {
 	// restored when the pane closes. Guarded by mu.
 	listWidth int
 
+	// paneShown is whether the window is currently sized for the pane. It
+	// starts from the saved choice, since main opens the window at that
+	// width. Guarded by mu.
+	paneShown bool
+
 	// pdf holds folders waiting for the user to pick their reference PDFs
 	// (pdfchoice.go).
 	pdf pdfChoices
@@ -98,7 +103,7 @@ type App struct {
 
 // New wires the app. The store's change callback emits "items:changed".
 func New(cfg *config.Config, st *store.Store, runner Runner) *App {
-	a := &App{cfg: cfg, store: st, runner: runner}
+	a := &App{cfg: cfg, store: st, runner: runner, paneShown: cfg != nil && cfg.Pane()}
 	if st != nil {
 		st.SetOnChange(a.emitItemsChanged)
 	}
