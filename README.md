@@ -47,7 +47,7 @@ scoop install nalmeok/nalmeok
 
 ## 더 알아보기
 
-[사용 설명서](docs/usage.md)에 목록, 검색, 이름 변경, 비용, FAQ가 있어요. 키 발급은 [무료 키](docs/gemini-api-key.md)와 [Google AI Pro 크레딧으로 유료 키 쓰기](docs/google-ai-pro-credit.md)에 사진과 함께 정리했어요.
+[사용 설명서](docs/usage.md)에 목록, 검색, 이름 변경, 비용, FAQ가 있어요. 전사본을 AI에 올려 강조한 부분이나 시험 언급을 찾는 질문은 [전사본으로 물어보기](docs/prompts.md)에 있어요. 키 발급은 [무료 키](docs/gemini-api-key.md)와 [Google AI Pro 크레딧으로 유료 키 쓰기](docs/google-ai-pro-credit.md)에 사진과 함께 정리했어요.
 
 ## 라이선스
 

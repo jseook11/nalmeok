@@ -8,6 +8,7 @@
 |---|---|
 | `README.md` | 설치, 처음 사용, 다운로드 |
 | `docs/usage.md` | 화면 사용법, 비용, API 키 발급, FAQ |
+| `docs/prompts.md` | 전사본을 AI에 올려 물어볼 질문 예시(한·영). 도움말 **?**의 링크 대상(`help.promptsUrl`) |
 | `old/` | 기존 Python 앱과 그 문서 (보존용) |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 

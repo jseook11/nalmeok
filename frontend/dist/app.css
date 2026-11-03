@@ -1470,6 +1470,10 @@ button {
   margin: 0;
 }
 
+.help dd .text-button {
+  margin-left: 6px;
+}
+
 /* ── Toast ────────────────────────────────────────────────── */
 
 .toast {

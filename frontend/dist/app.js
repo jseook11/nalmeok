@@ -94,6 +94,7 @@
   const keysSheet = $("keys-sheet");
   const keysIntro = $("keys-intro");
   const keySource = $("key-source");
+  const helpPrompts = $("help-prompts");
   const keyList = $("key-list");
   const keyCaption = $("key-caption");
   const keyPicker = $("key-picker");
@@ -1831,6 +1832,14 @@
     openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
   }
 
+  function openExternal(url) {
+    if (window.runtime && typeof window.runtime.BrowserOpenURL === "function") {
+      window.runtime.BrowserOpenURL(url);
+    } else {
+      window.open(url, "_blank");
+    }
+  }
+
   function openHelp() {
     closeMenu();
     openSurface(helpSheet);
@@ -2173,13 +2182,8 @@
     for (const button of document.querySelectorAll("[data-close]")) {
       button.addEventListener("click", closeSheets);
     }
-    keySource.addEventListener("click", () => {
-      if (window.runtime && typeof window.runtime.BrowserOpenURL === "function") {
-        window.runtime.BrowserOpenURL(KEY_SOURCE_URL);
-      } else {
-        window.open(KEY_SOURCE_URL, "_blank");
-      }
-    });
+    keySource.addEventListener("click", () => openExternal(KEY_SOURCE_URL));
+    helpPrompts.addEventListener("click", () => openExternal(t("help.promptsUrl")));
 
     pdfForm.addEventListener("submit", (event) => {
       event.preventDefault();
