@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,175 @@ func TestReadOutputCutKeepsTextBeforeLimit(t *testing.T) {
 	}
 	if !got.Truncated || len(got.Text) != MaxOutputRead {
 		t.Fatalf("Truncated = %v, len = %d, want %d", got.Truncated, len(got.Text), MaxOutputRead)
+	}
+}
+
+// withArchive gives the test app a transcripts folder and returns it.
+func withArchive(ta *testApp) string {
+	dir := filepath.Join(ta.dir, "transcripts")
+	ta.app.TranscriptsDir = dir
+	return dir
+}
+
+func writeText(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadOutputPrefersOriginal(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	path := filepath.Join(ta.dir, "lec.md")
+	writeText(t, path, "고친 내용\n")
+	id := addDone(t, ta, path)
+	writeText(t, filepath.Join(archive, id+".md"), "처음 내용\n")
+	got, err := ta.app.ReadOutput(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Text != "고친 내용\n" || got.Moved {
+		t.Fatalf("ReadOutput = %+v, want the original file", got)
+	}
+}
+
+func TestReadOutputFallsBackToArchive(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	id := addDone(t, ta, filepath.Join(ta.dir, "gone.md"))
+	writeText(t, filepath.Join(archive, id+".md"), "보관된 내용\n")
+	got, err := ta.app.ReadOutput(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Text != "보관된 내용\n" || !got.Moved {
+		t.Fatalf("ReadOutput = %+v, want the archived text marked moved", got)
+	}
+}
+
+func TestReadOutputArchivesOldItem(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	path := filepath.Join(ta.dir, "lec.md")
+	writeText(t, path, "예전 항목\n")
+	id := addDone(t, ta, path)
+	if _, err := ta.app.ReadOutput(id); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(archive, id+".md"))
+	if err != nil || string(data) != "예전 항목\n" {
+		t.Fatalf("archive = %q, %v", data, err)
+	}
+	// Once copied, the .md can move and the text is still there.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ta.app.ReadOutput(id)
+	if err != nil || got.Text != "예전 항목\n" || !got.Moved {
+		t.Fatalf("ReadOutput = %+v, %v", got, err)
+	}
+}
+
+func TestArchiveFinishedCopiesDoneItems(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	path := filepath.Join(ta.dir, "lec.md")
+	writeText(t, path, "본문\n")
+	id := addDone(t, ta, path)
+	failed := store.Item{ID: "failed-1", Name: "x", Kind: "file", State: "failed", Output: path}
+	if err := ta.app.store.Add(failed); err != nil {
+		t.Fatal(err)
+	}
+	ta.app.archiveFinished()
+	if data, err := os.ReadFile(filepath.Join(archive, id+".md")); err != nil || string(data) != "본문\n" {
+		t.Fatalf("archive = %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(archive, failed.ID+".md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unfinished item archived: %v", err)
+	}
+}
+
+func TestRemoveDeletesArchive(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	path := filepath.Join(ta.dir, "lec.md")
+	writeText(t, path, "본문\n")
+	id := addDone(t, ta, path)
+	copyPath := filepath.Join(archive, id+".md")
+	writeText(t, copyPath, "본문\n")
+	if err := ta.app.Remove(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(copyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("archive not removed: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the .md must stay: %v", err)
+	}
+}
+
+func TestRestoreOutputWritesNextToSource(t *testing.T) {
+	ta := newTestApp(t)
+	archive := withArchive(ta)
+	src := filepath.Join(ta.dir, "src", "lec.m4a")
+	writeText(t, src, "audio")
+	// Another file already took the name; the restored copy must not replace it.
+	taken := filepath.Join(ta.dir, "src", "lec.md")
+	writeText(t, taken, "다른 파일\n")
+	item := store.Item{ID: "done-1", Name: "lec.m4a", Kind: "file", Source: src, State: "done",
+		Output: filepath.Join(ta.dir, "moved", "lec.md")}
+	if err := ta.app.store.Add(item); err != nil {
+		t.Fatal(err)
+	}
+	writeText(t, filepath.Join(archive, item.ID+".md"), "보관된 내용\n")
+
+	if err := ta.app.RestoreOutput(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ta.dir, "src", "lec (2).md")
+	got, _ := ta.app.store.Get(item.ID)
+	if got.Output != want {
+		t.Fatalf("Output = %q, want %q", got.Output, want)
+	}
+	if data, err := os.ReadFile(want); err != nil || string(data) != "보관된 내용\n" {
+		t.Fatalf("restored = %q, %v", data, err)
+	}
+	if data, _ := os.ReadFile(taken); string(data) != "다른 파일\n" {
+		t.Fatal("existing file was replaced")
+	}
+}
+
+func TestRestoreOutputWithoutArchive(t *testing.T) {
+	ta := newTestApp(t)
+	withArchive(ta)
+	id := addDone(t, ta, filepath.Join(ta.dir, "gone.md"))
+	if err := ta.app.RestoreOutput(id); err == nil {
+		t.Fatal("RestoreOutput without an archived copy must fail")
+	}
+}
+
+func TestListItemsMarksMissingOutput(t *testing.T) {
+	ta := newTestApp(t)
+	here := filepath.Join(ta.dir, "here.md")
+	writeText(t, here, "본문\n")
+	items := []store.Item{
+		{ID: "here", Name: "here", Kind: "file", State: "done", Output: here},
+		{ID: "gone", Name: "gone", Kind: "file", State: "done", Output: filepath.Join(ta.dir, "gone.md")},
+		{ID: "failed", Name: "failed", Kind: "file", State: "failed"},
+	}
+	for _, it := range items {
+		if err := ta.app.store.Add(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, it := range ta.app.ListItems("") {
+		if want := it.ID == "gone"; it.OutputMissing != want {
+			t.Errorf("%s: OutputMissing = %v, want %v", it.ID, it.OutputMissing, want)
+		}
 	}
 }
 

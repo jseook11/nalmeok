@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -27,42 +31,32 @@ const (
 const MaxOutputRead = 2 << 20
 
 // OutputText is a finished item's transcript as the pane shows it.
-// Truncated is set when the file is longer than MaxOutputRead.
+// Truncated is set when the file is longer than MaxOutputRead. Moved is set
+// when the .md is gone and the text comes from the app's copy.
 type OutputText struct {
 	Text      string `json:"Text"`
 	Truncated bool   `json:"Truncated"`
+	Moved     bool   `json:"Moved"`
 }
 
-// ReadOutput returns the text of a finished item's .md, at most
-// MaxOutputRead bytes. A missing or moved file is reported with the catalog's
-// message.
+// ReadOutput returns the text of a finished item's transcript, at most
+// MaxOutputRead bytes: the .md where Output says, or the app's copy when that
+// file is gone. With neither, the catalog's moved-file message is returned.
 func (a *App) ReadOutput(id string) (OutputText, error) {
-	if a.store == nil {
-		return OutputText{}, store.ErrNotFound
-	}
-	item, ok := a.store.Get(id)
-	if !ok {
-		return OutputText{}, store.ErrNotFound
-	}
-	if item.Output == "" {
-		return OutputText{}, errNoOutput
-	}
-	f, err := os.Open(item.Output)
+	item, err := a.finishedItem(id)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return OutputText{}, i18n.Error("error.outputMoved")
-		}
-		return OutputText{}, i18n.Error("error.readOutputFailed")
+		return OutputText{}, err
+	}
+	f, moved, err := a.openOutput(item)
+	if err != nil {
+		return OutputText{}, err
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err != nil || info.IsDir() {
-		return OutputText{}, i18n.Error("error.outputMoved")
-	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxOutputRead+1))
 	if err != nil {
 		return OutputText{}, i18n.Error("error.readOutputFailed")
 	}
-	out := OutputText{}
+	out := OutputText{Moved: moved}
 	if len(data) > MaxOutputRead {
 		data = data[:MaxOutputRead]
 		// Drop only a rune the limit split (at most UTFMax-1 bytes); bytes
@@ -79,6 +73,210 @@ func (a *App) ReadOutput(id string) (OutputText, error) {
 	}
 	out.Text = string(data)
 	return out, nil
+}
+
+// finishedItem looks up an item that has a transcript.
+func (a *App) finishedItem(id string) (store.Item, error) {
+	if a.store == nil {
+		return store.Item{}, store.ErrNotFound
+	}
+	item, ok := a.store.Get(id)
+	if !ok {
+		return store.Item{}, store.ErrNotFound
+	}
+	if item.Output == "" {
+		return store.Item{}, errNoOutput
+	}
+	return item, nil
+}
+
+// archivePath is the app's copy of an item's transcript, or "" when the app
+// keeps none.
+func (a *App) archivePath(id string) string {
+	return output.ArchivePath(a.TranscriptsDir, id)
+}
+
+// openOutput opens an item's transcript. The .md where Output says comes
+// first, since the user may have edited it; it is also copied into the
+// archive when no copy exists yet (items finished before the archive). When
+// that file is gone the app's copy is opened instead, with moved set.
+func (a *App) openOutput(item store.Item) (f *os.File, moved bool, err error) {
+	f, err = openRegular(item.Output)
+	if err == nil {
+		a.archiveOutput(item)
+		return f, false, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, false, i18n.Error("error.readOutputFailed")
+	}
+	if archive := a.archivePath(item.ID); archive != "" {
+		if f, err := openRegular(archive); err == nil {
+			return f, true, nil
+		}
+	}
+	return nil, false, i18n.Error("error.outputMoved")
+}
+
+// outputText reads an item's whole transcript (see openOutput).
+func (a *App) outputText(item store.Item) (string, error) {
+	f, _, err := a.openOutput(item)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", i18n.Error("error.readOutputFailed")
+	}
+	return string(data), nil
+}
+
+// openRegular opens a file for reading; a folder counts as missing.
+func openRegular(path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err == nil && info.IsDir() {
+		err = fs.ErrNotExist
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// archiveOutput copies an item's .md into the archive unless a copy is
+// already there. It is best effort: a failed copy is tried again on the next
+// read or launch.
+func (a *App) archiveOutput(item store.Item) {
+	archive := a.archivePath(item.ID)
+	if archive == "" || item.Output == "" {
+		return
+	}
+	if _, err := os.Stat(archive); !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	data, err := os.ReadFile(item.Output)
+	if err != nil {
+		return
+	}
+	_ = output.Write(archive, string(data))
+}
+
+// archiveFinished copies every finished item's .md that has no archived copy
+// yet. Startup runs it once, so items finished before the archive existed
+// are kept even if their .md moves before the pane ever shows them.
+func (a *App) archiveFinished() {
+	if a.store == nil || a.TranscriptsDir == "" {
+		return
+	}
+	for _, item := range a.store.List("") {
+		if item.State == "done" && item.Output != "" {
+			a.archiveOutput(item)
+		}
+	}
+}
+
+// mdFilter limits file dialogs to Markdown files.
+func mdFilter() []wailsruntime.FileFilter {
+	return []wailsruntime.FileFilter{{DisplayName: i18n.T("dialog.mdFiles"), Pattern: "*.md"}}
+}
+
+// LocateOutput lets the user point a finished item at its moved .md. The
+// picker starts in the old folder when it still exists. Canceling changes
+// nothing.
+func (a *App) LocateOutput(id string) error {
+	item, err := a.finishedItem(id)
+	if err != nil {
+		return err
+	}
+	ctx := a.context()
+	if ctx == nil {
+		return errNotReady
+	}
+	options := wailsruntime.OpenDialogOptions{Title: i18n.T("dialog.locateTitle"), Filters: mdFilter()}
+	if dir := filepath.Dir(item.Output); isDir(dir) {
+		options.DefaultDirectory = dir
+	}
+	path, err := wailsruntime.OpenFileDialog(ctx, options)
+	if err != nil {
+		return err
+	}
+	if path == "" {
+		return nil
+	}
+	return a.store.Update(id, func(it *store.Item) { it.Output = path })
+}
+
+// RestoreOutput writes the app's copy of a transcript back out as a .md and
+// points the item at it. It goes where a new result would (next to the
+// source, numbered rather than replacing a file); when that folder is gone
+// too, the user picks a place. Canceling changes nothing.
+func (a *App) RestoreOutput(id string) error {
+	item, err := a.finishedItem(id)
+	if err != nil {
+		return err
+	}
+	if isFile(item.Output) {
+		return nil // nothing to restore
+	}
+	archive := a.archivePath(id)
+	if archive == "" {
+		return i18n.Error("error.noArchive")
+	}
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		return i18n.Error("error.noArchive")
+	}
+	target := output.TargetPath(item.Source, item.Kind)
+	var path string
+	if isDir(filepath.Dir(target)) {
+		path, err = output.WriteNew(target, string(data))
+		if err != nil {
+			return i18n.Error("error.saveFailed", "error", err)
+		}
+	} else {
+		ctx := a.context()
+		if ctx == nil {
+			return errNotReady
+		}
+		path, err = wailsruntime.SaveFileDialog(ctx, wailsruntime.SaveDialogOptions{
+			Title:           i18n.T("dialog.restoreTitle"),
+			DefaultFilename: restoreName(item) + ".md",
+			Filters:         mdFilter(),
+		})
+		if err != nil {
+			return err
+		}
+		if path == "" {
+			return nil
+		}
+		// The save dialog has already asked before replacing a file.
+		if err := output.Write(path, string(data)); err != nil {
+			return i18n.Error("error.saveFailed", "error", err)
+		}
+	}
+	return a.store.Update(id, func(it *store.Item) { it.Output = path })
+}
+
+// restoreName is the item's name without the audio extension it was added
+// with ("강의09.m4a" → "강의09"); a renamed item keeps its name as is.
+func restoreName(item store.Item) string {
+	if item.Kind == "file" {
+		if ext := filepath.Ext(item.Source); ext != "" && strings.EqualFold(filepath.Ext(item.Name), ext) {
+			return strings.TrimSuffix(item.Name, filepath.Ext(item.Name))
+		}
+	}
+	return item.Name
+}
+
+// isDir reports whether path names an existing folder.
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // PaneOpen reports whether the transcript pane was left open.

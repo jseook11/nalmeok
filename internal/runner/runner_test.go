@@ -346,12 +346,13 @@ func newHarness(t *testing.T, keys ...config.Key) *harness {
 
 func (h *harness) newRunner() *Runner {
 	r := New(Options{
-		Store:     h.st,
-		Media:     h.media,
-		NewClient: h.world.newClient,
-		Keys:      func() []config.Key { return h.keys },
-		WorkDir:   filepath.Join(h.dir, "cfg", "nalmeok", "work"),
-		LogPath:   filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"),
+		Store:          h.st,
+		Media:          h.media,
+		NewClient:      h.world.newClient,
+		Keys:           func() []config.Key { return h.keys },
+		WorkDir:        filepath.Join(h.dir, "cfg", "nalmeok", "work"),
+		TranscriptsDir: filepath.Join(h.dir, "cfg", "nalmeok", "transcripts"),
+		LogPath:        filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"),
 		Notify: func(title, msg string) {
 			h.notesMu.Lock()
 			h.notes = append(h.notes, msg)
@@ -446,6 +447,10 @@ func TestFreeSuccessAcrossTwoUnits(t *testing.T) {
 	got := readFile(t, want)
 	if got != "T(강의09.m4a.001.m4a)\n\nT(강의09.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q", got)
+	}
+	// The app keeps its own copy, named by the item ID.
+	if archived := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "transcripts", item.ID+".md")); archived != got {
+		t.Fatalf("archive = %q, want the .md text", archived)
 	}
 	if done.Progress != 1 || done.Units != nil || done.Batch != nil {
 		t.Errorf("done item = %+v", done)

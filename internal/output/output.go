@@ -1,5 +1,6 @@
 // Package output merges transcription chunks and writes .md files next to
-// their source without ever overwriting an existing result (see WriteNew).
+// their source without ever overwriting an existing result (see WriteNew),
+// and names the app's own copy of each result (see ArchivePath).
 package output
 
 import (
@@ -46,6 +47,16 @@ func TargetPath(source, kind string) string {
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
 	return filepath.Join(dir, stem+".md")
+}
+
+// ArchivePath is where the app keeps its copy of an item's transcript,
+// "<dir>/<id>.md". The item ID names it, so renaming or moving the .md next
+// to the source never affects it. An empty dir means no archive ("").
+func ArchivePath(dir, id string) string {
+	if dir == "" || id == "" {
+		return ""
+	}
+	return filepath.Join(dir, id+".md")
 }
 
 // UniquePath returns path when it does not exist, otherwise

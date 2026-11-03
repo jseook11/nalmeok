@@ -3,7 +3,9 @@
   "action.cancel": "취소",
   "action.continuePaid": "유료로 이어서",
   "action.delete": "삭제",
+  "action.locate": "다시 찾기…",
   "action.rename": "이름 변경",
+  "action.restore": "다시 저장",
   "action.retry": "다시 시도",
 
   "cli.batchAndFree": "--batch와 --free는 함께 쓸 수 없음",
@@ -44,7 +46,10 @@
   "duration.minutes": "{minutes}분",
 
   "dialog.audioFiles": "오디오 파일",
+  "dialog.locateTitle": "옮긴 전사본 찾기",
+  "dialog.mdFiles": "마크다운 파일",
   "dialog.pickTitle": "음성 파일 선택",
+  "dialog.restoreTitle": "전사본 저장",
 
   "empty.label": "음성 파일이나 폴더 선택",
   "empty.text": "음성 파일이나 폴더를 여기에 놓기",
@@ -85,6 +90,7 @@
   "error.noAudio": "전사할 오디오 없음",
   "error.noConfig": "설정 불러오기 실패",
   "error.noConfigDir": "설정 폴더 없음",
+  "error.noArchive": "보관본 없음",
   "error.noFreeKey": "무료 키 없음",
   "error.noKey": "키 없음",
   "error.noOutput": "결과 파일 없음",
@@ -200,6 +206,7 @@
   "pane.emptyText": "빈 전사본",
   "pane.exhaustedNote": "남은 부분은 유료로 이어서 처리 가능",
   "pane.label": "전사본",
+  "pane.moved": "원래 파일을 찾을 수 없어 보관본 표시",
   "pane.progress": "{percent}% 완료",
   "pane.toggle": "전사본 보기",
   "pane.truncated": "파일이 커서 앞부분만 표시",
@@ -224,6 +231,7 @@
   "row.failed": "실패",
   "row.failedReason": "실패 · {reason}",
   "row.freeExhausted": "오늘 무료 사용량 소진",
+  "row.moved": "위치 바뀜",
   "row.elapsed": "{status} · {minutes}분",
   "row.running": "진행 중",
   "row.waiting": "기다리는 중",
@@ -253,6 +261,8 @@
   "toast.copied": "복사됨",
   "toast.keyDeleted": "키 삭제됨",
   "toast.keySaved": "키 저장됨",
+  "toast.located": "파일 다시 연결됨",
   "toast.removed": "목록에서 삭제됨",
+  "toast.restored": "다시 저장됨",
   "toast.undo": "실행 취소"
 }
