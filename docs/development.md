@@ -31,6 +31,8 @@ frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
 frontend/dist/i18n  문구 카탈로그 (ko.json)
 ```
 
+전사 결과는 원본 옆 `.md`와 함께 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`). 화면은 원래 위치의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`)을 낸다. 보관본이 생기기 전 항목은 처음 읽을 때와 앱을 켤 때 옮겨 두고, 목록에서 지우면 보관본도 지운다.
+
 ### 빌드
 
 ```bash
