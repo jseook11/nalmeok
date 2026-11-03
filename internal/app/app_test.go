@@ -58,7 +58,7 @@ func TestAddPathsCreatesFailedItems(t *testing.T) {
 		t.Fatalf("ListItems = %d, want 2", len(items))
 	}
 	for _, item := range items {
-		if item.State != "failed" || item.Detail != "전사 엔진 준비 중" {
+		if item.State != "failed" || item.Detail != i18n.T("status.engineNotReady") {
 			t.Fatalf("item state = %q / %q", item.State, item.Detail)
 		}
 		if item.Mode != "free" {
@@ -378,7 +378,7 @@ func TestStubStateTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := ta.app.ListItems("")[0]
-	if item.State != "failed" || item.Detail != "전사 엔진 준비 중" {
+	if item.State != "failed" || item.Detail != i18n.T("status.engineNotReady") {
 		t.Fatalf("state after retry = %+v", item)
 	}
 
@@ -431,7 +431,7 @@ func TestAddKeyAutoLabels(t *testing.T) {
 	for _, key := range ta.app.Keys() {
 		labels = append(labels, key.Label)
 	}
-	if got := strings.Join(labels, ","); got != "무료 1,무료 2,유료 1" {
+	if got := strings.Join(labels, ","); got != i18n.T("tier.free")+" 1,"+i18n.T("tier.free")+" 2,"+i18n.T("tier.paid")+" 1" {
 		t.Fatalf("labels = %s", got)
 	}
 
@@ -445,7 +445,7 @@ func TestAddKeyAutoLabels(t *testing.T) {
 	}
 	found := false
 	for _, key := range ta.app.Keys() {
-		if key.Label == "무료 1" && key.Masked == "••••0003" {
+		if key.Label == i18n.T("tier.free")+" 1" && key.Masked == "••••0003" {
 			found = true
 		}
 	}

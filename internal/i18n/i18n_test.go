@@ -39,14 +39,14 @@ func TestMissingKeyReturnsKey(t *testing.T) {
 }
 
 func TestTFillsPlaceholders(t *testing.T) {
-	if got := T("cli.failedReason", "name", "a", "reason", "b"); got != "a: 실패 · b" {
+	if got := T("cli.failedReason", "name", "a", "reason", "b"); got != "a: failed · b" {
 		t.Fatalf("T = %q", got)
 	}
 }
 
 func TestErrorAndWrap(t *testing.T) {
 	sentinel := Error("error.noKey")
-	if sentinel.Error() != "키 없음" {
+	if sentinel.Error() != "No key" {
 		t.Fatalf("Error() = %q", sentinel.Error())
 	}
 	if !IsText(sentinel) {
@@ -54,7 +54,7 @@ func TestErrorAndWrap(t *testing.T) {
 	}
 	cause := errors.New("disk full")
 	wrapped := Wrap("error.copyFailed", cause)
-	if wrapped.Error() != "복사 실패: disk full" {
+	if wrapped.Error() != "Copy failed: disk full" {
 		t.Fatalf("Wrap.Error() = %q", wrapped.Error())
 	}
 	if !errors.Is(wrapped, cause) {
@@ -62,6 +62,44 @@ func TestErrorAndWrap(t *testing.T) {
 	}
 	if IsText(cause) {
 		t.Fatal("IsText(plain error) = true")
+	}
+}
+
+func TestDetect(t *testing.T) {
+	cases := map[string]string{
+		"":            Base,
+		"ko_KR.UTF-8": "ko",
+		"ko-KR":       "ko",
+		"ko.UTF-8":    "ko",
+		"kok_IN":      Base,
+		"en_US.UTF-8": Base,
+		"en":          Base,
+		"fr_FR.UTF-8": Base,
+		"C":           Base,
+		"C.UTF-8":     Base,
+		"POSIX":       Base,
+	}
+	for locale, want := range cases {
+		if got := Detect(locale); got != want {
+			t.Errorf("Detect(%q) = %q, want %q", locale, got, want)
+		}
+	}
+}
+
+func TestSetLanguageKorean(t *testing.T) {
+	if err := SetLanguage("ko"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := SetLanguage(Base); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := T("tier.free"); got != "무료" {
+		t.Fatalf("T(tier.free) = %q in ko", got)
+	}
+	if got := T("cli.failedReason", "name", "a", "reason", "b"); got != "a: 실패 · b" {
+		t.Fatalf("T(cli.failedReason) = %q in ko", got)
 	}
 }
 

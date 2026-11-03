@@ -8,12 +8,13 @@
 - 폴더를 놓으면 안의 오디오를 이름 순서로 이어 `.md` 하나로 만들어요.
 - 무료 키로 바로 전사해요. 유료로 처리하면 1시간에 약 74원이에요.
 - 지난 작업은 목록에 남고, 검색할 수 있어요.
+- OS 언어가 한국어면 한국어, 그 외에는 영어로 화면이 나와요.
 
 ## 설치
 
 [Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
 
-**macOS** — `Nalmeok.app`을 Applications 폴더로 옮기고 열어요. 서명·공증된 앱이라 경고 없이 열려요.
+**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
 **Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러요.
 

@@ -39,6 +39,24 @@ func TestFilterPSNArgs(t *testing.T) {
 	}
 }
 
+func TestSystemLocale(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANGUAGE", "")
+	t.Setenv("LANG", "en_US.UTF-8")
+	if got := systemLocale(); got != "en_US.UTF-8" {
+		t.Fatalf("systemLocale() = %q, want LANG", got)
+	}
+	t.Setenv("LANGUAGE", "ko_KR.UTF-8:en_US.UTF-8")
+	if got := systemLocale(); got != "ko_KR.UTF-8" {
+		t.Fatalf("systemLocale() = %q, want the first LANGUAGE entry", got)
+	}
+	t.Setenv("LC_ALL", "ko_KR.UTF-8")
+	if got := systemLocale(); got != "ko_KR.UTF-8" {
+		t.Fatalf("systemLocale() = %q, want LC_ALL", got)
+	}
+}
+
 func TestStatusLine(t *testing.T) {
 	cases := []struct {
 		name string
@@ -151,9 +169,9 @@ func TestDoctorReportsCountsWithoutKeys(t *testing.T) {
 	for _, want := range []string{
 		version,
 		runtime.GOOS + "/" + runtime.GOARCH,
-		"설정 폴더: " + cfgDir,
-		"키: 무료 1개, 유료 1개",
-		"items.json 항목: 2개",
+		i18n.T("cli.doctorDir", "dir", cfgDir),
+		i18n.T("cli.doctorKeys", "free", 1, "paid", 1),
+		i18n.T("cli.doctorItems", "count", 2),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor output missing %q:\n%s", want, out)

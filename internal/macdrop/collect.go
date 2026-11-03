@@ -10,7 +10,7 @@
 //
 // Install (macOS only) hooks Wails' WailsWebView so a drop with no file URLs
 // but with file promises is received into a folder the user can see
-// (~/Documents/Nalmeok/<voice memos>, see Dir). The transcript is written next
+// (~/Documents/Nalmeok/Voice Memos, see Dir). The transcript is written next
 // to its source, so it lands there too. Every other drop runs Wails' code
 // unchanged. On other platforms Install does nothing.
 package macdrop
@@ -23,9 +23,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jseook11/nalmeok/internal/i18n"
 )
+
+// folderName is the last part of Dir. It is a file path, not interface text,
+// so it stays the same in every language: changing the UI language must not
+// move where recordings are saved.
+const folderName = "Voice Memos"
 
 // batchDelay is how long the collector waits after the last received file
 // before handing the batch on. Promised files arrive one at a time.
@@ -36,14 +39,13 @@ const batchDelay = 300 * time.Millisecond
 // volume.
 const stagePrefix = ".receiving-"
 
-// Dir is where received recordings are kept: ~/Documents/Nalmeok/<name>,
-// with the last part from the string catalog.
+// Dir is where received recordings are kept: ~/Documents/Nalmeok/Voice Memos.
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "Documents", "Nalmeok", i18n.T("folder.voiceMemos")), nil
+	return filepath.Join(home, "Documents", "Nalmeok", folderName), nil
 }
 
 // newStageDir makes the destination when needed and a fresh hidden folder in

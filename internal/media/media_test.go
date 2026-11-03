@@ -261,7 +261,7 @@ func TestFragmentedMP4(t *testing.T) {
 	for name, data := range cases {
 		p := filepath.Join(dir, name)
 		os.WriteFile(p, data, 0o644)
-		if _, err := Duration(p); err == nil || !strings.Contains(err.Error(), "지원하지 않는 MP4 형식") {
+		if _, err := Duration(p); err == nil || !strings.Contains(err.Error(), "MP4") {
 			t.Errorf("%s: err = %v", name, err)
 		}
 		if _, err := Prepare(Track{Path: p, Format: FormatAACMP4}, dir, 2); err == nil {

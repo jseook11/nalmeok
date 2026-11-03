@@ -2,9 +2,9 @@
 //
 // The catalog lives in frontend/dist/i18n/<lang>.json so the Go side and the
 // window share one file. Each file is a flat JSON object of key → text; text
-// may contain placeholders like "{name}" that T fills in. Korean (ko) is the
-// base language: a key missing from another language falls back to ko, and a
-// key missing from ko comes back as the key itself (a test keeps that from
+// may contain placeholders like "{name}" that T fills in. English (en) is the
+// base language: a key missing from another language falls back to en, and a
+// key missing from en comes back as the key itself (a test keeps that from
 // shipping).
 package i18n
 
@@ -20,7 +20,7 @@ import (
 )
 
 // Base is the language every other catalog falls back to.
-const Base = "ko"
+const Base = "en"
 
 var (
 	mu      sync.RWMutex
@@ -43,6 +43,20 @@ func Load(lang string) (map[string]string, error) {
 		return nil, fmt.Errorf("%s: %w", Path(lang), err)
 	}
 	return texts, nil
+}
+
+// Detect maps a locale such as "en_US.UTF-8" or "ko-KR" to a catalog
+// language. Korean uses Korean; every other locale, and no setting at all,
+// uses the base language, English.
+func Detect(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	if locale == "ko" ||
+		strings.HasPrefix(locale, "ko_") ||
+		strings.HasPrefix(locale, "ko-") ||
+		strings.HasPrefix(locale, "ko.") {
+		return "ko"
+	}
+	return Base
 }
 
 // SetLanguage picks the language T uses. It reports an error, and keeps the
