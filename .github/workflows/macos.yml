@@ -9,11 +9,6 @@ on:
 permissions:
   contents: read
 
-# The Python app now lives in old/. The Go app gets its own CI after merge.
-defaults:
-  run:
-    working-directory: old
-
 concurrency:
   group: macos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,51 +17,44 @@ jobs:
   test:
     name: Test (macOS)
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-      - name: Lint
-        run: |
-          python -m pip install --disable-pip-version-check -q ruff==0.17.1
-          ruff check .
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - name: Vet
+        run: go vet ./...
       - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+        run: go test ./...
 
   build:
-    name: Build macOS DMG
+    name: Build macOS app
     runs-on: macos-15
     needs: test
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-      - name: Build unsigned DMG
-        run: python scripts/build_macos.py
-      - name: Smoke-test launcher and bootstrap
+          go-version-file: go.mod
+          cache: true
+      - name: Build unsigned app
+        run: scripts/build_mac_app.sh
+      - name: Smoke-test the bundle
         run: |
-          set -euo pipefail
-          tmp=$(mktemp -d)
-          NALMEOK_DRY_RUN=1 NALMEOK_HOME="$tmp" \
-            build/macos/app/nalmeok.app/Contents/MacOS/nalmeok
-          test -f "$tmp/app/nalmeok/__init__.py"
-          NALMEOK_HOME="$tmp" \
-            build/macos/app/nalmeok.app/Contents/Resources/bootstrap.command --version
-      - name: Mark unsigned artifact
-        run: |
-          echo "UNSIGNED CI BUILD. Do not distribute." > dist/UNSIGNED.txt
-          echo "Use a Developer ID signed and notarized DMG for users." >> dist/UNSIGNED.txt
-      - name: Upload DMG
+          build/nalmeok --version
+          build/Nalmeok.app/Contents/MacOS/nalmeok --version
+          archs=$(lipo -archs build/Nalmeok.app/Contents/MacOS/nalmeok)
+          echo "$archs" | grep -qw x86_64
+          echo "$archs" | grep -qw arm64
+      - name: Upload unsigned app
         uses: actions/upload-artifact@v4
         with:
           name: nalmeok-macos-unsigned-${{ github.sha }}
-          path: |
-            old/dist/UNSIGNED.txt
-            old/dist/*.dmg
-            old/dist/nalmeok-app.zip
-            old/dist/manifest.json
-            old/dist/SHA256SUMS.txt
+          path: build/Nalmeok.app
+          if-no-files-found: error
+          retention-days: 14

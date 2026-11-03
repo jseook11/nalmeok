@@ -31,8 +31,8 @@ if [ ! -f "$ICNS" ]; then
 fi
 
 mkdir -p build
-# -o is required: without it the binary is named `nalmeok` and collides with
-# the Python package directory `nalmeok/` at the repository root.
+# -o is required: without it the binary is named `nalmeok` in the repository
+# root instead of build/.
 go build -tags desktop,production -ldflags "$LDFLAGS" -o "$BIN" ./cmd/nalmeok
 
 # Wails' macOS backend uses cgo, so cross-building needs clang's -arch both for

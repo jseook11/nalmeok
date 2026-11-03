@@ -1,2 +1,7 @@
 # Windows 배치 파일은 CRLF로 체크아웃해야 cmd.exe가 안전하게 읽습니다.
 *.cmd text eol=crlf
+
+# Windows 리소스는 바이트 단위로 비교하므로 체크아웃에서 변환하지 않습니다.
+*.manifest text eol=lf
+*.syso binary
+*.ico binary

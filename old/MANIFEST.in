@@ -1,4 +1,0 @@
-recursive-include assets *.png *.ico
-include LICENSE
-include app.py
-recursive-include nalmeok *.py

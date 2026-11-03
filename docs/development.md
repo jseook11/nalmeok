@@ -9,12 +9,11 @@
 | `README.md` | 설치, 처음 사용, 다운로드 |
 | `docs/usage.md` | 화면 사용법, 비용, API 키 발급, FAQ |
 | `docs/prompts.md` | 전사본을 AI에 올려 물어볼 질문 예시(한·영). 도움말 **?**의 링크 대상(`help.promptsUrl`) |
-| `old/` | 기존 Python 앱과 그 문서 (보존용) |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
 ## Go 앱
 
-Go + Wails 데스크톱 앱이다. 기존 Python 앱은 `old/`에 보존한다.
+Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
@@ -38,7 +37,7 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 
 ```bash
 go test ./...
-go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
+go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok
 scripts/build_mac_app.sh      # build/Nalmeok.app (arm64·amd64 범용, 아이콘 포함). 서명·공증 자격이 있으면 dist/Nalmeok-<version>-macos-universal.zip까지
 scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.exe
 ```
@@ -53,6 +52,8 @@ scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.
 빌드 스크립트는 이 파일을 `Contents/Resources`에 복사하고 `CFBundleIconFile`로 가리킨다.
 
 Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 Windows 백엔드는 순수 Go라 cgo가 필요 없다. exe의 아이콘과 애플리케이션 매니페스트는 `cmd/nalmeok/rsrc_windows_amd64.syso`·`rsrc_windows_arm64.syso`에 들어 있다. `GOOS=windows`로 빌드하면 Go 링커가 이 파일을 알아서 넣고, 다른 OS 빌드는 무시한다. `assets/nalmeok.ico`나 `scripts/winres/nalmeok.exe.manifest`를 바꾸면 저장소 루트에서 `go run ./scripts/winres`로 다시 만들어 커밋한다. 표준 라이브러리만 쓰는 작은 생성기라 따로 설치할 도구는 없다. 아이콘 그룹 ID는 3이다. Wails가 창 아이콘을 이 번호로 읽는다. 매니페스트는 asInvoker, Common Controls v6, PerMonitorV2 DPI, Windows 10·11, UTF-8 코드 페이지를 지정한다. `go test ./scripts/winres`는 커밋된 `.syso`가 지금 아이콘·매니페스트와 다르면 실패한다.
+
+CI는 `.github/workflows/`에서 돈다. macOS·Windows에서 `gofmt`·`go vet`·`go test ./...`를 돌리고, macOS는 `.app`, Windows는 amd64·arm64 exe를 빌드해 아티팩트로 올린다. CI는 서명·공증을 하지 않는다.
 
 서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 둘 다 있으면 공증·staple 뒤 `ditto -c -k --keepParent`로 `dist/Nalmeok-<version>-macos-universal.zip`을 만들고, `dist/SHA256SUMS.txt`의 macOS ZIP 줄도 갱신한다(Windows 실행 파일 줄은 유지). 없으면 임시 서명(ad-hoc)한 `.app`만 만들고 `dist/`에는 쓰지 않는다.
 
@@ -74,7 +75,7 @@ build/nalmeok doctor                                  # 버전·OS·설정 폴�
 build/nalmeok --version
 ```
 
-실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 옛 Python 앱이 쓴 내용을 지우지 않는다.
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다.
 
 ### 문구 (문자열 카탈로그)
 
@@ -98,12 +99,6 @@ XDG_CONFIG_HOME=/tmp/uiseed NALMEOK_UI_PREVIEW=1 build/nalmeok
 ```
 
 창만 찍는다. 창 번호는 `CGWindowListCopyWindowInfo`를 PID로 걸러 얻고 `screencapture -x -o -l<창 번호>`로 저장한다. 화면 전체는 찍지 않는다.
-
-## 기존 Python 앱 (`old/`)
-
-기존 TUI 앱은 `old/`에 그대로 옮겨 보존한다. 구조·테스트·빌드는 [`old/docs/development.md`](../old/docs/development.md)를 따르고, 명령은 `old/`에서 실행한다(`cd old && python -m unittest discover -s tests -v`). CI(`.github/workflows/`)도 지금은 `old/`에서 Python 테스트·빌드만 돈다. Go 앱용 CI는 PR이 머지된 뒤 새로 만든다.
-
-`internal/gemini/prompt_python_test.go`는 Go 프롬프트가 `old/nalmeok/constants.py`와 같은지 확인한다.
 
 ## 작업 규칙 요약
 

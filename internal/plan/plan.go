@@ -11,7 +11,7 @@ import (
 // UnitMaxSeconds is the longest audio one request may carry (130 minutes).
 const UnitMaxSeconds = 130 * 60
 
-// Pricing for gemini-3.8-flash, USD per 1M tokens (nalmeok/constants.py MODELS).
+// Pricing for gemini-3.8-flash, USD per 1M tokens (the old Python app's MODELS).
 const (
 	priceTextIn  = 0.75
 	priceAudioIn = 0.75
