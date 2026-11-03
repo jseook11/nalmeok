@@ -206,7 +206,7 @@
   "pane.emptyText": "빈 전사본",
   "pane.exhaustedNote": "남은 부분은 유료로 이어서 처리 가능",
   "pane.label": "전사본",
-  "pane.moved": "원래 파일을 찾을 수 없어 보관본을 보여 줍니다.",
+  "pane.moved": "원래 파일을 찾을 수 없어 보관본 표시",
   "pane.progress": "{percent}% 완료",
   "pane.toggle": "전사본 보기",
   "pane.truncated": "파일이 커서 앞부분만 표시",
