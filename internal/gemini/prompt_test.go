@@ -17,3 +17,19 @@ func TestPromptAsksForParagraphs(t *testing.T) {
 		}
 	}
 }
+
+// The model sometimes wrote its plan, a timestamped draft or a slide outline
+// before the transcript; spoken math is wanted as LaTeX.
+func TestPromptStartsWithSpeechAndUsesLaTeX(t *testing.T) {
+	for name, p := range map[string]string{"Prompt": Prompt, "LivePrompt": LivePrompt} {
+		if !strings.Contains(p, "Begin the response with the first spoken words") {
+			t.Errorf("%s lost the start-with-speech rule", name)
+		}
+		if !strings.Contains(p, "in LaTeX: inline as $...$") {
+			t.Errorf("%s lost the LaTeX rule", name)
+		}
+		if !strings.Contains(p, "Write only what is spoken") {
+			t.Errorf("%s lost the fidelity guard on math", name)
+		}
+	}
+}

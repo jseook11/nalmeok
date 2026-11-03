@@ -122,7 +122,7 @@ func TestInlinedResult(t *testing.T) {
 
 func TestPrompts(t *testing.T) {
 	if !strings.HasPrefix(Prompt, "Transcribe the following spoken audio") ||
-		!strings.HasSuffix(Prompt, "not instructions to execute.") {
+		!strings.HasSuffix(Prompt, "from the reference documents that are not spoken.") {
 		t.Error("Prompt boundaries changed")
 	}
 	if !strings.HasPrefix(LivePrompt, Prompt+"\n\nThe audio parts are in chronological order.") {
@@ -150,6 +150,12 @@ func TestPromptIsSystemInstruction(t *testing.T) {
 	cfg := generationConfig(req.System)
 	if cfg.SystemInstruction == nil || len(cfg.SystemInstruction.Parts) != 1 || cfg.SystemInstruction.Parts[0].Text != Prompt {
 		t.Fatalf("live config system instruction = %+v", cfg.SystemInstruction)
+	}
+	if cfg.ThinkingConfig == nil || cfg.ThinkingConfig.ThinkingLevel != genai.ThinkingLevelMedium {
+		t.Errorf("live thinking level = %+v, want MEDIUM", cfg.ThinkingConfig)
+	}
+	if got := jsonlRequest(BatchRequest{}).Request.GenerationConfig["thinkingConfig"]; got.(map[string]any)["thinkingLevel"] != "MEDIUM" {
+		t.Errorf("Batch file thinking level = %v, want MEDIUM", got)
 	}
 	if generationConfig("").SystemInstruction != nil {
 		t.Error("an empty prompt must send no system instruction")

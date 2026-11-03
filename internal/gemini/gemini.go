@@ -29,6 +29,12 @@ const Model = "gemini-3.8-flash"
 // MaxOutputTokens is the per-request output cap (live and Batch).
 const MaxOutputTokens = 65536
 
+// thinkingLevel is the thinking level for live and Batch requests. At Low the
+// model barely thought (0 thinking tokens reported) and sometimes wrote its
+// plan, a timestamped draft or a slide outline into the answer instead.
+// Medium gives the plan room in the thinking, which is not returned.
+const thinkingLevel = genai.ThinkingLevelMedium
+
 // inlineLimit is the largest inline Batch payload; above it a JSONL file is
 // uploaded instead. Requests only carry file URIs, so this is rarely hit.
 const inlineLimit = 20 << 20
@@ -160,7 +166,7 @@ func generationConfig(system string) *genai.GenerateContentConfig {
 	return &genai.GenerateContentConfig{
 		SystemInstruction: systemContent(system),
 		MaxOutputTokens:   MaxOutputTokens,
-		ThinkingConfig:    &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow},
+		ThinkingConfig:    &genai.ThinkingConfig{ThinkingLevel: thinkingLevel},
 	}
 }
 
@@ -334,7 +340,7 @@ func jsonlRequest(r BatchRequest) jsonlLine {
 	line.Request.SystemInstruction = systemContent(r.System)
 	line.Request.GenerationConfig = map[string]any{
 		"maxOutputTokens": MaxOutputTokens,
-		"thinkingConfig":  map[string]any{"thinkingLevel": string(genai.ThinkingLevelLow)},
+		"thinkingConfig":  map[string]any{"thinkingLevel": string(thinkingLevel)},
 	}
 	return line
 }
