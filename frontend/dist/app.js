@@ -566,6 +566,11 @@
   const sectionCache = new Map(); // day key -> header element
   const hidden = new Set(); // ids removed from view while undo is possible
   let renaming = null; // { id, input }
+  let shownOrder = []; // ids as last rendered, for picking a neighbour
+
+  // The list is a listbox: rows are options it points at through
+  // aria-activedescendant, so focus stays on the list while rows are patched.
+  const rowDomID = (id) => `row-${id}`;
 
   function visibleItems() {
     return state.items.filter((item) => !hidden.has(item.ID));
@@ -586,11 +591,13 @@
     const isEmpty = items.length === 0 && !state.query;
     appEl.classList.toggle("is-empty", isEmpty);
     ensureSelection(items);
+    shownOrder = items.map((item) => item.ID);
 
     if (items.length === 0) {
       rowCache.clear();
       sectionCache.clear();
       list.innerHTML = state.query ? `<p class="list-note">${t("list.noResults")}</p>` : "";
+      paintSelection();
       syncScrolled();
       renderPane();
       return;
@@ -617,6 +624,8 @@
           if (!header) {
             header = document.createElement("div");
             header.className = "list-section";
+            // A visual divider: the rows are the only options.
+            header.setAttribute("role", "presentation");
             sectionCache.set(day, header);
           }
           const label = dayLabel(item);
@@ -632,6 +641,8 @@
         const el = document.createElement("div");
         el.className = "row";
         el.dataset.id = item.ID;
+        el.id = rowDomID(item.ID);
+        el.setAttribute("role", "option");
         entry = { el, html: "" };
         rowCache.set(item.ID, entry);
       }
@@ -643,7 +654,6 @@
         const offset = swipe.offsets.get(item.ID);
         if (offset) setOffset(el, offset, false);
       }
-      el.classList.toggle("is-selected", item.ID === state.selected);
       place(el);
     }
     for (const [id, entry] of rowCache) {
@@ -659,6 +669,7 @@
         sectionCache.delete(day);
       }
     }
+    paintSelection();
     syncScrolled();
     renderPane();
   }
@@ -738,16 +749,40 @@
   // its state. With the pane open something is always selected while the
   // list has rows (the first row by default), like a mail list.
 
+  // A selected item that leaves the list (deleted, filtered out) hands the
+  // selection to the row that takes its place, or to the new last row.
   function ensureSelection(items) {
     if (state.selected && items.some((item) => item.ID === state.selected)) return;
-    state.selected = state.pane && items.length ? items[0].ID : "";
+    const gone = shownOrder.indexOf(state.selected);
+    if (gone >= 0 && items.length) state.selected = items[Math.min(gone, items.length - 1)].ID;
+    else state.selected = state.pane && items.length ? items[0].ID : "";
+  }
+
+  // The selected row is also the list's active option.
+  function paintSelection() {
+    for (const [id, entry] of rowCache) {
+      const on = id === state.selected;
+      entry.el.classList.toggle("is-selected", on);
+      entry.el.setAttribute("aria-selected", String(on));
+    }
+    const active = rowCache.get(state.selected);
+    if (active) list.setAttribute("aria-activedescendant", active.el.id);
+    else list.removeAttribute("aria-activedescendant");
   }
 
   function select(id) {
     if (state.selected === id) return;
     state.selected = id;
-    for (const [rowID, entry] of rowCache) entry.el.classList.toggle("is-selected", rowID === id);
+    paintSelection();
     renderPane();
+  }
+
+  // Keyboard selection: the active row, scrolled into view.
+  function selectAt(items, index) {
+    const item = items[index];
+    if (!item) return;
+    select(item.ID);
+    rowCache.get(item.ID)?.el.scrollIntoView({ block: "nearest" });
   }
 
   function setPane(open, save = true) {
@@ -1093,6 +1128,9 @@
     const current = renaming;
     if (!current) return;
     renaming = null;
+    // Enter or Escape (not a blur elsewhere): the field is about to be
+    // replaced by the name, so focus goes back to the list it sits in.
+    const keepFocus = document.activeElement === current.input;
     const value = current.input.value.trim();
     const entry = rowCache.get(current.id);
     if (entry) entry.html = ""; // force a fresh row on the next render
@@ -1103,6 +1141,7 @@
         showToast(errorText(error));
       }
     }
+    if (keepFocus) list.focus();
     await refreshItems();
   }
 
@@ -1207,6 +1246,12 @@
     }
   }
 
+  // Double-click and Enter open a finished transcript in its default app.
+  function openRow(id) {
+    const item = itemByID(id);
+    if (item && item.State === "done") runAction("open", id);
+  }
+
   // ── Context menu ──────────────────────────────────────────
 
   let menuRow = null;
@@ -1220,7 +1265,9 @@
     }).join("");
   }
 
-  function openMenu(event, item, rowEl) {
+  // `at` is the point to open at: the contextmenu event, or { clientX,
+  // clientY } under the row when the keyboard opens the menu (rowMenuPoint).
+  function openMenu(at, item, rowEl) {
     closeMenu();
     menu.innerHTML = menuHTML(item);
     menu.dataset.id = item.ID;
@@ -1230,12 +1277,33 @@
 
     const { innerWidth, innerHeight } = window;
     const rect = menu.getBoundingClientRect();
-    const x = Math.min(event.clientX, innerWidth - rect.width - 6);
-    const y = event.clientY + rect.height > innerHeight - 6
-      ? Math.max(6, event.clientY - rect.height)
-      : event.clientY;
+    const x = Math.min(at.clientX, innerWidth - rect.width - 6);
+    const y = at.clientY + rect.height > innerHeight - 6
+      ? Math.max(6, at.clientY - rect.height)
+      : at.clientY;
     menu.style.left = `${Math.max(6, x)}px`;
     menu.style.top = `${y}px`;
+  }
+
+  // Under the row's name, where a pointer would have opened it.
+  function rowMenuPoint(rowEl) {
+    const body = rowEl.querySelector(".row-body") || rowEl;
+    return { clientX: body.getBoundingClientRect().left, clientY: rowEl.getBoundingClientRect().bottom };
+  }
+
+  // Arrow keys, Home and End walk the menu's items, wrapping at either end.
+  // The menu itself has focus when it opens; ↓ then goes to the first item
+  // and ↑ to the last. Enter and Space are the items' own button clicks.
+  function moveMenuFocus(key) {
+    const items = Array.from(menu.querySelectorAll("button")).filter(canFocus);
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    const last = items.length - 1;
+    let next = 0;
+    if (key === "End" || (key === "ArrowUp" && at <= 0)) next = last;
+    else if (key === "ArrowUp") next = at - 1;
+    else if (key === "ArrowDown" && at >= 0 && at < last) next = at + 1;
+    items[next].focus();
   }
 
   function closeMenu() {
@@ -1807,6 +1875,89 @@
     });
   }
 
+  // Keyboard scopes, each called from the one keydown listener in bindEvents.
+
+  // A sheet or the PDF card. The card is modal: Escape cancels this folder,
+  // other shortcuts wait.
+  function modalKeys(event) {
+    if (!pdfSheet.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        answerPDF(null);
+      } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
+        event.preventDefault();
+        answerPDF(checkedPDFs());
+      }
+      return;
+    }
+    if (event.key !== "Escape") return;
+    if (!keysSheet.hidden && collapseKeyPanel()) return;
+    closeSheets();
+  }
+
+  // The context menu or the key picker's menu, which take every key while
+  // open, like a native menu.
+  function menuKeys(event) {
+    if (event.key === "Escape") {
+      closeMenu();
+    } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      moveMenuFocus(event.key);
+    }
+  }
+
+  // The list itself has focus (not a field or button inside it). The
+  // selected row is the active one, so moving it selects, as a click does.
+  // Returns whether the key was the list's.
+  function listKeys(event) {
+    const items = visibleItems();
+    const at = items.findIndex((item) => item.ID === state.selected);
+    const rowEl = rowCache.get(state.selected)?.el;
+    const command = event.metaKey || event.ctrlKey;
+    const plain = !command && !event.altKey && !event.shiftKey;
+    const key = event.key;
+    if (plain && key === "ArrowDown") selectAt(items, at < 0 ? 0 : Math.min(at + 1, items.length - 1));
+    else if (plain && key === "ArrowUp") selectAt(items, at < 0 ? items.length - 1 : Math.max(at - 1, 0));
+    else if (plain && key === "Home") selectAt(items, 0);
+    else if (plain && key === "End") selectAt(items, items.length - 1);
+    else if (plain && key === "Enter" && at >= 0) openRow(state.selected);
+    // Space shows the transcript; focus stays here (F6 moves to it).
+    else if (plain && key === " ") {
+      if (!state.pane) setPane(true);
+    }
+    // ⌘⌫ is the Mac delete, Delete the Windows one; both work on both.
+    else if (at >= 0 && (key === "Delete" || (key === "Backspace" && command))) runAction("delete", state.selected);
+    else if (rowEl && (key === "ContextMenu" || (key === "F10" && event.shiftKey))) {
+      openMenu(rowMenuPoint(rowEl), items[at], rowEl);
+    } else return false;
+    event.preventDefault();
+    return true;
+  }
+
+  // F6 and Shift+F6 cycle the list, the transcript (when the pane is open)
+  // and the search field; from anywhere else F6 starts at the list.
+  function cycleRegion(back) {
+    const regions = [list, paneBody, search].filter(canFocus);
+    if (!regions.length) return;
+    const at = regions.findIndex((el) => el.contains(document.activeElement));
+    const step = back ? regions.length - 1 : 1;
+    regions[at < 0 ? 0 : (at + step) % regions.length].focus();
+  }
+
+  function globalKeys(event) {
+    const command = event.metaKey || event.ctrlKey;
+    if (event.key === "Escape") {
+      if (swipe.offsets.size) closeOtherRows(null);
+    } else if (command && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      search.focus();
+      search.select();
+    } else if (event.key === "F6") {
+      event.preventDefault();
+      cycleRegion(event.shiftKey);
+    }
+  }
+
   function bindEvents() {
     bindDragHighlight();
 
@@ -1877,12 +2028,10 @@
       select(id);
     });
 
-    // Double-click opens a finished transcript in its default app.
     list.addEventListener("dblclick", (event) => {
       const rowEl = event.target.closest(".row");
       if (!rowEl || event.target.closest("button, input")) return;
-      const item = itemByID(rowEl.dataset.id);
-      if (item && item.State === "done") runAction("open", item.ID);
+      openRow(rowEl.dataset.id);
     });
 
     paneHead.addEventListener("click", (event) => {
@@ -1951,32 +2100,15 @@
     pdfCancel.addEventListener("click", () => answerPDF(null));
     trackHover(pdfList, ".pdf-row");
 
+    // The only document keydown listener. Each scope takes the keys while it
+    // is the innermost one: a modal surface, then the menu, then the focused
+    // list, then the window.
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Tab") {
-        trapTab(event);
-        return;
-      }
-      if (!pdfSheet.hidden) {
-        // The card is modal: Escape cancels this folder, other shortcuts wait.
-        if (event.key === "Escape") {
-          event.preventDefault();
-          answerPDF(null);
-        } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
-          event.preventDefault();
-          answerPDF(checkedPDFs());
-        }
-        return;
-      }
-      if (event.key === "Escape") {
-        if (!menu.hidden) closeMenu();
-        else if (!keysSheet.hidden && collapseKeyPanel()) return;
-        else if (sheetOpen()) closeSheets();
-        else if (swipe.offsets.size) closeOtherRows(null);
-      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !sheetOpen()) {
-        event.preventDefault();
-        search.focus();
-        search.select();
-      }
+      if (event.key === "Tab") trapTab(event);
+      else if (sheetOpen()) modalKeys(event);
+      else if (!menu.hidden) menuKeys(event);
+      else if (event.target === list && listKeys(event)) return;
+      else globalKeys(event);
     });
 
     keyTier.addEventListener("click", (event) => {

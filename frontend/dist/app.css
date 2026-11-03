@@ -563,6 +563,13 @@ button {
   background: linear-gradient(var(--selected), var(--selected)), var(--bg);
 }
 
+/* The list keeps focus and points at the selected row (aria-activedescendant),
+   so the keyboard ring is drawn on that row. */
+.list:focus-visible .row.is-selected .row-main {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: -2px;
+}
+
 .row.is-snapping .row-main {
   transition: transform 0.15s ease-out;
 }

@@ -52,7 +52,7 @@
       <input id="search" type="search" data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false"
              data-i18n-aria-label="search.placeholder">
     </label>
-    <main class="list" id="list"></main>
+    <main class="list" id="list" role="listbox" tabindex="0" data-i18n-aria-label="list.label"></main>
     <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
       <span data-i18n="empty.text"></span>
     </button>
@@ -60,7 +60,7 @@
 
   <section class="pane" id="pane">
     <header class="pane-head" id="pane-head"></header>
-    <div class="pane-body" id="pane-body"></div>
+    <div class="pane-body" id="pane-body" role="region" tabindex="0" data-i18n-aria-label="pane.label"></div>
   </section>
 
   <footer class="footer">

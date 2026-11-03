@@ -149,6 +149,7 @@
   "keys.tier": "등급",
   "keys.title": "API 키",
 
+  "list.label": "파일 목록",
   "list.noResults": "결과 없음",
 
   "media.mp3NoFrame": "MP3 프레임 없음",
@@ -198,6 +199,7 @@
   "pane.empty": "선택한 항목 없음",
   "pane.emptyText": "빈 전사본",
   "pane.exhaustedNote": "남은 부분은 유료로 이어서 처리 가능",
+  "pane.label": "전사본",
   "pane.progress": "{percent}% 완료",
   "pane.toggle": "전사본 보기",
   "pane.truncated": "파일이 커서 앞부분만 표시",
