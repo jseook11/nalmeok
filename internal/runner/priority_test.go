@@ -111,7 +111,7 @@ func TestPinnedFreeKey429IsExhaustedWithoutRotation(t *testing.T) {
 	item := h.addPinned(h.source("lec.m4a"), "free", "f1")
 
 	ex := h.wait(item.ID, StateFreeExhausted)
-	if ex.Detail != "남은 2분" {
+	if ex.Detail != i18n.T("status.minutesLeft", "minutes", 2) {
 		t.Errorf("Detail = %q", ex.Detail)
 	}
 	if got := h.world.client("AIza-f2").generatesNow(); got != 0 {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -41,7 +42,7 @@ func TestRenameKeyBinding(t *testing.T) {
 		wantErr bool
 	}{
 		{label: " 연구실 ", want: "연구실"},
-		{label: "무료 2", want: "무료 22"},
+		{label: i18n.T("tier.free") + " 2", want: i18n.T("tier.free") + " 22"},
 		{label: "", wantErr: true},
 	}
 	for _, tt := range tests {
@@ -92,7 +93,7 @@ func TestSetKeyOrderBinding(t *testing.T) {
 	if err := ta.app.SetKeyOrder([]string{p1, f2, f1}); err != nil {
 		t.Fatal(err)
 	}
-	if got := keyIDs(ta.app.Keys()); got != "유료 1,무료 2,무료 1" {
+	if got := keyIDs(ta.app.Keys()); got != i18n.T("tier.paid")+" 1,"+i18n.T("tier.free")+" 2,"+i18n.T("tier.free")+" 1" {
 		t.Fatalf("Keys order = %s", got)
 	}
 	for _, bad := range [][]string{{p1, f2}, {p1, p1, f1}, {p1, f2, f1, "x"}} {
@@ -114,7 +115,7 @@ func TestEnvKeyCannotBeEditedByBindings(t *testing.T) {
 		"tier":   ta.app.SetKeyTier("env", "free"),
 		"order":  ta.app.SetKeyOrder([]string{saved, "env"}),
 	} {
-		if err == nil || !strings.Contains(err.Error(), "환경변수") {
+		if err == nil || !strings.Contains(err.Error(), i18n.T("error.envKeyLocked")) {
 			t.Errorf("%s(env) = %v", name, err)
 		}
 	}
@@ -138,7 +139,7 @@ func TestPinnedItemsAndKeyLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := ta.app.ListItems("")[0]
-	if item.KeyID != f1 || item.KeyLabel != "무료 1" {
+	if item.KeyID != f1 || item.KeyLabel != i18n.T("tier.free")+" 1" {
 		t.Fatalf("pinned item = KeyID %q KeyLabel %q", item.KeyID, item.KeyLabel)
 	}
 

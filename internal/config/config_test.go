@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 func TestConfigDir(t *testing.T) {
@@ -168,7 +170,7 @@ func TestEnvKeyIsReadOnlyFirstAndDeduped(t *testing.T) {
 	if len(keys) != 1 {
 		t.Fatalf("AllKeys = %d, want 1", len(keys))
 	}
-	if keys[0].ID != "env" || keys[0].Tier != "free" || keys[0].Label != "환경변수" {
+	if keys[0].ID != "env" || keys[0].Tier != "free" || keys[0].Label != i18n.T("key.envLabel") {
 		t.Fatalf("env key = %+v", keys[0])
 	}
 	if got := len(cfg.SavedKeys()); got != 1 {

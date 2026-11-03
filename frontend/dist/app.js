@@ -16,13 +16,36 @@
 
   // All user-facing text lives in i18n/<lang>.json, the same file the Go side
   // reads. A key missing from LANG falls back to BASE_LANG, then to the key.
-  const BASE_LANG = "ko";
-  const LANG = "ko";
+  // The window decides the language from the OS setting and tells Go, whose
+  // environment often has no locale when the app starts from Finder.
+  const BASE_LANG = "en";
+  const LANG = detectLanguage();
+  document.documentElement.lang = LANG;
+  await useLanguageInBackend(LANG);
   const STRINGS = Object.assign(
     {},
     await loadStrings(BASE_LANG),
     LANG === BASE_LANG ? {} : await loadStrings(LANG)
   );
+
+  function detectLanguage() {
+    const tag = ((navigator.languages && navigator.languages[0]) || navigator.language || "").toLowerCase();
+    if (!tag) return BASE_LANG;
+    const korean = tag === "ko" || tag.startsWith("ko-") || tag.startsWith("ko_") || tag.startsWith("ko.");
+    return korean ? "ko" : BASE_LANG;
+  }
+
+  // The catalog already uses LANG; this keeps Go's error messages and state
+  // text in the same language. Without the binding (a plain browser), Go
+  // keeps the language it detected.
+  async function useLanguageInBackend(lang) {
+    try {
+      const api = window.go && window.go.app && window.go.app.App;
+      if (api && typeof api.UseLanguage === "function") await api.UseLanguage(lang);
+    } catch (_) {
+      // The window still uses `lang`; Go text may stay in its own language.
+    }
+  }
 
   async function loadStrings(lang) {
     try {
@@ -356,7 +379,7 @@
     return minutes ? t("duration.hoursMinutes", { hours, minutes }) : t("duration.hours", { hours });
   }
 
-  const won = (amount) => Number(amount).toLocaleString("ko-KR");
+  const won = (amount) => Number(amount).toLocaleString(LANG === "ko" ? "ko-KR" : "en-US");
 
   const isPaid = (item) => item.Mode === "batch";
 

@@ -479,7 +479,7 @@ func (c *Config) uniqueLabel(label string) string {
 	return c.uniqueLabelExcept(label, "")
 }
 
-// uniqueLabelExcept numbers label ("무료2") when another saved key already
+// uniqueLabelExcept numbers label ("Free2") when another saved key already
 // uses it. The key with ID except is ignored, so renaming a key to its own
 // label keeps it.
 func (c *Config) uniqueLabelExcept(label, except string) string {

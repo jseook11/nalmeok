@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -38,7 +39,7 @@ func TestReadOutputReturnsText(t *testing.T) {
 func TestReadOutputMovedFile(t *testing.T) {
 	ta := newTestApp(t)
 	id := addDone(t, ta, filepath.Join(ta.dir, "gone.md"))
-	if _, err := ta.app.ReadOutput(id); err == nil || !strings.Contains(err.Error(), "옮겼") {
+	if _, err := ta.app.ReadOutput(id); err == nil || !strings.Contains(err.Error(), i18n.T("error.outputMoved")) {
 		t.Fatalf("err = %v, want the moved-file message", err)
 	}
 }

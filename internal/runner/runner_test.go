@@ -521,7 +521,7 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	item := h.addOne(h.source("lec.m4a"), "free")
 
 	ex := h.wait(item.ID, StateFreeExhausted)
-	if ex.Detail != "남은 1분" {
+	if ex.Detail != i18n.T("status.minutesLeft", "minutes", 1) {
 		t.Errorf("Detail = %q", ex.Detail)
 	}
 	if ex.Progress != 0.5 {
@@ -566,7 +566,7 @@ func TestBatchPartialFailureThenRetry(t *testing.T) {
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
 	failed := h.wait(item.ID, StateFailed)
-	if !strings.Contains(failed.Detail, "1개 조각") {
+	if !strings.Contains(failed.Detail, i18n.T("error.chunksFailed", "count", 1)) {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
 	if failed.Units[0].Text == "" || failed.Units[1].Text != "" || failed.Units[2].Text == "" {

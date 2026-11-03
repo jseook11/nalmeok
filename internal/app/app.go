@@ -137,6 +137,17 @@ func (a *App) context() context.Context {
 	return a.ctx.get()
 }
 
+// UseLanguage switches the catalog language to the one the window picked and
+// returns the language now in use. The window knows the OS language even when
+// the process has no locale environment variable (macOS apps launched from
+// Finder, for example), so it decides and Go follows.
+func (a *App) UseLanguage(lang string) string {
+	if err := i18n.SetLanguage(lang); err != nil {
+		return i18n.Language()
+	}
+	return i18n.Language()
+}
+
 type atomicContext struct {
 	mu  sync.RWMutex
 	ctx context.Context
@@ -591,7 +602,7 @@ func (a *App) AddKey(label, tier, key string) error {
 	return nil
 }
 
-// autoLabelLocked names a new key "무료 1", "유료 2" and so on, taking the
+// autoLabelLocked names a new key "Free 1", "Paid 2" and so on, taking the
 // smallest number not already used. Re-adding a saved key keeps its label.
 func (a *App) autoLabelLocked(tier, key string) string {
 	prefix := i18n.T("tier.free")
@@ -661,7 +672,7 @@ func (a *App) emitKeysChanged() {
 }
 
 // RenameKey changes a saved key's label. A label already used by another key
-// gets a number ("무료 12").
+// gets a number ("Free 12").
 func (a *App) RenameKey(id, label string) error {
 	if a.cfg == nil {
 		return errNoConfig

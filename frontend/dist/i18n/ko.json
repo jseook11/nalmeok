@@ -114,8 +114,6 @@
 
   "field.name": "이름",
 
-  "folder.voiceMemos": "음성 메모",
-
   "gemini.badResultLine": "결과 {line}행 읽기 실패: {error}",
   "gemini.emptyResults": "서버 결과 비어 있음",
   "gemini.noRequestID": "요청 ID 없음",

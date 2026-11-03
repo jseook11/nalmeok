@@ -41,6 +41,11 @@ import (
 var version = "0.7.0-dev"
 
 func main() {
+	// The GUI has no reliable locale in its environment when launched from
+	// Finder or the Dock; the window reports the OS language back through
+	// App.UseLanguage once it loads. This covers the CLI and early messages.
+	_ = i18n.SetLanguage(i18n.Detect(systemLocale()))
+
 	args := filterPSNArgs(os.Args[1:])
 	if len(args) == 0 {
 		runGUI()
@@ -58,6 +63,25 @@ func main() {
 	default:
 		os.Exit(runCLI(args))
 	}
+}
+
+// systemLocale returns the locale the OS reports through the environment.
+// GUI processes may not have one; i18n.Detect keeps the base language then.
+func systemLocale() string {
+	for _, name := range []string{"LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		// LANGUAGE is a priority list ("ko:en"); the first entry decides.
+		if name == "LANGUAGE" {
+			value = strings.TrimSpace(strings.SplitN(value, ":", 2)[0])
+		}
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // filterPSNArgs drops the process serial number arguments macOS adds when the
