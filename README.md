@@ -12,6 +12,11 @@
 - 지난 작업은 목록에 남고, 검색할 수 있어요.
 - OS 언어가 한국어면 한국어, 그 외에는 영어로 화면이 나와요.
 
+<p>
+  <img src="docs/images/app/main-korean-lecture.png" alt="한국어 강의 전사본을 연 Nalmeok 창" width="49%">
+  <img src="docs/images/app/main-english-lecture.png" alt="영어 강의 전사본을 연 Nalmeok 창" width="49%">
+</p>
+
 ## 설치
 
 [Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
