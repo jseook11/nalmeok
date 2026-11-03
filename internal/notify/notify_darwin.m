@@ -75,17 +75,13 @@ void notifySend(const char *title, const char *body) {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         // Asks only the first time; later calls answer from the saved
         // setting at once, so a change in System Settings is respected.
+        // Refused (the user said no, or turned it off later): nothing is
+        // shown. macOS reports a refusal as an error too (UNErrorDomain 1),
+        // so error and !granted mean the same here.
         [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
                               completionHandler:^(BOOL granted, NSError *error) {
-            if (error != nil) {
-                // The system refused the app outright (for example an
-                // unsigned copy). The osascript notification still works.
-                notifyFallback((char *)[t UTF8String], (char *)[b UTF8String],
-                               (char *)[[error description] UTF8String]);
+            if (!granted || error != nil) {
                 return;
-            }
-            if (!granted) {
-                return; // the user turned notifications off
             }
             UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
             content.title = t;
@@ -95,13 +91,7 @@ void notifySend(const char *title, const char *body) {
                                                      content:content
                                                      trigger:nil];
             [content release];
-            [center addNotificationRequest:request
-                     withCompletionHandler:^(NSError *addError) {
-                if (addError != nil) {
-                    notifyFallback((char *)[t UTF8String], (char *)[b UTF8String],
-                                   (char *)[[addError description] UTF8String]);
-                }
-            }];
+            [center addNotificationRequest:request withCompletionHandler:nil];
         }];
     }
 }
