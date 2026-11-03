@@ -216,6 +216,11 @@
   "picker.autoByPriority": "자동 (우선순위대로)",
   "picker.title": "새 파일에 쓸 키",
 
+  "quit.confirm": "종료",
+  "quit.keep": "계속 전사",
+  "quit.message": "지금 끄면 전사가 멈춥니다. 다시 켜면 멈춘 곳부터 이어서 합니다.",
+  "quit.title": "무료 전사가 진행 중입니다",
+
   "row.failed": "실패",
   "row.failedReason": "실패 · {reason}",
   "row.freeExhausted": "오늘 무료 사용량 소진",

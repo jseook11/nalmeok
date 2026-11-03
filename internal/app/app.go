@@ -138,6 +138,38 @@ func (a *App) Shutdown(context.Context) {
 	}
 }
 
+// BeforeClose asks before quitting while a free item is being transcribed:
+// quitting stops it mid-way (it resumes on the next launch). A Batch job runs
+// on Google's side and is fetched later, so it never asks. Every way out (the
+// close button, ⌘Q, ⌘W) goes through here. It returns true to stay open.
+func (a *App) BeforeClose(ctx context.Context) bool {
+	// A window that never started (the CLI holds the folder lock) runs
+	// nothing of its own, so it closes without asking.
+	if a.context() == nil || a.store == nil || !liveRunning(a.store.List("")) {
+		return false
+	}
+	quit := i18n.T("quit.confirm")
+	answer, err := wailsruntime.MessageDialog(ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         i18n.T("quit.title"),
+		Message:       i18n.T("quit.message"),
+		Buttons:       []string{quit, i18n.T("quit.keep")},
+		DefaultButton: i18n.T("quit.keep"),
+		CancelButton:  i18n.T("quit.keep"),
+	})
+	return err == nil && answer != quit
+}
+
+// liveRunning reports whether a free item is in progress.
+func liveRunning(items []store.Item) bool {
+	for _, item := range items {
+		if item.State == "running" && item.Mode == "free" {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) context() context.Context {
 	return a.ctx.get()
 }

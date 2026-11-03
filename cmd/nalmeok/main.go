@@ -257,7 +257,9 @@ func runGUI() {
 		OnStartup:  onStartup,
 		OnDomReady: onDomReady,
 		OnShutdown: onShutdown,
-		Bind:       []interface{}{application},
+		// Asks before quitting mid free transcription (close button, ⌘Q, ⌘W).
+		OnBeforeClose: application.BeforeClose,
+		Bind:          []interface{}{application},
 	})
 	if err != nil {
 		log.Fatal(err)

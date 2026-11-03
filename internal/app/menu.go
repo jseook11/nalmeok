@@ -20,8 +20,8 @@ const (
 //
 // The app menu is built here rather than with menu.AppMenu(), which takes no
 // extra items, so it can hold Settings (⌘,). Close (⌘W) quits, the same as
-// the window's close button: the app sets neither HideWindowOnClose nor
-// OnBeforeClose, so both go through Wails' Quit.
+// the window's close button: both go through Wails' Quit and so through
+// BeforeClose, which asks first while a free item is being transcribed.
 func (a *App) Menu() *menu.Menu {
 	bar := menu.NewMenu()
 
