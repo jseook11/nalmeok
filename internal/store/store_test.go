@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -78,7 +79,7 @@ func TestUpdateGetRemovePersist(t *testing.T) {
 		item.State = "done"
 		item.Progress = 1
 		item.Output = "/x/강의.md"
-		item.Units = []Unit{{Index: 0, Files: []string{"/tmp/a.aac"}, Text: "본문"}}
+		item.Units = []Unit{{Index: 0, Files: []string{"/tmp/a.aac"}, MIMEs: []string{"audio/m4a"}, Text: "본문"}}
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -95,7 +96,8 @@ func TestUpdateGetRemovePersist(t *testing.T) {
 
 	// Returned copies must not mutate the store.
 	after.Units[0].Files[0] = "/changed"
-	if again, _ := s.Get("a"); again.Units[0].Files[0] != "/tmp/a.aac" {
+	after.Units[0].MIMEs[0] = "audio/changed"
+	if again, _ := s.Get("a"); again.Units[0].Files[0] != "/tmp/a.aac" || again.Units[0].MIMEs[0] != "audio/m4a" {
 		t.Fatalf("Get leaked internal slice: %+v", again.Units)
 	}
 
@@ -153,6 +155,137 @@ func TestOnChangeFiresAfterMutations(t *testing.T) {
 	}
 	if got := count.Load(); got != 3 {
 		t.Fatalf("callback fired for a failed mutation (count %d)", got)
+	}
+}
+
+func TestUpdateWithoutChangeSkipsSaveAndNotify(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "items.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(Item{ID: "a", Name: "a", State: "running", Detail: "queued"}); err != nil {
+		t.Fatal(err)
+	}
+	var count atomic.Int64
+	s.SetOnChange(func() { count.Add(1) })
+	before, _ := s.Get("a")
+
+	// A marker the store would overwrite if it saved. Proving it is still
+	// there after the call proves no write happened.
+	if err := os.WriteFile(path, []byte("marker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update("a", func(*Item) {}); err != nil {
+		t.Fatalf("no-op Update: %v", err)
+	}
+	if got := count.Load(); got != 0 {
+		t.Fatalf("onChange fired %d times for a no-op update", got)
+	}
+	after, _ := s.Get("a")
+	if !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("no-op Update changed UpdatedAt: %v -> %v", before.UpdatedAt, after.UpdatedAt)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "marker" {
+		t.Fatalf("no-op Update wrote the file: %q, %v", data, err)
+	}
+
+	// A real change is saved and notifies once.
+	if err := s.Update("a", func(item *Item) { item.State = "done" }); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := count.Load(); got != 1 {
+		t.Fatalf("onChange count = %d, want 1", got)
+	}
+	if after, _ := s.Get("a"); !after.UpdatedAt.After(before.UpdatedAt) {
+		t.Fatal("a changing Update did not advance UpdatedAt")
+	}
+}
+
+func TestUpdateDetectsBatchUploadsChange(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Add(Item{ID: "b", Batch: &BatchRef{
+		KeyID:   "k",
+		Uploads: map[string]Upload{"a.m4a": {URI: "old", MIME: "audio/m4a"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var count atomic.Int64
+	s.SetOnChange(func() { count.Add(1) })
+
+	if err := s.Update("b", func(item *Item) {
+		item.Batch.Uploads["a.m4a"] = Upload{URI: "new", MIME: "audio/m4a"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := count.Load(); got != 1 {
+		t.Fatalf("onChange count = %d, want 1 for a changed upload entry", got)
+	}
+	got, _ := s.Get("b")
+	if up := got.Batch.Uploads["a.m4a"]; up.URI != "new" {
+		t.Fatalf("upload = %+v, want URI new", up)
+	}
+}
+
+func TestAddManySavesAndNotifiesOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "items.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count atomic.Int64
+	s.SetOnChange(func() { count.Add(1) })
+
+	items := make([]Item, 10)
+	for i := range items {
+		items[i] = Item{Name: fmt.Sprintf("lec%02d.m4a", i), Source: fmt.Sprintf("/x/lec%02d.m4a", i), Kind: "file", State: "running"}
+	}
+	if err := s.AddMany(items); err != nil {
+		t.Fatalf("AddMany: %v", err)
+	}
+	if got := count.Load(); got != 1 {
+		t.Fatalf("onChange count = %d, want 1", got)
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.List("")
+	if len(got) != 10 {
+		t.Fatalf("reloaded items = %d, want 10", len(got))
+	}
+	for _, item := range got {
+		if item.ID == "" || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() {
+			t.Fatalf("AddMany left ID/timestamps empty: %+v", item)
+		}
+	}
+}
+
+func TestAddManyRollsBackOnSaveFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "items.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(Item{ID: "keep", Name: "keep"}); err != nil {
+		t.Fatal(err)
+	}
+	// Replace the file with a non-empty directory so the atomic rename fails.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(path, "block"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.AddMany([]Item{{ID: "x", Name: "x"}, {ID: "y", Name: "y"}}); err == nil {
+		t.Fatal("AddMany succeeded with an unwritable path")
+	}
+	got := s.List("")
+	if len(got) != 1 || got[0].ID != "keep" {
+		t.Fatalf("items after a failed AddMany = %+v, want only keep", got)
 	}
 }
 

@@ -283,10 +283,15 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 	if err != nil {
 		return err
 	}
+	items := make([]store.Item, 0, len(paths))
 	for _, path := range paths {
-		if err := r.addItem(path, mode, keyID, nil, false); err != nil {
-			return err
-		}
+		items = append(items, r.newItem(path, mode, keyID, nil, false))
+	}
+	if err := r.opts.Store.AddMany(items); err != nil {
+		return err
+	}
+	for _, item := range items {
+		r.afterAdd(item)
 	}
 	return nil
 }
@@ -299,7 +304,12 @@ func (r *Runner) AddWithPDFs(path string, pdfs []string, mode, keyID string) err
 	if err != nil {
 		return err
 	}
-	return r.addItem(path, mode, keyID, append([]string{}, pdfs...), true)
+	item := r.newItem(path, mode, keyID, append([]string{}, pdfs...), true)
+	if err := r.opts.Store.Add(item); err != nil {
+		return err
+	}
+	r.afterAdd(item)
+	return nil
 }
 
 // resolveMode checks that a key exists and returns the mode new items run
@@ -332,7 +342,9 @@ func (r *Runner) resolveMode(mode, keyID string) (string, error) {
 	return mode, nil
 }
 
-func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool) error {
+// newItem builds the record for one dropped path. It does not save it; the
+// caller saves the whole batch at once.
+func (r *Runner) newItem(path, mode, keyID string, pdfs []string, pdfChosen bool) store.Item {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
@@ -340,7 +352,7 @@ func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		kind = "folder"
 	}
-	item := store.Item{
+	return store.Item{
 		ID:        store.NewID(),
 		Source:    path,
 		Kind:      kind,
@@ -352,22 +364,23 @@ func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool
 		PDFChosen: pdfChosen,
 		PDFs:      pdfs,
 	}
-	if err := r.opts.Store.Add(item); err != nil {
-		return err
-	}
+}
+
+// afterAdd reports and queues an item that is already saved, and starts its
+// early estimate.
+func (r *Runner) afterAdd(item store.Item) {
 	switch {
-	case pdfChosen:
-		r.logf("item %s added: %s (%s, key %q, %d PDFs chosen)", item.ID, path, mode, keyID, len(pdfs))
-	case keyID != "":
-		r.logf("item %s added: %s (%s, key %s)", item.ID, path, mode, keyID)
+	case item.PDFChosen:
+		r.logf("item %s added: %s (%s, key %q, %d PDFs chosen)", item.ID, item.Source, item.Mode, item.KeyID, len(item.PDFs))
+	case item.KeyID != "":
+		r.logf("item %s added: %s (%s, key %s)", item.ID, item.Source, item.Mode, item.KeyID)
 	default:
-		r.logf("item %s added: %s (%s)", item.ID, path, mode)
+		r.logf("item %s added: %s (%s)", item.ID, item.Source, item.Mode)
 	}
-	r.enqueue(item.ID, mode)
+	r.enqueue(item.ID, item.Mode)
 	if r.opts.EarlyEstimate {
-		go r.estimate(item.ID, path)
+		go r.estimate(item.ID, item.Source)
 	}
-	return nil
 }
 
 // estimate records the audio length and paid estimate of a just-added item.
