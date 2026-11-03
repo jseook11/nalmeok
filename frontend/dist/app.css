@@ -564,9 +564,14 @@ button {
 }
 
 /* The list keeps focus and points at the selected row (aria-activedescendant),
-   so the keyboard ring is drawn on that row. */
+   so the keyboard ring is drawn on that row instead of around the list. With
+   no row selected the list keeps its own ring. */
+.list:focus-visible:has(.row.is-selected) {
+  outline: none;
+}
+
 .list:focus-visible .row.is-selected .row-main {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
