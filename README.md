@@ -12,6 +12,11 @@
 - 지난 작업은 목록에 남고, 검색할 수 있어요.
 - OS 언어가 한국어면 한국어, 그 외에는 영어로 화면이 나와요.
 
+<p>
+  <img src="docs/images/app/main-korean-lecture.png" alt="한국어 강의 전사본을 연 Nalmeok 창" width="49%">
+  <img src="docs/images/app/main-english-lecture.png" alt="영어 강의 전사본을 연 Nalmeok 창" width="49%">
+</p>
+
 ## 설치
 
 [Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
@@ -26,6 +31,8 @@
 2. **무료** 또는 **유료**를 고르고 **API 키 붙여넣기** 칸에 Gemini API 키를 넣어요. **저장**을 누르면 키를 확인하고 저장해요.
 3. 음성 파일이나 폴더를 창에 놓아요. 확인 없이 바로 시작해요.
 4. 끝나면 원본 옆에 `.md`가 생겨요. 끝난 행에서 **Finder에서 보기**(Windows는 **탐색기에서 보기**)를 누르면 파일 위치가 열려요.
+
+<img src="docs/images/app/api-keys.png" alt="무료 키와 유료 키를 등록한 API 키 시트" width="60%">
 
 키 발급과 등록은 [무료 Gemini API 키 발급과 등록](docs/gemini-api-key.md)에 사진과 함께 있어요. 무료 키는 바로 전사에, 유료 키는 Batch(대기 후 처리)에 써요. 두 종류를 모두 넣으면 위쪽 **무료** / **유료** 토글로 골라요. Google AI Pro 구독자라면 [월 $10 크레딧으로 유료 키를 쓸 수 있어요](docs/google-ai-pro-credit.md).
 
