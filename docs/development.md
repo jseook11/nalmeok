@@ -12,9 +12,9 @@
 | `old/` | 기존 Python 앱과 그 문서 (보존용) |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
-## Go 앱 (재설계, 진행 중)
+## Go 앱
 
-[`redesign-2026-11.md`](redesign-2026-11.md)에 따라 Go + Wails로 다시 만들고 있다. 기존 Python 앱은 `old/`에 보존한다.
+Go + Wails 데스크톱 앱이다. 기존 Python 앱은 `old/`에 보존한다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
