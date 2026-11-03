@@ -116,6 +116,9 @@ type Options struct {
 	Keys func() []config.Key
 	// WorkDir holds per-item work directories (<config dir>/work).
 	WorkDir string
+	// TranscriptsDir keeps the app's copy of each finished transcript
+	// (<config dir>/transcripts, see output.ArchivePath); empty keeps none.
+	TranscriptsDir string
 	// LogPath is the log file; empty disables logging.
 	LogPath string
 	// Notify shows an OS notification when an item finishes. nil shows
@@ -1804,6 +1807,13 @@ func (r *Runner) finish(id string) error {
 	if err != nil {
 		return userError{i18n.Error("error.saveFailed", "error", err)}
 	}
+	// The app's own copy outlives a moved or renamed .md. The .md is saved
+	// already, so a failed copy does not fail the item.
+	if archive := output.ArchivePath(r.opts.TranscriptsDir, id); archive != "" {
+		if err := output.Write(archive, merged); err != nil {
+			r.logf("item %s archive: %v", id, err)
+		}
+	}
 	if err := r.update(id, func(it *store.Item) {
 		it.State = StateDone
 		it.Output = target
@@ -1812,8 +1822,8 @@ func (r *Runner) finish(id string) error {
 		it.FinishedAt = r.opts.Now()
 		it.Usage, it.CostKRW = itemCost(it.Units)
 		it.Batch = nil
-		// The .md is the record; dropping texts and uploads keeps items.json
-		// small.
+		// The .md (and its archived copy) is the record; dropping texts and
+		// uploads keeps items.json small.
 		it.Units = nil
 		it.Uploads = nil
 	}); err != nil {

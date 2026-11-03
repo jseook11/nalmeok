@@ -94,6 +94,10 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	transcriptsDir, err := config.TranscriptsDir()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	logPath, err := config.LogPath()
 	if err != nil {
 		return nil, nil, nil, err
@@ -103,6 +107,7 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 		Media:          runner.DefaultMedia{},
 		NewClient:      gemini.New,
 		WorkDir:        workDir,
+		TranscriptsDir: transcriptsDir,
 		LogPath:        logPath,
 		UnitMaxSeconds: plan.UnitMaxSeconds,
 		EarlyEstimate:  true,
@@ -154,6 +159,11 @@ func runGUI() {
 		application = app.New(cfg, history, engine)
 		application.ValidateKey = gemini.ValidateKey
 	}
+	transcriptsDir, err := config.TranscriptsDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	application.TranscriptsDir = transcriptsDir
 
 	assets, err := fs.Sub(frontend.Assets, "dist")
 	if err != nil {

@@ -100,6 +100,16 @@ func WorkDir() (string, error) {
 	return filepath.Join(dir, "work"), nil
 }
 
+// TranscriptsDir returns <Dir>/transcripts, where the app keeps its own copy
+// of every finished transcript (see output.ArchivePath).
+func TranscriptsDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "transcripts"), nil
+}
+
 // LogPath returns <Dir>/nalmeok.log.
 func LogPath() (string, error) {
 	dir, err := Dir()

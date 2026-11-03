@@ -38,6 +38,9 @@ type Runner interface {
 type Item struct {
 	store.Item
 	KeyLabel string `json:"KeyLabel"`
+	// OutputMissing is set on a finished item whose .md is no longer where
+	// Output says (moved, renamed or deleted outside the app).
+	OutputMissing bool `json:"OutputMissing"`
 }
 
 // KeyView is a key as shown in settings. It never contains the full API key.
@@ -99,6 +102,11 @@ type App struct {
 	// ValidateKey is an optional, non-billing check run before saving a key.
 	// Phase 2 sets this to a models.get call; it is nil in phase 1.
 	ValidateKey func(ctx context.Context, key string) error
+
+	// TranscriptsDir holds the app's copy of each finished transcript
+	// (output.ArchivePath), read when the .md next to the source is gone.
+	// main sets it before Startup; empty keeps no copies.
+	TranscriptsDir string
 }
 
 // New wires the app. The store's change callback emits "items:changed".
@@ -128,6 +136,7 @@ func (a *App) Startup(ctx context.Context) {
 	if a.runner != nil {
 		a.runner.Start(ctx)
 	}
+	go a.archiveFinished()
 }
 
 // Shutdown is called by Wails when the window closes. A runner that holds
@@ -208,7 +217,7 @@ func (a *App) ListItems(query string) []Item {
 	stored := a.store.List(query)
 	items := make([]Item, len(stored))
 	for i, it := range stored {
-		items[i] = Item{Item: it}
+		items[i] = Item{Item: it, OutputMissing: it.State == "done" && it.Output != "" && !isFile(it.Output)}
 		if it.KeyID != "" {
 			items[i].KeyLabel = labels[it.KeyID]
 		}
@@ -401,8 +410,9 @@ func (a *App) SendToBatch(id string) error {
 	return a.runner.SendToBatch(id)
 }
 
-// Remove stops any running work, deletes the item's temporary work folder and
-// then drops it from the history. Source and output stay on disk.
+// Remove stops any running work, deletes the item's temporary work folder,
+// drops it from the history and then deletes the app's copy of its
+// transcript. Source and output stay on disk.
 func (a *App) Remove(id string) error {
 	if a.store == nil {
 		return store.ErrNotFound
@@ -412,7 +422,13 @@ func (a *App) Remove(id string) error {
 			return err
 		}
 	}
-	return a.store.Remove(id)
+	if err := a.store.Remove(id); err != nil {
+		return err
+	}
+	if archive := a.archivePath(id); archive != "" {
+		_ = os.Remove(archive)
+	}
+	return nil
 }
 
 // Rename changes an item's name. For a finished item the .md on disk is
@@ -440,7 +456,7 @@ func (a *App) Rename(id, name string) error {
 		return a.store.Update(id, func(it *store.Item) { it.Name = name })
 	}
 
-	if info, err := os.Stat(item.Output); err != nil || info.IsDir() {
+	if !isFile(item.Output) {
 		return errNoOutput
 	}
 	target := filepath.Join(filepath.Dir(item.Output), name+".md")
@@ -483,9 +499,10 @@ func (a *App) RevealOutput(id string) error {
 	return nil
 }
 
-// CopyOutput puts the whole .md on the clipboard.
+// CopyOutput puts the whole transcript on the clipboard: the .md, or the
+// app's copy when the .md is gone.
 func (a *App) CopyOutput(id string) error {
-	path, err := a.readyOutput(id)
+	item, err := a.finishedItem(id)
 	if err != nil {
 		return err
 	}
@@ -493,11 +510,11 @@ func (a *App) CopyOutput(id string) error {
 	if ctx == nil {
 		return errNotReady
 	}
-	data, err := os.ReadFile(path)
+	text, err := a.outputText(item)
 	if err != nil {
-		return i18n.Error("error.readOutputFailed")
+		return err
 	}
-	if err := wailsruntime.ClipboardSetText(ctx, string(data)); err != nil {
+	if err := wailsruntime.ClipboardSetText(ctx, text); err != nil {
 		return i18n.Wrap("error.copyFailed", err)
 	}
 	return nil
@@ -511,13 +528,16 @@ func (a *App) readyOutput(id string) (string, error) {
 	if !ok {
 		return "", store.ErrNotFound
 	}
-	if item.Output == "" {
-		return "", errNoOutput
-	}
-	if info, err := os.Stat(item.Output); err != nil || info.IsDir() {
+	if item.Output == "" || !isFile(item.Output) {
 		return "", errNoOutput
 	}
 	return item.Output, nil
+}
+
+// isFile reports whether path names an existing regular file (not a folder).
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // GetMode returns the mode the next drop will use: the stored preference when
