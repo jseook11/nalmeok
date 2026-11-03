@@ -93,13 +93,19 @@ func (a *App) PaneOpen() bool {
 // before the pane opened.
 func (a *App) SetPane(open bool) error {
 	a.mu.Lock()
+	hasCfg := a.cfg != nil
+	previous := hasCfg && a.cfg.Pane()
 	var err error
-	if a.cfg != nil {
+	if hasCfg {
 		err = a.cfg.SetPane(open)
 	}
 	a.mu.Unlock()
-	if ctx := a.context(); ctx != nil {
-		a.fitWindow(open)
+	// Only a real change resizes: a repeated call would read the already
+	// widened window and remember that width as the list width.
+	if !hasCfg || (err == nil && previous != open) {
+		if ctx := a.context(); ctx != nil {
+			a.fitWindow(open)
+		}
 	}
 	return err
 }
@@ -108,46 +114,65 @@ func (a *App) SetPane(open bool) error {
 // window keeps its size; only the minimum changes.
 func (a *App) fitWindow(open bool) {
 	ctx := a.context()
-	if open {
-		wailsruntime.WindowSetMinSize(ctx, PaneMinWidth, WindowMinTall)
-	} else {
-		wailsruntime.WindowSetMinSize(ctx, ListMinWidth, WindowMinTall)
+	setMinSize := func() {
+		if open {
+			wailsruntime.WindowSetMinSize(ctx, PaneMinWidth, WindowMinTall)
+		} else {
+			wailsruntime.WindowSetMinSize(ctx, ListMinWidth, WindowMinTall)
+		}
 	}
 	if wailsruntime.WindowIsFullscreen(ctx) || wailsruntime.WindowIsMaximised(ctx) {
+		setMinSize()
 		return
 	}
+	// Windows widens a window the moment the minimum rises, so the width must
+	// be read before WindowSetMinSize; afterwards it would already be the
+	// widened one.
 	width, height := wailsruntime.WindowGetSize(ctx)
+	setMinSize()
 	screen := screenWidth(ctx)
+	a.mu.Lock()
+	remember, target := paneWidths(open, width, screen, a.listWidth)
+	a.listWidth = remember
+	a.mu.Unlock()
+	if target <= 0 {
+		return
+	}
+	wailsruntime.WindowSetSize(ctx, target, height)
+	// Keep the widened window on screen.
 	if open {
-		if width >= PaneWidth {
-			return
+		if x, y := wailsruntime.WindowGetPosition(ctx); screen > 0 && x+target > screen {
+			wailsruntime.WindowSetPosition(ctx, max(0, screen-target), y)
 		}
-		a.mu.Lock()
-		a.listWidth = width
-		a.mu.Unlock()
-		target := PaneWidth
+	}
+}
+
+// paneWidths decides the widths for showing or hiding the pane, without
+// touching the window. width is the window width read before any minimum-size
+// change. screen is the screen width, or 0 when unknown. listWidth is the
+// remembered list-only width. remember is the width to keep as the list-only
+// width; target is the width to resize to, or 0 to keep the current size.
+func paneWidths(open bool, width, screen, listWidth int) (remember, target int) {
+	if open {
+		// Remember even a window that is already wide enough, so closing
+		// restores the width the user chose.
+		remember = width
+		target = PaneWidth
 		if screen > 0 && target > screen {
 			target = screen
 		}
 		if target <= width {
-			return
+			target = 0
 		}
-		wailsruntime.WindowSetSize(ctx, target, height)
-		// Keep the widened window on screen.
-		if x, y := wailsruntime.WindowGetPosition(ctx); screen > 0 && x+target > screen {
-			wailsruntime.WindowSetPosition(ctx, max(0, screen-target), y)
-		}
-		return
+		return remember, target
 	}
-	a.mu.Lock()
-	target := a.listWidth
-	a.mu.Unlock()
-	if target <= 0 {
-		target = ListWidth
+	if listWidth <= 0 {
+		listWidth = ListWidth
 	}
-	if width > target {
-		wailsruntime.WindowSetSize(ctx, target, height)
+	if width <= listWidth {
+		return listWidth, 0
 	}
+	return listWidth, listWidth
 }
 
 // screenWidth is the logical width of the screen showing the window, or 0
