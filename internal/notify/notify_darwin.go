@@ -11,7 +11,6 @@ package notify
 import "C"
 
 import (
-	"log"
 	"sync"
 	"unsafe"
 )
@@ -39,12 +38,3 @@ func install() {
 //
 //export notifyClicked
 func notifyClicked() { clicked() }
-
-// notifyFallback is called when the notification centre refused the app.
-//
-//export notifyFallback
-func notifyFallback(title, message, reason *C.char) {
-	t, m, r := C.GoString(title), C.GoString(message), C.GoString(reason)
-	log.Printf("notify: notification centre refused, using osascript: %s", r)
-	go osascriptSend(t, m)
-}

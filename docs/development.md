@@ -55,7 +55,7 @@ Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 
 
 ### 플랫폼별 동작
 
-- 완료 알림(`internal/notify`): 실행기는 `Options.Notify`로 알림 함수를 받는다(테스트는 가짜를 넣고, 기본은 알리지 않음). macOS는 `.app` 안에서 실행될 때만 `UNUserNotificationCenter`를 쓴다. 번들 식별자가 없으면 이 API가 예외를 던지므로 `build/nalmeok`·CLI는 osascript로 보낸다(스크립트 편집기 이름으로 뜸). 첫 알림 때 권한을 묻고, 시스템이 거부 오류를 주면 osascript로 대신한다. 알림을 누르면 앱을 활성화하고 창을 앞으로(두 번째 실행과 같은 `showWindow`). 해당 행 강조는 하지 않는다. 확인은 Finder나 `open build/Nalmeok.app`으로 연 앱에서 한다(터미널에서 실행 파일을 바로 띄우면 거부될 수 있다).
+- 완료 알림(`internal/notify`): 실행기는 `Options.Notify`로 알림 함수를 받는다(테스트는 가짜를 넣고, 기본은 알리지 않음). macOS는 `.app` 안에서 실행될 때만 `UNUserNotificationCenter`를 쓴다. 번들 식별자가 없으면 이 API가 예외를 던지므로 `build/nalmeok`·CLI는 osascript로 보낸다(스크립트 편집기 이름으로 뜸). 첫 알림 때 권한을 묻고, 사용자가 거부하면(또는 나중에 끄면) 알리지 않는다. 앱 안에서는 osascript로 대신하지 않는다 — macOS는 거부도 오류(`UNErrorDomain` 1)로 돌려주므로, 대신 보내면 거부한 사용자에게 스크립트 편집기 이름으로 알림이 간다. 알림을 누르면 앱을 활성화하고 창을 앞으로(두 번째 실행과 같은 `showWindow`). 해당 행 강조는 하지 않는다. 확인은 Finder나 `open build/Nalmeok.app`으로 연 앱에서 한다(터미널에서 실행 파일을 바로 띄우면 거부될 수 있다).
 - Windows 알림: PowerShell의 WinRT 연결로 토스트를 띄운다. 스크립트는 `-EncodedCommand`, 프로세스는 `CREATE_NO_WINDOW`. 앱 ID `kr.nalmeok.app`을 `HKCU\Software\Classes\AppUserModelId`에 이름·아이콘(`%LOCALAPPDATA%\Nalmeok\notify-icon.png`, `assets/nalmeok.ico`의 256px)과 함께 등록한다. 누르면 아무 일도 없다.
 - Windows 폴더 열기·파일 열기: `explorer.exe /select,"<경로>"`·`explorer.exe "<경로>"`를 `SysProcAttr.CmdLine`으로 그대로 넘긴다. explorer는 성공해도 종료 코드 1이라 시작만 확인한다.
 - Windows CLI 출력: exe가 `-H windowsgui`라 콘솔이 없다. 인자가 있으면 `AttachConsole(ATTACH_PARENT_PROCESS)`로 부모 콘솔에 붙어 출력한다. cmd·PowerShell은 GUI 프로그램을 기다리지 않으므로 출력이 프롬프트 뒤에 찍히고 종료 코드도 바로 안 나온다. 기다리려면 `start /wait Nalmeok.exe doctor`(cmd) 또는 `Start-Process -Wait -NoNewWindow .\Nalmeok.exe doctor`(PowerShell).

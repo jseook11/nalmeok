@@ -2,7 +2,8 @@
 //
 //   - macOS, inside Nalmeok.app: UNUserNotificationCenter, so the
 //     notification carries the app's name and icon and a click brings the
-//     app forward (see OnClick).
+//     app forward (see OnClick). If the user refuses notifications nothing
+//     is shown: there is no fallback inside the app.
 //   - macOS, outside a bundle (build/nalmeok, CLI): osascript, as before.
 //     UNUserNotificationCenter throws without a bundle identifier.
 //   - Windows: a toast through PowerShell's WinRT bridge, under an app ID

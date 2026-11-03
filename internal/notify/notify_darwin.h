@@ -9,8 +9,9 @@ int notifyAvailable(void);
 // Only call when notifyAvailable() is 1. Safe from any thread.
 void notifyInstall(void);
 
-// Asks for permission the first time, then posts one notification. Only
-// call when notifyAvailable() is 1. Returns at once.
+// Asks for permission the first time, then posts one notification, or
+// nothing if the user refused. Only call when notifyAvailable() is 1.
+// Returns at once.
 void notifySend(const char *title, const char *body);
 
 #endif
