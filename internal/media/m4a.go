@@ -159,7 +159,7 @@ func (t *mp4Track) writeM4A(path string, reader *windowReader, from, to int, tic
 		bw.Write(part)
 	}
 	for i := from; i < to; i++ {
-		data, err := reader.at(t.offsets[i], int(t.sizes[i]))
+		data, err := reader.sample(i)
 		if err != nil {
 			pw.abort()
 			return err
@@ -183,7 +183,7 @@ func prepareMP4(path, dir string, maxSeconds float64) ([]Piece, error) {
 		return nil, err
 	}
 	defer f.Close()
-	reader := &windowReader{f: f, buf: make([]byte, 1<<20)}
+	reader := &windowReader{f: f, t: t, buf: make([]byte, 1<<20)}
 	limit := uint64(math.MaxInt64)
 	if maxSeconds > 0 {
 		limit = uint64(maxSeconds * float64(t.timescale))

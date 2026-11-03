@@ -2,8 +2,11 @@ package media
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -619,4 +622,114 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// ---- interleaved video ------------------------------------------------------
+
+// countingReaderAt counts the bytes read through it.
+type countingReaderAt struct {
+	r io.ReaderAt
+	n int64
+}
+
+func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	n, err := c.r.ReadAt(p, off)
+	c.n += int64(n)
+	return n, err
+}
+
+// interleavedMP4 writes an MP4 whose mdat alternates small audio chunks with
+// 2 MiB video chunks, like a screen recording, and returns its path and the
+// audio samples in order.
+func interleavedMP4(t *testing.T) (string, []byte) {
+	t.Helper()
+	const chunks, perChunk, videoChunk = 12, 10, 2 << 20
+	asc := []byte{0x12, 0x10} // AAC-LC, 44.1 kHz, stereo
+	dcd := slices.Concat([]byte{0x40, 0x15, 0, 0, 0}, be(nil).u32(128000).u32(128000), []byte{0x05, byte(len(asc))}, asc)
+	es := slices.Concat([]byte{0, 1, 0, 0x04, byte(len(dcd))}, dcd)
+	esds := fullBox("esds", 0, 0, []byte{0x03, byte(len(es))}, es)
+	mp4a := mp4Box("mp4a", make([]byte, 6), be(nil).u16(1), make([]byte, 8), be(nil).u16(2).u16(16).u32(0).u32(44100<<16), esds)
+
+	ftyp := mp4Box("ftyp", []byte("isom\x00\x00\x00\x00isommp42"))
+	base := len(ftyp) + 8 // mdat payload offset
+	var mdat, audio []byte
+	var sizes, audioChunks, videoChunks be
+	for c := range chunks {
+		audioChunks = audioChunks.u32(uint32(base + len(mdat)))
+		for k := range perChunk {
+			s := c*perChunk + k
+			size := 300 + s*37%200
+			sizes = sizes.u32(uint32(size))
+			for b := range size {
+				audio = append(audio, byte(s*31+b))
+			}
+			mdat = append(mdat, audio[len(audio)-size:]...)
+		}
+		videoChunks = videoChunks.u32(uint32(base + len(mdat)))
+		for b := range videoChunk {
+			mdat = append(mdat, byte(b*7+c))
+		}
+	}
+	n := uint32(chunks * perChunk)
+	handler := func(typ string) []byte {
+		return fullBox("hdlr", 0, 0, be(nil).u32(0), []byte(typ), make([]byte, 12), []byte("x\x00"))
+	}
+	video := mp4Box("trak", mp4Box("mdia", handler("vide"),
+		mp4Box("minf", mp4Box("stbl", fullBox("stco", 0, 0, be(nil).u32(chunks), videoChunks)))))
+	sound := mp4Box("trak", mp4Box("mdia",
+		fullBox("mdhd", 0, 0, be(nil).u32(0).u32(0).u32(44100).u32(n*1024).u16(0x55C4).u16(0)),
+		handler("soun"),
+		mp4Box("minf", mp4Box("stbl",
+			fullBox("stsd", 0, 0, be(nil).u32(1), mp4a),
+			fullBox("stts", 0, 0, be(nil).u32(1).u32(n).u32(1024)),
+			fullBox("stsc", 0, 0, be(nil).u32(1).u32(1).u32(perChunk).u32(1)),
+			fullBox("stsz", 0, 0, be(nil).u32(0).u32(n), sizes),
+			fullBox("stco", 0, 0, be(nil).u32(chunks), audioChunks),
+		))))
+	src := filepath.Join(t.TempDir(), "interleaved.mp4")
+	data := slices.Concat(ftyp, mp4Box("mdat", mdat), mp4Box("moov", video, sound))
+	if err := os.WriteFile(src, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return src, audio
+}
+
+// interleavedM4ASHA256 is the remux output from before reads were bounded
+// to contiguous sample runs.
+const interleavedM4ASHA256 = "e18fbcdb91669fcf3b8ebb57a85be1c9b894a6f1b2ee81a2d582f682d8f814ba"
+
+// TestInterleavedRemuxReadsAudioOnly checks that remuxing a video file reads
+// about the audio bytes, not the video chunks between them, and that the
+// output is unchanged, also with a buffer smaller than one sample.
+func TestInterleavedRemuxReadsAudioOnly(t *testing.T) {
+	src, audio := interleavedMP4(t)
+	track, err := parseMP4(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, bufSize := range []int{1 << 20, 256} {
+		counter := &countingReaderAt{r: f}
+		reader := &windowReader{f: counter, t: track, buf: make([]byte, bufSize)}
+		out := filepath.Join(t.TempDir(), "out.m4a")
+		if err := track.writeM4A(out, reader, 0, len(track.sizes), track.ticks()); err != nil {
+			t.Fatal(err)
+		}
+		data := mustRead(t, out)
+		if !bytes.HasSuffix(data, audio) {
+			t.Errorf("buf %d: mdat does not carry the audio samples", bufSize)
+		}
+		sum := sha256.Sum256(data)
+		if got := hex.EncodeToString(sum[:]); got != interleavedM4ASHA256 {
+			t.Errorf("buf %d: output sha256 %s, want %s", bufSize, got, interleavedM4ASHA256)
+		}
+		t.Logf("buf %d: read %d bytes for %d audio bytes", bufSize, counter.n, len(audio))
+		if counter.n > 2*int64(len(audio)) {
+			t.Errorf("buf %d: read %d bytes, want at most twice the audio", bufSize, counter.n)
+		}
+	}
 }
