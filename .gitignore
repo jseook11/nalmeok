@@ -44,3 +44,6 @@ wheels/
 
 # Claude Code 개인 작업 지침 (배포물에 포함하지 않음)
 CLAUDE.md
+
+#개발용 목업 이미지 파일
+mockups/

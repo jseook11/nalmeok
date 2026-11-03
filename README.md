@@ -13,7 +13,7 @@
 
 [Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
 
-**macOS** — `Nalmeok.app`을 Applications 폴더로 옮기고 열어요. 서명·공증된 앱이라 경고 없이 열려요.
+**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
 **Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러요.
 
