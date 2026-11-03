@@ -642,24 +642,32 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 	return nil
 }
 
-// windowReader serves sample reads from a sliding buffer so interleaved,
-// mostly sequential samples cost few syscalls.
+// windowReader serves t's samples from a sliding buffer so mostly
+// sequential samples cost few syscalls.
 type windowReader struct {
-	f     *os.File
+	f     io.ReaderAt
+	t     *mp4Track
 	buf   []byte
 	start int64
 	n     int
 }
 
-func (w *windowReader) at(off int64, size int) ([]byte, error) {
+func (w *windowReader) sample(i int) ([]byte, error) {
+	off, size := w.t.offsets[i], int(w.t.sizes[i])
 	if off >= w.start && off+int64(size) <= w.start+int64(w.n) {
-		i := int(off - w.start)
-		return w.buf[i : i+size], nil
+		j := int(off - w.start)
+		return w.buf[j : j+size], nil
 	}
 	if size > len(w.buf) {
 		w.buf = make([]byte, size)
 	}
-	n, err := w.f.ReadAt(w.buf, off)
+	// Refill only the samples stored back to back from here: in a video file
+	// the bytes after an audio chunk are video, which a full refill would read.
+	want := size
+	for j := i + 1; j < len(w.t.sizes) && w.t.offsets[j] == off+int64(want) && want+int(w.t.sizes[j]) <= len(w.buf); j++ {
+		want += int(w.t.sizes[j])
+	}
+	n, err := w.f.ReadAt(w.buf[:want], off)
 	if n < size {
 		if err == nil || errors.Is(err, io.EOF) {
 			err = errMP4(i18n.T("mp4.sampleOutside"))

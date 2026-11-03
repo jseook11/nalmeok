@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1041,6 +1042,43 @@ func TestRemoveCancelsAndDeletesWorkDir(t *testing.T) {
 	}
 	if err := h.r.Remove("missing"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Remove(missing) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestAddManyPathsNotifyOnce(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	var changes atomic.Int64
+	h.st.SetOnChange(func() { changes.Add(1) })
+
+	paths := make([]string, 0, 10)
+	for i := 0; i < 10; i++ {
+		paths = append(paths, h.source(fmt.Sprintf("lec%02d.m4a", i)))
+	}
+	// Not started: the items stay queued and nothing else touches the store.
+	if err := h.r.Add(paths, "free", ""); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if got := changes.Load(); got != 1 {
+		t.Fatalf("onChange count = %d, want 1 for 10 paths", got)
+	}
+	if got := len(h.st.List("")); got != 10 {
+		t.Fatalf("items = %d, want 10", got)
+	}
+}
+
+func TestRepeatedSameDetailSavesOnce(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	item := h.addOne(h.source("lec.m4a"), "free")
+	var changes atomic.Int64
+	h.st.SetOnChange(func() { changes.Add(1) })
+
+	h.r.setDetail(item.ID, "같은 문구")
+	h.r.setDetail(item.ID, "같은 문구")
+	if got := changes.Load(); got != 1 {
+		t.Fatalf("saves = %d, want 1 (the second identical detail must not save)", got)
+	}
+	if got, _ := h.st.Get(item.ID); got.Detail != "같은 문구" {
+		t.Fatalf("Detail = %q", got.Detail)
 	}
 }
 

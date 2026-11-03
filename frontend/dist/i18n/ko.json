@@ -149,6 +149,7 @@
   "keys.tier": "등급",
   "keys.title": "API 키",
 
+  "list.label": "파일 목록",
   "list.noResults": "결과 없음",
 
   "media.mp3NoFrame": "MP3 프레임 없음",
@@ -165,6 +166,14 @@
   "menu.open": "열기",
   "menu.revealExplorer": "탐색기에서 보기",
   "menu.revealFinder": "Finder에서 보기",
+
+  "menubar.close": "닫기",
+  "menubar.help": "Nalmeok 도움말",
+  "menubar.hide": "Nalmeok 가리기",
+  "menubar.minimize": "최소화",
+  "menubar.quit": "Nalmeok 종료",
+  "menubar.settings": "설정…",
+  "menubar.window": "윈도우",
 
   "mode.label": "처리 방식",
 
@@ -190,6 +199,7 @@
   "pane.empty": "선택한 항목 없음",
   "pane.emptyText": "빈 전사본",
   "pane.exhaustedNote": "남은 부분은 유료로 이어서 처리 가능",
+  "pane.label": "전사본",
   "pane.progress": "{percent}% 완료",
   "pane.toggle": "전사본 보기",
   "pane.truncated": "파일이 커서 앞부분만 표시",
@@ -205,6 +215,11 @@
   "picker.auto": "자동",
   "picker.autoByPriority": "자동 (우선순위대로)",
   "picker.title": "새 파일에 쓸 키",
+
+  "quit.confirm": "종료",
+  "quit.keep": "계속 전사",
+  "quit.message": "지금 끄면 전사가 멈춥니다. 다시 켜면 멈춘 곳부터 이어서 합니다.",
+  "quit.title": "무료 전사가 진행 중입니다",
 
   "row.failed": "실패",
   "row.failedReason": "실패 · {reason}",

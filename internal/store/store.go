@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,10 @@ type Item struct {
 	// used.
 	PDFChosen bool     `json:"PDFChosen,omitempty"`
 	PDFs      []string `json:"PDFs,omitempty"`
+	// Uploads caches the free path's uploaded files, keyed by key ID, path
+	// and file stamp, so a restart reuses them instead of uploading again.
+	// Batch keeps its own in Batch.Uploads.
+	Uploads map[string]Upload `json:"Uploads,omitempty"`
 }
 
 // Usage is the token count Gemini reported (usageMetadata). Text is every
@@ -113,7 +118,7 @@ type BatchRef struct {
 	Marker string `json:"Marker,omitempty"`
 }
 
-// Upload records a file uploaded for a Batch job.
+// Upload records a file uploaded to Gemini, for a Batch job or a free request.
 type Upload struct {
 	URI        string    `json:"URI"`
 	MIME       string    `json:"MIME"`
@@ -162,22 +167,37 @@ func (s *Store) SetOnChange(fn func()) {
 
 // Add appends an item, filling in an ID and timestamps when they are zero.
 func (s *Store) Add(item Item) error {
+	return s.AddMany([]Item{item})
+}
+
+// AddMany appends items, filling in IDs and timestamps when they are zero. It
+// saves once and notifies once, so dropping N files costs one write. On a
+// failed save none of the items are added.
+func (s *Store) AddMany(items []Item) error {
+	if len(items) == 0 {
+		return nil
+	}
 	now := time.Now()
-	if item.ID == "" {
-		item.ID = NewID()
-	}
-	if item.CreatedAt.IsZero() {
-		item.CreatedAt = now
-	}
-	if item.UpdatedAt.IsZero() {
-		item.UpdatedAt = item.CreatedAt
+	prepared := make([]Item, len(items))
+	for i, item := range items {
+		if item.ID == "" {
+			item.ID = NewID()
+		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = now
+		}
+		if item.UpdatedAt.IsZero() {
+			item.UpdatedAt = item.CreatedAt
+		}
+		prepared[i] = item
 	}
 
 	s.mu.Lock()
-	s.items = append(s.items, item)
+	previous := s.items
+	s.items = append(s.items, prepared...)
 	err := s.saveLocked()
 	if err != nil {
-		s.items = s.items[:len(s.items)-1]
+		s.items = previous
 	}
 	s.mu.Unlock()
 	if err == nil {
@@ -187,7 +207,8 @@ func (s *Store) Add(item Item) error {
 }
 
 // Update mutates one item inside the lock and persists the change. It stamps
-// UpdatedAt automatically.
+// UpdatedAt automatically. A callback that leaves the item unchanged is not
+// saved and does not notify.
 func (s *Store) Update(id string, fn func(*Item)) error {
 	s.mu.Lock()
 	index := s.indexLocked(id)
@@ -197,6 +218,12 @@ func (s *Store) Update(id string, fn func(*Item)) error {
 	}
 	previous := cloneItem(s.items[index])
 	fn(&s.items[index])
+	// Compare before stamping UpdatedAt: an unchanged item must not look
+	// modified just because Update ran.
+	if reflect.DeepEqual(previous, s.items[index]) {
+		s.mu.Unlock()
+		return nil
+	}
 	s.items[index].UpdatedAt = time.Now()
 	err := s.saveLocked()
 	if err != nil {
@@ -312,6 +339,9 @@ func (s *Store) notify() {
 	}
 }
 
+// cloneItem returns a deep copy of item. Update detects changes by comparing
+// its result with this copy, so every reference field must be cloned here; a
+// shared slice or map would hide an in-place change from that comparison.
 func cloneItem(item Item) Item {
 	if item.Units != nil {
 		units := make([]Unit, len(item.Units))
@@ -319,6 +349,9 @@ func cloneItem(item Item) Item {
 		for i := range units {
 			if units[i].Files != nil {
 				units[i].Files = append([]string(nil), units[i].Files...)
+			}
+			if units[i].MIMEs != nil {
+				units[i].MIMEs = append([]string(nil), units[i].MIMEs...)
 			}
 			if units[i].Usage != nil {
 				u := *units[i].Usage
@@ -338,6 +371,7 @@ func cloneItem(item Item) Item {
 		c := *item.CostKRW
 		item.CostKRW = &c
 	}
+	item.Uploads = maps.Clone(item.Uploads)
 	if item.Batch != nil {
 		batch := *item.Batch
 		batch.Uploads = maps.Clone(item.Batch.Uploads)

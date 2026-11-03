@@ -87,6 +87,11 @@ type App struct {
 	// restored when the pane closes. Guarded by mu.
 	listWidth int
 
+	// paneShown is whether the window is currently sized for the pane. It
+	// starts from the saved choice, since main opens the window at that
+	// width. Guarded by mu.
+	paneShown bool
+
 	// pdf holds folders waiting for the user to pick their reference PDFs
 	// (pdfchoice.go).
 	pdf pdfChoices
@@ -98,7 +103,7 @@ type App struct {
 
 // New wires the app. The store's change callback emits "items:changed".
 func New(cfg *config.Config, st *store.Store, runner Runner) *App {
-	a := &App{cfg: cfg, store: st, runner: runner}
+	a := &App{cfg: cfg, store: st, runner: runner, paneShown: cfg != nil && cfg.Pane()}
 	if st != nil {
 		st.SetOnChange(a.emitItemsChanged)
 	}
@@ -131,6 +136,38 @@ func (a *App) Shutdown(context.Context) {
 	if c, ok := a.runner.(io.Closer); ok {
 		_ = c.Close()
 	}
+}
+
+// BeforeClose asks before quitting while a free item is being transcribed:
+// quitting stops it mid-way (it resumes on the next launch). A Batch job runs
+// on Google's side and is fetched later, so it never asks. Every way out (the
+// close button, ⌘Q, ⌘W) goes through here. It returns true to stay open.
+func (a *App) BeforeClose(ctx context.Context) bool {
+	// A window that never started (the CLI holds the folder lock) runs
+	// nothing of its own, so it closes without asking.
+	if a.context() == nil || a.store == nil || !liveRunning(a.store.List("")) {
+		return false
+	}
+	quit := i18n.T("quit.confirm")
+	answer, err := wailsruntime.MessageDialog(ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         i18n.T("quit.title"),
+		Message:       i18n.T("quit.message"),
+		Buttons:       []string{quit, i18n.T("quit.keep")},
+		DefaultButton: i18n.T("quit.keep"),
+		CancelButton:  i18n.T("quit.keep"),
+	})
+	return err == nil && answer != quit
+}
+
+// liveRunning reports whether a free item is in progress.
+func liveRunning(items []store.Item) bool {
+	for _, item := range items {
+		if item.State == "running" && item.Mode == "free" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) context() context.Context {

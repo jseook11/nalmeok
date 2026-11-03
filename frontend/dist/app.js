@@ -92,6 +92,8 @@
   const toast = $("toast");
   const toastText = $("toast-text");
   const toastAction = $("toast-action");
+  const announcePolite = $("announce-polite");
+  const announceAssertive = $("announce-assertive");
 
   const KEY_SOURCE_URL = "https://aistudio.google.com/apikey";
   const IS_WINDOWS = /Windows/i.test(navigator.userAgent);
@@ -153,14 +155,115 @@
     })[ch]);
   }
 
+  // ── Focus & announcer ─────────────────────────────────────
+  //
+  // Every surface that opens over the window (sheets, the PDF card, menus)
+  // opens and closes through here, so focus is saved, moved in, kept in and
+  // given back by one set of rules. Screen-reader messages go through
+  // announce(), the only writer of the two live regions in index.html.
+
+  // Open surfaces, innermost last: { el, returnTo, trap }.
+  const surfaces = [];
+
+  const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])";
+
+  // Visible and enabled. display:none (the hidden attribute, or sitting in a
+  // hidden sheet) leaves an element without client rects.
+  function canFocus(el) {
+    return Boolean(el && el.isConnected && !el.disabled && el.getClientRects().length);
+  }
+
+  // openSurface shows el and moves focus to `focus`: a first control, or el
+  // itself (tabindex=-1). trap keeps Tab inside el until it closes. Opening
+  // an open surface again only moves focus; it still returns to whatever
+  // had focus when it first opened.
+  function openSurface(el, { focus = el, trap = true } = {}) {
+    if (!surfaces.some((s) => s.el === el)) {
+      surfaces.push({ el, returnTo: document.activeElement, trap });
+    }
+    el.hidden = false;
+    focus.focus();
+  }
+
+  // closeSurface hides el and, if focus was inside it (or already nowhere),
+  // gives focus back to what had it before el opened. Focus the user has
+  // since moved elsewhere, e.g. by clicking another control, stays there.
+  function closeSurface(el) {
+    const index = surfaces.findIndex((s) => s.el === el);
+    if (index < 0) return;
+    const [{ returnTo }] = surfaces.splice(index, 1);
+    const active = document.activeElement;
+    const lost = !active || active === document.body || el.contains(active);
+    el.hidden = true;
+    if (lost) restoreFocus(returnTo);
+  }
+
+  // Focus that started nowhere (body: WebKit does not focus a clicked
+  // button) goes back to nowhere rather than jumping to a field. A saved
+  // element that is gone or hidden falls back to the innermost open modal
+  // surface, then the search field, then the empty-state button.
+  function restoreFocus(target) {
+    if (!target || target === document.body) {
+      document.activeElement?.blur();
+      return;
+    }
+    const modal = trapSurface();
+    const next = [target, modal && modal.el, search, empty].find(canFocus);
+    if (next) next.focus();
+  }
+
+  function trapSurface() {
+    for (let i = surfaces.length - 1; i >= 0; i -= 1) {
+      if (surfaces[i].trap) return surfaces[i];
+    }
+    return null;
+  }
+
+  // trapTab keeps Tab and Shift+Tab inside the innermost modal surface,
+  // wrapping at either end. Focus on no control of it (outside, or on the
+  // surface itself) goes to its first or, with Shift, last control. The
+  // keydown handler in Events calls it.
+  function trapTab(event) {
+    const top = trapSurface();
+    if (!top) return;
+    const items = Array.from(top.el.querySelectorAll(FOCUSABLE)).filter(canFocus);
+    const at = items.indexOf(document.activeElement);
+    const last = items.length - 1;
+    let next = null;
+    if (!items.length) next = top.el;
+    else if (at < 0) next = items[event.shiftKey ? last : 0];
+    else if (event.shiftKey && at === 0) next = items[last];
+    else if (!event.shiftKey && at === last) next = items[0];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+  }
+
+  // announce reads a short message aloud: polite by default, assertive only
+  // for what must interrupt. The region is emptied first and filled a moment
+  // later, so the same message twice in a row is read twice.
+  const announceTimers = new Map();
+
+  function announce(message, { assertive = false } = {}) {
+    const region = assertive ? announceAssertive : announcePolite;
+    clearTimeout(announceTimers.get(region));
+    region.textContent = "";
+    announceTimers.set(region, setTimeout(() => {
+      region.textContent = message;
+    }, 100));
+  }
+
   // ── Toast ─────────────────────────────────────────────────
 
   let toastTimer = null;
   let toastOnAction = null;
 
+  // The toast is visual only; screen readers hear the message through
+  // announce(), so it is not read twice.
   function showToast(message, options = {}) {
     clearTimeout(toastTimer);
     toastText.textContent = message;
+    announce(message);
     toastOnAction = options.onAction || null;
     toastAction.hidden = !toastOnAction;
     if (toastOnAction) toastAction.textContent = options.action || t("toast.undo");
@@ -372,9 +475,9 @@
   const isQueued = (item) => item.State === "running" && item.Detail === t("status.queued");
   const isRetrying = (item) => item.State === "running" && item.Detail === t("status.retrying");
 
-  // Each state as one line: tone (dot colour), text, the moving line under
-  // the row, and at most one action. Free or paid shows in the pane, not
-  // here.
+  // Each state as one line: tone (dot colour), text and the moving line
+  // under the row. Free or paid shows in the pane, not here. What the row
+  // can do comes from rowActions.
   function rowState(item) {
     switch (item.State) {
       case "running": {
@@ -396,22 +499,16 @@
         return { tone: "waiting", dot: true, text: withElapsed(t("row.waiting"), since), line: "waiting" };
       }
       case "free_exhausted":
-        return {
-          tone: "alert",
-          dot: true,
-          text: t("row.freeExhausted"),
-          action: ["batch", t("action.continuePaid")],
-        };
+        return { tone: "alert", dot: true, text: t("row.freeExhausted") };
       case "failed":
         return {
           tone: "failed",
           dot: true,
           text: item.Detail ? t("row.failedReason", { reason: item.Detail }) : t("row.failed"),
           title: item.Detail,
-          action: ["retry", t("action.retry"), true],
         };
       case "canceled":
-        return { tone: "quiet", dot: false, text: t("status.canceled"), action: ["retry", t("action.retry")] };
+        return { tone: "quiet", dot: false, text: t("status.canceled") };
       case "done":
         return { tone: "", dot: false, text: finishedAt(finishStamp(item)) };
       default:
@@ -430,14 +527,13 @@
     return "";
   }
 
+  // The row's own button: how to get a halted item going again (its lead
+  // "resume" action). It takes the red of a failed row.
   function rowActionHTML(item, s) {
-    if (!s.action) return "";
-    const [action, label, danger] = s.action;
-    // "유료로 이어서" needs a paid key; without one the context menu and the
-    // pane still offer key settings.
-    if (action === "batch" && !state.available.paid) return "";
-    return `<button class="row-action${danger ? " is-danger" : ""}" type="button"
-      data-action="${action}" data-id="${esc(item.ID)}">${esc(label)}</button>`;
+    const entry = rowActions(item).find((a) => a.lead && a.group === "resume");
+    if (!entry) return "";
+    return `<button class="row-action${s.tone === "failed" ? " is-danger" : ""}" type="button"
+      data-action="${entry.action}" data-id="${esc(item.ID)}">${esc(entry.label)}</button>`;
   }
 
   function isActive(item) {
@@ -447,14 +543,11 @@
   function rowHTML(item) {
     const id = esc(item.ID);
     const s = rowState(item);
-    const first = isActive(item)
-      ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">${t("action.cancel")}</button>`
-      : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">${t("action.rename")}</button>`;
+    const swiped = swipeActions(item).map((entry) =>
+      `<button class="act-${entry.danger ? "delete" : "rename"}" type="button" data-action="${entry.action}"
+        data-id="${id}">${esc(entry.label)}</button>`).join("");
     return `
-      <div class="row-actions">
-        ${first}
-        <button class="act-delete" type="button" data-action="delete" data-id="${id}">${t("action.delete")}</button>
-      </div>
+      <div class="row-actions">${swiped}</div>
       <div class="row-main">
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
         <div class="row-body">
@@ -473,6 +566,12 @@
   const sectionCache = new Map(); // day key -> header element
   const hidden = new Set(); // ids removed from view while undo is possible
   let renaming = null; // { id, input }
+  let shownOrder = []; // ids as last rendered, for picking a neighbour
+  let shownQuery = ""; // the search those ids were rendered for
+
+  // The list is a listbox: rows are options it points at through
+  // aria-activedescendant, so focus stays on the list while rows are patched.
+  const rowDomID = (id) => `row-${id}`;
 
   function visibleItems() {
     return state.items.filter((item) => !hidden.has(item.ID));
@@ -493,11 +592,14 @@
     const isEmpty = items.length === 0 && !state.query;
     appEl.classList.toggle("is-empty", isEmpty);
     ensureSelection(items);
+    shownOrder = items.map((item) => item.ID);
+    shownQuery = state.query;
 
     if (items.length === 0) {
       rowCache.clear();
       sectionCache.clear();
       list.innerHTML = state.query ? `<p class="list-note">${t("list.noResults")}</p>` : "";
+      paintSelection();
       syncScrolled();
       renderPane();
       return;
@@ -524,6 +626,8 @@
           if (!header) {
             header = document.createElement("div");
             header.className = "list-section";
+            // A visual divider: the rows are the only options.
+            header.setAttribute("role", "presentation");
             sectionCache.set(day, header);
           }
           const label = dayLabel(item);
@@ -539,6 +643,8 @@
         const el = document.createElement("div");
         el.className = "row";
         el.dataset.id = item.ID;
+        el.id = rowDomID(item.ID);
+        el.setAttribute("role", "option");
         entry = { el, html: "" };
         rowCache.set(item.ID, entry);
       }
@@ -550,7 +656,6 @@
         const offset = swipe.offsets.get(item.ID);
         if (offset) setOffset(el, offset, false);
       }
-      el.classList.toggle("is-selected", item.ID === state.selected);
       place(el);
     }
     for (const [id, entry] of rowCache) {
@@ -566,6 +671,7 @@
         sectionCache.delete(day);
       }
     }
+    paintSelection();
     syncScrolled();
     renderPane();
   }
@@ -573,6 +679,14 @@
   function itemByID(id) {
     return state.items.find((item) => item.ID === id) || null;
   }
+
+  // "items:changed" arrives once per change (a folder of files, a running
+  // job), so refreshing on every event would run ListItems once per event.
+  // Every refresh funnels through here: at most one request in flight, at most
+  // one trailing request, and never two closer than REFRESH_MIN_GAP_MS. When
+  // the list is idle a user action loads at once; while events stream in
+  // (a running job) it waits at most for the load in flight plus the gap.
+  const REFRESH_MIN_GAP_MS = 120;
 
   let listRequest = 0;
 
@@ -584,12 +698,52 @@
     renderItems();
   }
 
-  async function refreshItems() {
-    try {
-      await loadItems();
-    } catch (error) {
-      showToast(errorText(error));
+  let itemsLoading = null; // the load in flight, shared by every refreshItems
+  let itemsDirty = false; // refreshed during a load: run one trailing load
+  let itemsTimer = null; // trailing load waiting for the minimum gap
+  let itemsLastEnd = 0; // when the last load settled
+  let itemsWaiters = []; // callers waiting for a load that starts after them
+
+  function startRefreshItems() {
+    clearTimeout(itemsTimer);
+    itemsTimer = null;
+    itemsDirty = false;
+    const waiters = itemsWaiters;
+    itemsWaiters = [];
+    const loading = (async () => {
+      try {
+        await loadItems();
+      } catch (error) {
+        // One toast per failed load, not one per caller waiting on it.
+        showToast(errorText(error));
+      }
+      itemsLastEnd = Date.now();
+      itemsLoading = null;
+      for (const resolve of waiters) resolve();
+      if (itemsDirty) {
+        const wait = REFRESH_MIN_GAP_MS - (Date.now() - itemsLastEnd);
+        if (wait > 0) itemsTimer = setTimeout(startRefreshItems, wait);
+        else startRefreshItems();
+      }
+    })();
+    itemsLoading = loading;
+    return loading;
+  }
+
+  // The returned promise settles when a load that started after this call
+  // finishes, so awaiting refreshItems() shows the latest list.
+  function refreshItems() {
+    if (itemsLoading || itemsTimer) {
+      itemsDirty = true;
+      return new Promise((resolve) => itemsWaiters.push(resolve));
     }
+    const wait = REFRESH_MIN_GAP_MS - (Date.now() - itemsLastEnd);
+    if (wait > 0) {
+      itemsDirty = true;
+      itemsTimer = setTimeout(startRefreshItems, wait);
+      return new Promise((resolve) => itemsWaiters.push(resolve));
+    }
+    return startRefreshItems();
   }
 
   // ── Selection and the transcript pane ─────────────────────
@@ -598,16 +752,42 @@
   // its state. With the pane open something is always selected while the
   // list has rows (the first row by default), like a mail list.
 
+  // A selected item that leaves the list (deleted, filtered out) hands the
+  // selection to the row that takes its place, or to the new last row.
   function ensureSelection(items) {
     if (state.selected && items.some((item) => item.ID === state.selected)) return;
-    state.selected = state.pane && items.length ? items[0].ID : "";
+    // A neighbour only stands in for a row that left the same list (deleted,
+    // hidden for undo); a new search is a different list, not a neighbour.
+    const gone = state.query === shownQuery ? shownOrder.indexOf(state.selected) : -1;
+    if (gone >= 0 && items.length) state.selected = items[Math.min(gone, items.length - 1)].ID;
+    else state.selected = state.pane && items.length ? items[0].ID : "";
+  }
+
+  // The selected row is also the list's active option.
+  function paintSelection() {
+    for (const [id, entry] of rowCache) {
+      const on = id === state.selected;
+      entry.el.classList.toggle("is-selected", on);
+      entry.el.setAttribute("aria-selected", String(on));
+    }
+    const active = rowCache.get(state.selected);
+    if (active) list.setAttribute("aria-activedescendant", active.el.id);
+    else list.removeAttribute("aria-activedescendant");
   }
 
   function select(id) {
     if (state.selected === id) return;
     state.selected = id;
-    for (const [rowID, entry] of rowCache) entry.el.classList.toggle("is-selected", rowID === id);
+    paintSelection();
     renderPane();
+  }
+
+  // Keyboard selection: the active row, scrolled into view.
+  function selectAt(items, index) {
+    const item = items[index];
+    if (!item) return;
+    select(item.ID);
+    rowCache.get(item.ID)?.el.scrollIntoView({ block: "nearest" });
   }
 
   function setPane(open, save = true) {
@@ -631,24 +811,16 @@
     return parts.filter(Boolean).map(esc).join(" · ");
   }
 
+  // The pane offers the item's lead actions. Copying a finished transcript
+  // is the main one; resuming a halted item is accented.
+  const PANE_BUTTON = { copy: "primary-button", resume: "plain-button is-accent" };
+
   function paneActionsHTML(item) {
     const id = esc(item.ID);
-    const button = (action, label, cls) =>
-      `<button class="${cls}" type="button" data-action="${action}" data-id="${id}">${esc(label)}</button>`;
-    switch (item.State) {
-      case "done":
-        return button("copy", t("menu.copy"), "primary-button") + button("reveal", REVEAL_LABEL, "plain-button");
-      case "running":
-      case "batch_waiting":
-        return button("cancel", t("action.cancel"), "plain-button");
-      case "free_exhausted":
-        return button("batch", t("action.continuePaid"), "plain-button is-accent");
-      case "failed":
-      case "canceled":
-        return button("retry", t("action.retry"), "plain-button is-accent");
-      default:
-        return "";
-    }
+    return rowActions(item).filter((entry) => entry.lead).map((entry) => {
+      const cls = PANE_BUTTON[entry.action] || PANE_BUTTON[entry.group] || "plain-button";
+      return `<button class="${cls}" type="button" data-action="${entry.action}" data-id="${id}">${esc(entry.label)}</button>`;
+    }).join("");
   }
 
   // A non-finished item: its state line, then what else is known.
@@ -961,6 +1133,9 @@
     const current = renaming;
     if (!current) return;
     renaming = null;
+    // Enter or Escape (not a blur elsewhere): the field is about to be
+    // replaced by the name, so focus goes back to the list it sits in.
+    const keepFocus = document.activeElement === current.input;
     const value = current.input.value.trim();
     const entry = rowCache.get(current.id);
     if (entry) entry.html = ""; // force a fresh row on the next render
@@ -971,10 +1146,69 @@
         showToast(errorText(error));
       }
     }
+    if (keepFocus) list.focus();
     await refreshItems();
   }
 
   // ── Row actions ───────────────────────────────────────────
+  //
+  // rowActions(item) lists every action an item offers in its state, in
+  // menu order; runAction(action, id) performs one. The context menu shows
+  // the whole list. The swipe buttons, the row button and the pane each pick
+  // from it by group or lead, so anything a gesture offers is also in the
+  // menu, and a keyboard path can open that same menu.
+  //   group  "output" (finished transcript), "resume" (start a halted item
+  //          again or move it to paid), "stop", "edit" (rename, delete)
+  //   lead   the state's main actions, shown in the pane
+  //   danger destructive
+
+  function rowActions(item) {
+    const actions = [];
+    const add = (action, label, group, extra) => actions.push({ action, label, group, lead: false, ...extra });
+    // "유료로 이어서" needs a paid key.
+    const toPaid = (extra) => {
+      if (state.available.paid) add("batch", t("action.continuePaid"), "resume", extra);
+    };
+    switch (item.State) {
+      case "done":
+        add("open", t("menu.open"), "output");
+        add("copy", t("menu.copy"), "output", { lead: true });
+        add("reveal", REVEAL_LABEL, "output", { lead: true });
+        break;
+      case "running":
+        // A free item can move to paid mid-run (e.g. while the server is busy).
+        if (item.Mode !== "batch") toPaid();
+        add("cancel", t("action.cancel"), "stop", { lead: true });
+        break;
+      case "batch_waiting":
+        add("cancel", t("action.cancel"), "stop", { lead: true });
+        break;
+      case "free_exhausted":
+        // Paid is the only way on, so it is offered even without a paid key:
+        // runAction then opens the key sheet to add one.
+        add("batch", t("action.continuePaid"), "resume", { lead: true });
+        add("cancel", t("action.cancel"), "stop");
+        break;
+      case "failed":
+      case "canceled":
+        add("retry", t("action.retry"), "resume", { lead: true });
+        if (item.Mode !== "batch") toPaid();
+        break;
+      default:
+        break;
+    }
+    add("rename", t("action.rename"), "edit");
+    add("delete", t("action.delete"), "edit", { danger: true });
+    return actions;
+  }
+
+  // Swiping reveals two buttons: stopping a working item (or else renaming
+  // it), then deleting it.
+  function swipeActions(item) {
+    const actions = rowActions(item);
+    const first = actions.find((a) => a.lead && a.group === "stop") || actions.find((a) => a.action === "rename");
+    return [first, actions.find((a) => a.danger)];
+  }
 
   async function runAction(action, id) {
     try {
@@ -1017,70 +1251,81 @@
     }
   }
 
+  // Double-click and Enter open a finished transcript in its default app.
+  function openRow(id) {
+    const item = itemByID(id);
+    if (item && item.State === "done") runAction("open", id);
+  }
+
   // ── Context menu ──────────────────────────────────────────
 
   let menuRow = null;
 
-  function menuEntries(item) {
-    const entries = [];
-    switch (item.State) {
-      case "done":
-        entries.push(["open", t("menu.open")], ["copy", t("menu.copy")], ["reveal", REVEAL_LABEL]);
-        break;
-      case "running":
-        // A free item can move to paid mid-run (e.g. while the server is busy).
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "batch_waiting":
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "free_exhausted":
-        if (state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "failed":
-      case "canceled":
-        entries.push(["retry", t("action.retry")]);
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        break;
-      default:
-        break;
-    }
-    if (entries.length) entries.push(null);
-    entries.push(["rename", t("action.rename")], ["delete", t("action.delete"), true]);
-    return entries;
+  // menuRow is the trigger of the open menu: a row, or the key picker. The
+  // picker stays on screen and says whether its menu is open with
+  // aria-expanded, the way paneToggle says its state with aria-pressed; a row
+  // menu has no persistent trigger to carry it.
+  function setMenuRow(el) {
+    menuRow = el;
+    keyPicker.setAttribute("aria-expanded", String(el === keyPicker));
   }
 
-  function openMenu(event, item, rowEl) {
-    closeMenu();
-    menu.innerHTML = menuEntries(item).map((entry) => {
-      if (!entry) return "<hr>";
-      const [action, label, danger] = entry;
-      return `<button type="button" role="menuitem" data-action="${action}"
-        ${danger ? 'class="is-danger"' : ""}>${label}</button>`;
+  // The whole list, with a rule before rename and delete.
+  function menuHTML(item) {
+    return rowActions(item).map((entry, i, all) => {
+      const rule = i > 0 && entry.group === "edit" && all[i - 1].group !== "edit" ? "<hr>" : "";
+      return `${rule}<button type="button" role="menuitem" data-action="${entry.action}"
+        ${entry.danger ? 'class="is-danger"' : ""}>${esc(entry.label)}</button>`;
     }).join("");
+  }
+
+  // `at` is the point to open at: the contextmenu event, or { clientX,
+  // clientY } under the row when the keyboard opens the menu (rowMenuPoint).
+  function openMenu(at, item, rowEl) {
+    closeMenu();
+    menu.innerHTML = menuHTML(item);
     menu.dataset.id = item.ID;
-    menu.hidden = false;
-    menuRow = rowEl;
+    openSurface(menu, { trap: false });
+    setMenuRow(rowEl);
     rowEl.classList.add("is-menu");
 
     const { innerWidth, innerHeight } = window;
     const rect = menu.getBoundingClientRect();
-    const x = Math.min(event.clientX, innerWidth - rect.width - 6);
-    const y = event.clientY + rect.height > innerHeight - 6
-      ? Math.max(6, event.clientY - rect.height)
-      : event.clientY;
+    const x = Math.min(at.clientX, innerWidth - rect.width - 6);
+    const y = at.clientY + rect.height > innerHeight - 6
+      ? Math.max(6, at.clientY - rect.height)
+      : at.clientY;
     menu.style.left = `${Math.max(6, x)}px`;
     menu.style.top = `${y}px`;
   }
 
+  // Under the row's name, where a pointer would have opened it.
+  function rowMenuPoint(rowEl) {
+    const body = rowEl.querySelector(".row-body") || rowEl;
+    return { clientX: body.getBoundingClientRect().left, clientY: rowEl.getBoundingClientRect().bottom };
+  }
+
+  // Arrow keys, Home and End walk the menu's items, wrapping at either end.
+  // The menu itself has focus when it opens; ↓ then goes to the first item
+  // and ↑ to the last. Enter and Space are the items' own button clicks.
+  function moveMenuFocus(key) {
+    const items = Array.from(menu.querySelectorAll("button")).filter(canFocus);
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    const last = items.length - 1;
+    let next = 0;
+    if (key === "End" || (key === "ArrowUp" && at <= 0)) next = last;
+    else if (key === "ArrowUp") next = at - 1;
+    else if (key === "ArrowDown" && at >= 0 && at < last) next = at + 1;
+    items[next].focus();
+  }
+
   function closeMenu() {
     if (menu.hidden) return;
-    menu.hidden = true;
+    closeSurface(menu);
     menu.classList.remove("has-checks");
-    if (menuRow) menuRow.classList.remove("is-menu");
-    menuRow = null;
+    menuRow?.classList.remove("is-menu");
+    setMenuRow(null);
   }
 
   // WKWebView can leave :hover stuck on rows the pointer already left (seen
@@ -1492,8 +1737,8 @@
       + pickerKeys().map((key) => entry(key.ID, key.Label)).join("");
     menu.classList.add("has-checks");
     delete menu.dataset.id;
-    menu.hidden = false;
-    menuRow = keyPicker;
+    openSurface(menu, { trap: false });
+    setMenuRow(keyPicker);
     keyPicker.classList.add("is-menu");
 
     const anchor = keyPicker.getBoundingClientRect();
@@ -1512,22 +1757,24 @@
     keyError.hidden = true;
     state.openKey = "";
     renderKeys();
-    keysSheet.hidden = false;
-    if (state.keys.length === 0) keyValue.focus();
+    // With no key yet the field is the only thing to do; otherwise the sheet
+    // itself takes focus and Tab walks it from the top.
+    openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
   }
 
   function openHelp() {
     closeMenu();
-    helpSheet.hidden = false;
+    openSurface(helpSheet);
   }
 
   function closeSheets() {
-    keysSheet.hidden = true;
-    helpSheet.hidden = true;
+    closeSurface(keysSheet);
+    closeSurface(helpSheet);
   }
 
+  // A modal surface (a sheet or the PDF card) is open.
   function sheetOpen() {
-    return !keysSheet.hidden || !helpSheet.hidden || !pdfSheet.hidden;
+    return trapSurface() !== null;
   }
 
   // ── PDF choice ────────────────────────────────────────────
@@ -1549,7 +1796,7 @@
   function showNextPDFChoice() {
     pdfCurrent = pdfQueue.shift() || null;
     if (!pdfCurrent) {
-      pdfSheet.hidden = true;
+      closeSurface(pdfSheet);
       return;
     }
     closeMenu();
@@ -1577,10 +1824,9 @@
       }
       pdfList.append(row);
     }
-    pdfSheet.hidden = false;
     // Focus the card, not the button: Enter still starts (see keydown) and
     // no focus ring shows until the keyboard moves it.
-    pdfForm.focus();
+    openSurface(pdfSheet, { focus: pdfForm });
   }
 
   // answerPDF sends the choice for the folder on the card: a list of paths
@@ -1641,6 +1887,92 @@
       depth = 0;
       appEl.classList.remove("is-dragover");
     });
+  }
+
+  // Keyboard scopes, each called from the one keydown listener in bindEvents.
+
+  // A sheet or the PDF card. The card is modal: Escape cancels this folder,
+  // other shortcuts wait.
+  function modalKeys(event) {
+    if (!pdfSheet.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        answerPDF(null);
+      } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
+        event.preventDefault();
+        answerPDF(checkedPDFs());
+      }
+      return;
+    }
+    if (event.key !== "Escape") return;
+    if (!keysSheet.hidden && collapseKeyPanel()) return;
+    closeSheets();
+  }
+
+  // The context menu or the key picker's menu, which take every key while
+  // open, like a native menu.
+  function menuKeys(event) {
+    if (event.key === "Escape" || event.key === "Tab") {
+      // Tab would leave the menu open behind focus; it closes it instead,
+      // and focus goes back to where the menu was opened from.
+      event.preventDefault();
+      closeMenu();
+    } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      moveMenuFocus(event.key);
+    }
+  }
+
+  // The list itself has focus (not a field or button inside it). The
+  // selected row is the active one, so moving it selects, as a click does.
+  // Returns whether the key was the list's.
+  function listKeys(event) {
+    const items = visibleItems();
+    const at = items.findIndex((item) => item.ID === state.selected);
+    const rowEl = rowCache.get(state.selected)?.el;
+    const command = event.metaKey || event.ctrlKey;
+    const plain = !command && !event.altKey && !event.shiftKey;
+    const key = event.key;
+    if (plain && key === "ArrowDown") selectAt(items, at < 0 ? 0 : Math.min(at + 1, items.length - 1));
+    else if (plain && key === "ArrowUp") selectAt(items, at < 0 ? items.length - 1 : Math.max(at - 1, 0));
+    else if (plain && key === "Home") selectAt(items, 0);
+    else if (plain && key === "End") selectAt(items, items.length - 1);
+    else if (plain && key === "Enter" && at >= 0) openRow(state.selected);
+    // Space shows the transcript; focus stays here (F6 moves to it).
+    else if (plain && key === " ") {
+      if (!state.pane) setPane(true);
+    }
+    // ⌘⌫ is the Mac delete, Delete the Windows one; both work on both.
+    else if (at >= 0 && (key === "Delete" || (key === "Backspace" && command))) runAction("delete", state.selected);
+    else if (rowEl && (key === "ContextMenu" || (key === "F10" && event.shiftKey))) {
+      openMenu(rowMenuPoint(rowEl), items[at], rowEl);
+    } else return false;
+    event.preventDefault();
+    return true;
+  }
+
+  // F6 and Shift+F6 cycle the list, the transcript (when the pane is open)
+  // and the search field; from anywhere else F6 starts at the list.
+  function cycleRegion(back) {
+    const regions = [list, paneBody, search].filter(canFocus);
+    if (!regions.length) return;
+    const at = regions.findIndex((el) => el.contains(document.activeElement));
+    const step = back ? regions.length - 1 : 1;
+    regions[at < 0 ? 0 : (at + step) % regions.length].focus();
+  }
+
+  function globalKeys(event) {
+    const command = event.metaKey || event.ctrlKey;
+    if (event.key === "Escape") {
+      if (swipe.offsets.size) closeOtherRows(null);
+    } else if (command && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      search.focus();
+      search.select();
+    } else if (event.key === "F6") {
+      event.preventDefault();
+      cycleRegion(event.shiftKey);
+    }
   }
 
   function bindEvents() {
@@ -1713,12 +2045,10 @@
       select(id);
     });
 
-    // Double-click opens a finished transcript in its default app.
     list.addEventListener("dblclick", (event) => {
       const rowEl = event.target.closest(".row");
       if (!rowEl || event.target.closest("button, input")) return;
-      const item = itemByID(rowEl.dataset.id);
-      if (item && item.State === "done") runAction("open", item.ID);
+      openRow(rowEl.dataset.id);
     });
 
     paneHead.addEventListener("click", (event) => {
@@ -1787,28 +2117,17 @@
     pdfCancel.addEventListener("click", () => answerPDF(null));
     trackHover(pdfList, ".pdf-row");
 
+    // The only document keydown listener. Each scope takes the keys while it
+    // is the innermost one: a modal surface, then the menu, then the focused
+    // list, then the window.
     document.addEventListener("keydown", (event) => {
-      if (!pdfSheet.hidden) {
-        // The card is modal: Escape cancels this folder, other shortcuts wait.
-        if (event.key === "Escape") {
-          event.preventDefault();
-          answerPDF(null);
-        } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
-          event.preventDefault();
-          answerPDF(checkedPDFs());
-        }
-        return;
-      }
-      if (event.key === "Escape") {
-        if (!menu.hidden) closeMenu();
-        else if (!keysSheet.hidden && collapseKeyPanel()) return;
-        else if (sheetOpen()) closeSheets();
-        else if (swipe.offsets.size) closeOtherRows(null);
-      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !sheetOpen()) {
-        event.preventDefault();
-        search.focus();
-        search.select();
-      }
+      // An open menu takes every key, Tab included, as a native menu does;
+      // a menu and a sheet are never open together.
+      if (!menu.hidden) menuKeys(event);
+      else if (event.key === "Tab") trapTab(event);
+      else if (sheetOpen()) modalKeys(event);
+      else if (event.target === list && listKeys(event)) return;
+      else globalKeys(event);
     });
 
     keyTier.addEventListener("click", (event) => {
@@ -1893,8 +2212,26 @@
 
     // The drop listener is registered at the very top of this file.
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
+      // Subscribe before the first list load, so a change that lands between
+      // that response and a later subscription cannot be missed.
       // A folder with several PDFs waits for the PDF card.
       window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
+      window.runtime.EventsOn("items:changed", refreshItems);
+      window.runtime.EventsOn("keys:changed", reloadKeys);
+      // A drop the backend could not take, e.g. before any key exists.
+      window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
+        if (noKeys) explainMissingKey();
+        else showToast(errorText(message));
+      });
+      // The macOS menu bar (internal/app/menu.go) does what ⚙ and ? do. Its
+      // shortcuts skip the keydown handler, so the PDF card's "other
+      // shortcuts wait" rule is applied here too.
+      window.runtime.EventsOn("menu:settings", () => {
+        if (pdfSheet.hidden) openKeys();
+      });
+      window.runtime.EventsOn("menu:help", () => {
+        if (pdfSheet.hidden) openHelp();
+      });
     }
 
     // The window opened at the width for this choice (cmd/nalmeok).
@@ -1911,7 +2248,7 @@
     }
 
     try {
-      await loadItems();
+      await refreshItems();
     } catch (error) {
       showToast(errorText(error));
     }
@@ -1920,16 +2257,6 @@
     if (state.keys.length === 0) openKeys("free");
 
     await loadPendingPDFChoices();
-
-    if (window.runtime && typeof window.runtime.EventsOn === "function") {
-      window.runtime.EventsOn("items:changed", refreshItems);
-      window.runtime.EventsOn("keys:changed", reloadKeys);
-      // A drop the backend could not take, e.g. before any key exists.
-      window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
-        if (noKeys) explainMissingKey();
-        else showToast(errorText(message));
-      });
-    }
 
     // Keep "진행 중 · N분" and "기다리는 중 · N분" current without a backend
     // round trip.

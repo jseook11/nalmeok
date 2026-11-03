@@ -82,6 +82,32 @@ func TestReadOutputCutKeepsTextBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestPaneWidths(t *testing.T) {
+	tests := []struct {
+		name             string
+		open             bool
+		width, screen    int
+		listWidth        int
+		remember, target int
+	}{
+		{"open from the list width", true, ListWidth, 0, 0, ListWidth, PaneWidth},
+		{"close back to the list width", false, PaneWidth, 0, ListWidth, ListWidth, ListWidth},
+		{"open a window already wide", true, 1200, 0, 0, 1200, 0},
+		{"close keeps the wide window", false, 1200, 0, 1200, 1200, 0},
+		{"open on a narrower screen", true, ListWidth, 900, 0, ListWidth, 900},
+		{"close with no remembered width", false, PaneWidth, 0, 0, ListWidth, ListWidth},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remember, target := paneWidths(tt.open, tt.width, tt.screen, tt.listWidth)
+			if remember != tt.remember || target != tt.target {
+				t.Fatalf("paneWidths(%v, %d, %d, %d) = (%d, %d), want (%d, %d)",
+					tt.open, tt.width, tt.screen, tt.listWidth, remember, target, tt.remember, tt.target)
+			}
+		})
+	}
+}
+
 func TestSetPaneRemembersChoice(t *testing.T) {
 	ta := newTestApp(t)
 	if ta.app.PaneOpen() {

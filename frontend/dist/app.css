@@ -3,8 +3,8 @@
 
   --bg: #ffffff;
   --text: #1d1d1f;
-  --secondary: #6e6e73;
-  --tertiary: #aeaeb2;
+  --secondary: #6c6c70;
+  --tertiary: #88888e;
   --separator: rgba(0, 0, 0, 0.1);
   /* Hairlines are 1px; macOS draws them at half a point (see .is-mac). */
   --hairline: 1px;
@@ -16,15 +16,16 @@
   --control: #ffffff;
   --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
   --accent: #1e7a4c;
+  /* Buttons with white labels use the fill, not the ring green. */
+  --accent-fill: var(--accent);
   --accent-text: #1a7046;
-  --accent-soft: rgba(30, 122, 76, 0.14);
-  --amber: #c27a00;
-  --amber-text: #9a6100;
+  --amber: #c07900;
+  --amber-text: #986000;
   --red: #c8443f;
   --red-text: #b03a35;
-  --danger: #e5484d;
+  --danger: #e12c32;
   --danger-text: #c4363b;
-  --rename: #8e8e93;
+  --rename: #75757b;
   --menu-bg: rgba(246, 246, 246, 0.92);
   --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
   --menu-hover: rgba(0, 0, 0, 0.08);
@@ -41,7 +42,7 @@
     --bg: #1e1e1e;
     --text: #f5f5f7;
     --secondary: #a1a1a6;
-    --tertiary: #6c6c70;
+    --tertiary: #79797e;
     --separator: rgba(255, 255, 255, 0.1);
     --fill: rgba(255, 255, 255, 0.075);
     --fill-strong: rgba(255, 255, 255, 0.12);
@@ -51,13 +52,14 @@
     --control: #5a5a5e;
     --control-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
     --accent: #3bb273;
+    /* Darker than the ring green so white labels clear 4.5:1. */
+    --accent-fill: #267a4d;
     --accent-text: #4cc38a;
-    --accent-soft: rgba(76, 195, 138, 0.18);
     --amber: #e0a43a;
     --amber-text: #e8b45a;
     --red: #e5675f;
     --red-text: #f07d76;
-    --danger: #e5484d;
+    --danger: #e12c32;
     --danger-text: #ff6b6f;
     --rename: #636366;
     --menu-bg: rgba(44, 44, 46, 0.94);
@@ -72,6 +74,77 @@
   }
 }
 
+/* macOS Increase Contrast and the Windows contrast themes ask for stronger
+   hairlines and secondary text. Only tokens change here; no rule overrides. */
+@media (prefers-contrast: more) {
+  :root {
+    --separator: rgba(0, 0, 0, 0.45);
+    --secondary: #3c3c41;
+    --tertiary: #5a5a5f;
+    --fill: rgba(0, 0, 0, 0.1);
+    --fill-strong: rgba(0, 0, 0, 0.16);
+    --fill-faint: rgba(0, 0, 0, 0.06);
+    --hover: rgba(0, 0, 0, 0.08);
+    --selected: rgba(0, 0, 0, 0.14);
+    --menu-bg: rgba(246, 246, 246, 0.98);
+  }
+}
+
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+  :root {
+    --separator: rgba(255, 255, 255, 0.35);
+    --secondary: #d0d0d4;
+    --tertiary: #a8a8ad;
+    --fill: rgba(255, 255, 255, 0.14);
+    --fill-strong: rgba(255, 255, 255, 0.2);
+    --fill-faint: rgba(255, 255, 255, 0.09);
+    --hover: rgba(255, 255, 255, 0.08);
+    --selected: rgba(255, 255, 255, 0.14);
+    --menu-bg: rgba(44, 44, 46, 0.98);
+  }
+}
+
+/* Windows high contrast: translucent fills and box-shadows disappear, so
+   selection, focus and control edges are redrawn with system colours. */
+@media (forced-colors: active) {
+  /* Selection and --control-shadow: the selected row and segmented choice
+     keep an edge when translucent fills and shadows are dropped. */
+  .row.is-selected .row-main,
+  .segmented button[aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* Keep a checked PDF box distinct if the checkmark image is dropped.
+     !important is needed because the check rules come later in the file. */
+  .check:checked {
+    border-color: Highlight !important;
+    background-color: Highlight !important;
+  }
+
+  /* These edges were drawn by --card-shadow and --menu-shadow; forced
+     colours drops box-shadow. */
+  .menu,
+  .modal-card {
+    border: 1px solid CanvasText;
+  }
+
+  /* Class rules on individual controls set border: none; !important is
+     needed here to give them an edge in forced colours. */
+  button {
+    border: 1px solid ButtonText !important;
+  }
+
+  /* The ring rules lower in the file set their own colour; keep the system
+     colour in this mode. */
+  :focus-visible,
+  .search:focus-within,
+  .check:focus-visible,
+  .toast-action:focus-visible {
+    outline-color: Highlight !important;
+  }
+}
+
 .is-mac {
   --hairline: 0.5px;
 }
@@ -82,6 +155,20 @@
 
 [hidden] {
   display: none !important;
+}
+
+/* Read by screen readers, not shown: the live regions announce() writes. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 html,
@@ -131,8 +218,14 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Surfaces focused as a whole when they open (sheets, the PDF card, the
+   menu) get no ring; their controls show it once Tab reaches them. */
+[tabindex="-1"]:focus-visible {
+  outline: none;
 }
 
 /* ── Window ───────────────────────────────────────────────── */
@@ -272,7 +365,7 @@ button {
 
 /* Paid selected: money is being spent, so the choice shows in the accent. */
 #mode-toggle button[data-mode="batch"][aria-selected="true"] {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: #ffffff;
   box-shadow: none;
 }
@@ -371,9 +464,8 @@ button {
   user-select: text;
 }
 
-.search input:focus-visible,
-.field:focus-visible,
-.name-input:focus-visible {
+/* The wrapper's focus-within ring stands in for the input's own outline. */
+.search input:focus-visible {
   outline: none;
 }
 
@@ -386,7 +478,8 @@ button {
 }
 
 .search:focus-within {
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .list {
@@ -470,6 +563,18 @@ button {
   background: linear-gradient(var(--selected), var(--selected)), var(--bg);
 }
 
+/* The list keeps focus and points at the selected row (aria-activedescendant),
+   so the keyboard ring is drawn on that row instead of around the list. With
+   no row selected the list keeps its own ring. */
+.list:focus-visible:has(.row.is-selected) {
+  outline: none;
+}
+
+.list:focus-visible .row.is-selected .row-main {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .row.is-snapping .row-main {
   transition: transform 0.15s ease-out;
 }
@@ -504,7 +609,7 @@ button {
   border: none;
   border-radius: 4px;
   background: var(--bg);
-  box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
   font-size: 15px;
   font-weight: 600;
   -webkit-user-select: text;
@@ -544,7 +649,8 @@ button {
 .tone-alert .dot { color: var(--amber); }
 .tone-failed { color: var(--red-text); }
 .tone-failed .dot { color: var(--red); }
-.tone-quiet { color: var(--tertiary); }
+/* Quiet status is still 13px text, so it uses the 4.5:1 secondary token. */
+.tone-quiet { color: var(--secondary); }
 
 /* One plain text action at most, on the right. */
 .row-action {
@@ -1162,10 +1268,6 @@ button {
   color: var(--secondary);
 }
 
-.field:focus {
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 .form-error {
   margin: 0;
   color: var(--danger-text);
@@ -1179,7 +1281,7 @@ button {
   padding: 0 14px;
   border: none;
   border-radius: 7px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
@@ -1217,10 +1319,6 @@ button {
   border-radius: 12px;
   background: var(--card);
   box-shadow: var(--card-shadow);
-}
-
-.modal-card:focus-visible {
-  outline: none;
 }
 
 .modal-title {
@@ -1288,12 +1386,12 @@ button {
 }
 
 .check:checked {
-  border-color: var(--accent);
-  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='m4.5 9.2 3 3 6-6.4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 18px no-repeat;
+  border-color: var(--accent-fill);
+  background: var(--accent-fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='m4.5 9.2 3 3 6-6.4' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 18px no-repeat;
 }
 
 .check:focus-visible {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1403,6 +1501,11 @@ button {
   font-weight: 600;
 }
 
+/* The accent ring does not clear the dark toast surface in light mode. */
+.toast-action:focus-visible {
+  outline-color: var(--toast-text);
+}
+
 button:disabled {
   opacity: 0.5;
 }
@@ -1418,5 +1521,13 @@ button:disabled {
   *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+
+  /* An infinite indeterminate line would keep cycling at 0.001ms; a steady
+     full-width line says "in progress" without movement. */
+  .row-line.is-moving span,
+  .row-line.is-waiting span {
+    width: 100%;
+    animation: none;
   }
 }

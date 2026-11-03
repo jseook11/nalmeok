@@ -15,7 +15,7 @@
         <button type="button" role="tab" data-mode="free" aria-selected="true" data-i18n="tier.free"></button>
         <button type="button" role="tab" data-mode="batch" aria-selected="false" data-i18n="tier.paid"></button>
       </div>
-      <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu"
+      <button class="picker-button" id="key-picker" type="button" aria-haspopup="menu" aria-expanded="false"
               data-i18n-aria-label="picker.title" data-i18n-title="picker.title" hidden>
         <span class="picker-label" id="key-picker-label" data-i18n="picker.auto"></span>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
@@ -42,7 +42,7 @@
     </div>
   </header>
 
-  <section class="side">
+  <main class="side">
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
            stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
@@ -52,15 +52,15 @@
       <input id="search" type="search" data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false"
              data-i18n-aria-label="search.placeholder">
     </label>
-    <main class="list" id="list"></main>
+    <div class="list" id="list" role="listbox" tabindex="0" data-i18n-aria-label="list.label"></div>
     <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
       <span data-i18n="empty.text"></span>
     </button>
-  </section>
+  </main>
 
-  <section class="pane" id="pane" aria-live="polite">
+  <section class="pane" id="pane">
     <header class="pane-head" id="pane-head"></header>
-    <div class="pane-body" id="pane-body"></div>
+    <div class="pane-body" id="pane-body" role="region" tabindex="0" data-i18n-aria-label="pane.label"></div>
   </section>
 
   <footer class="footer">
@@ -81,7 +81,7 @@
   </footer>
 </div>
 
-<div class="sheet" id="keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title" hidden>
+<div class="sheet" id="keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title" tabindex="-1" hidden>
   <header class="sheet-head">
     <h2 id="keys-title" data-i18n="keys.title"></h2>
     <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
@@ -106,7 +106,7 @@
   </div>
 </div>
 
-<div class="sheet" id="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+<div class="sheet" id="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1" hidden>
   <header class="sheet-head">
     <h2 id="help-title" data-i18n="help.title"></h2>
     <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
@@ -138,12 +138,16 @@
   </form>
 </div>
 
-<div class="menu" id="menu" role="menu" hidden></div>
+<div class="menu" id="menu" role="menu" tabindex="-1" hidden></div>
 
-<div class="toast" id="toast" role="status" aria-live="polite">
+<div class="toast" id="toast">
   <span id="toast-text"></span>
   <button class="toast-action" id="toast-action" type="button" data-i18n="toast.undo" hidden></button>
 </div>
+
+<!-- The only live regions; app.js writes them through announce(). -->
+<div class="visually-hidden" id="announce-polite" aria-live="polite"></div>
+<div class="visually-hidden" id="announce-assertive" aria-live="assertive"></div>
 
 <script src="app.js"></script>
 </body>

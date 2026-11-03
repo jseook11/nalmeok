@@ -524,3 +524,32 @@ func TestRenameUnfinishedItemOnlyChangesName(t *testing.T) {
 		t.Fatalf("item = %+v", item)
 	}
 }
+
+func TestLiveRunningOnlyFree(t *testing.T) {
+	cases := []struct {
+		items []store.Item
+		want  bool
+	}{
+		{nil, false},
+		{[]store.Item{{State: "running", Mode: "free"}}, true},
+		{[]store.Item{{State: "running", Mode: "batch"}}, false},
+		{[]store.Item{{State: "batch_waiting", Mode: "batch"}, {State: "done", Mode: "free"}}, false},
+		{[]store.Item{{State: "free_exhausted", Mode: "free"}}, false},
+	}
+	for i, c := range cases {
+		if got := liveRunning(c.items); got != c.want {
+			t.Errorf("case %d: liveRunning = %v, want %v", i, got, c.want)
+		}
+	}
+}
+
+// Without a started window (the CLI holds the folder lock) closing never asks.
+func TestBeforeCloseWithoutWindowDoesNotAsk(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.store.Add(store.Item{ID: "x", State: "running", Mode: "free"}); err != nil {
+		t.Fatal(err)
+	}
+	if ta.app.BeforeClose(context.Background()) {
+		t.Fatal("BeforeClose kept the window open without a started window")
+	}
+}

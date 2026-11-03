@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -149,7 +150,6 @@ type Runner struct {
 	pollNow   chan struct{}
 	started   bool
 	clients   map[string]gemini.Client
-	uploads   map[string]store.Upload // keyID + "\x00" + path
 	lastStart map[string]time.Time
 
 	pollMu sync.Mutex // serializes Batch polling with Batch cancellation
@@ -195,7 +195,6 @@ func New(opts Options) *Runner {
 		lanes:     map[string]*lane{"free": newLane("free"), "batch": newLane("batch")},
 		pollNow:   make(chan struct{}, 1),
 		clients:   make(map[string]gemini.Client),
-		uploads:   make(map[string]store.Upload),
 		lastStart: make(map[string]time.Time),
 	}
 	r.log = log.New(io.Discard, "", log.LstdFlags)
@@ -283,10 +282,15 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 	if err != nil {
 		return err
 	}
+	items := make([]store.Item, 0, len(paths))
 	for _, path := range paths {
-		if err := r.addItem(path, mode, keyID, nil, false); err != nil {
-			return err
-		}
+		items = append(items, r.newItem(path, mode, keyID, nil, false))
+	}
+	if err := r.opts.Store.AddMany(items); err != nil {
+		return err
+	}
+	for _, item := range items {
+		r.afterAdd(item)
 	}
 	return nil
 }
@@ -299,7 +303,12 @@ func (r *Runner) AddWithPDFs(path string, pdfs []string, mode, keyID string) err
 	if err != nil {
 		return err
 	}
-	return r.addItem(path, mode, keyID, append([]string{}, pdfs...), true)
+	item := r.newItem(path, mode, keyID, append([]string{}, pdfs...), true)
+	if err := r.opts.Store.Add(item); err != nil {
+		return err
+	}
+	r.afterAdd(item)
+	return nil
 }
 
 // resolveMode checks that a key exists and returns the mode new items run
@@ -332,7 +341,9 @@ func (r *Runner) resolveMode(mode, keyID string) (string, error) {
 	return mode, nil
 }
 
-func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool) error {
+// newItem builds the record for one dropped path. It does not save it; the
+// caller saves the whole batch at once.
+func (r *Runner) newItem(path, mode, keyID string, pdfs []string, pdfChosen bool) store.Item {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
@@ -340,7 +351,7 @@ func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		kind = "folder"
 	}
-	item := store.Item{
+	return store.Item{
 		ID:        store.NewID(),
 		Source:    path,
 		Kind:      kind,
@@ -352,22 +363,23 @@ func (r *Runner) addItem(path, mode, keyID string, pdfs []string, pdfChosen bool
 		PDFChosen: pdfChosen,
 		PDFs:      pdfs,
 	}
-	if err := r.opts.Store.Add(item); err != nil {
-		return err
-	}
+}
+
+// afterAdd reports and queues an item that is already saved, and starts its
+// early estimate.
+func (r *Runner) afterAdd(item store.Item) {
 	switch {
-	case pdfChosen:
-		r.logf("item %s added: %s (%s, key %q, %d PDFs chosen)", item.ID, path, mode, keyID, len(pdfs))
-	case keyID != "":
-		r.logf("item %s added: %s (%s, key %s)", item.ID, path, mode, keyID)
+	case item.PDFChosen:
+		r.logf("item %s added: %s (%s, key %q, %d PDFs chosen)", item.ID, item.Source, item.Mode, item.KeyID, len(item.PDFs))
+	case item.KeyID != "":
+		r.logf("item %s added: %s (%s, key %s)", item.ID, item.Source, item.Mode, item.KeyID)
 	default:
-		r.logf("item %s added: %s (%s)", item.ID, path, mode)
+		r.logf("item %s added: %s (%s)", item.ID, item.Source, item.Mode)
 	}
-	r.enqueue(item.ID, mode)
+	r.enqueue(item.ID, item.Mode)
 	if r.opts.EarlyEstimate {
-		go r.estimate(item.ID, path)
+		go r.estimate(item.ID, item.Source)
 	}
-	return nil
 }
 
 // estimate records the audio length and paid estimate of a just-added item.
@@ -814,6 +826,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		if err := r.update(id, func(it *store.Item) {
 			it.Units = nil
 			it.Batch = nil
+			it.Uploads = nil
 			it.Progress = 0
 		}); err != nil {
 			return item, err
@@ -821,6 +834,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		_ = os.RemoveAll(r.workDir(id))
 		item.Units = nil
 		item.Batch = nil
+		item.Uploads = nil
 	}
 	if len(item.Units) > 0 && unitsReady(item.Units) {
 		if item.SourceSig == "" && sig != "" {
@@ -837,6 +851,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		if it.Batch != nil && it.Batch.Name == "" {
 			it.Batch.Uploads = nil
 		}
+		it.Uploads = nil
 	}); err != nil {
 		return item, err
 	}
@@ -1138,7 +1153,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	if err != nil {
 		return gemini.Result{}, keyRejected, nil
 	}
-	parts, err := r.uploadParts(ctx, client, key.ID, unit, pdfs)
+	parts, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
 	if err != nil {
 		if outcome, ok := keyFailure(err); ok {
 			return gemini.Result{}, outcome, nil
@@ -1305,21 +1320,21 @@ func defaultBackoff(n int) time.Duration {
 
 // uploadParts builds [prompt, pdfs..., audio...] for one key, uploading files
 // that are not yet uploaded for that key or are close to the 48 h expiry.
-func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID string, unit store.Unit, pdfs []string) ([]gemini.Part, error) {
+func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, id, keyID string, unit store.Unit, pdfs []string) ([]gemini.Part, error) {
 	prompt := gemini.Prompt
 	if len(unit.Files) > 1 {
 		prompt = gemini.LivePrompt
 	}
 	parts := []gemini.Part{{Text: prompt}}
 	for _, pdf := range pdfs {
-		up, err := r.cachedUpload(ctx, client, keyID, pdf, mimePDF)
+		up, err := r.cachedUpload(ctx, client, id, keyID, pdf, mimePDF)
 		if err != nil {
 			return nil, err
 		}
 		parts = append(parts, gemini.Part{FileURI: up.URI, MIME: up.MIME})
 	}
 	for i, path := range unit.Files {
-		up, err := r.cachedUpload(ctx, client, keyID, path, unitMIME(unit, i))
+		up, err := r.cachedUpload(ctx, client, id, keyID, path, unitMIME(unit, i))
 		if err != nil {
 			return nil, err
 		}
@@ -1328,13 +1343,14 @@ func (r *Runner) uploadParts(ctx context.Context, client gemini.Client, keyID st
 	return parts, nil
 }
 
-func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, path, mime string) (store.Upload, error) {
+// cachedUpload returns the item's saved upload of path for keyID, uploading
+// it when there is none or it is close to the 48 h expiry.
+func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, id, keyID, path, mime string) (store.Upload, error) {
 	// Piece files are rewritten in place when an item is prepared again, so
 	// the file's size and time are part of the key.
 	cacheKey := keyID + "\x00" + path + "\x00" + fileStamp(path)
-	r.mu.Lock()
-	up, ok := r.uploads[cacheKey]
-	r.mu.Unlock()
+	item, _ := r.opts.Store.Get(id)
+	up, ok := item.Uploads[cacheKey]
 	if ok && r.opts.Now().Sub(up.UploadedAt) < uploadMaxAge {
 		return up, nil
 	}
@@ -1342,9 +1358,20 @@ func (r *Runner) cachedUpload(ctx context.Context, client gemini.Client, keyID, 
 	if err != nil {
 		return up, err
 	}
-	r.mu.Lock()
-	r.uploads[cacheKey] = up
-	r.mu.Unlock()
+	// Saved right away, so a crash or restart before Generate still keeps
+	// this file; expired entries are dropped so the map does not grow.
+	now := r.opts.Now()
+	if err := r.update(id, func(it *store.Item) {
+		maps.DeleteFunc(it.Uploads, func(_ string, old store.Upload) bool {
+			return now.Sub(old.UploadedAt) >= uploadMaxAge
+		})
+		if it.Uploads == nil {
+			it.Uploads = map[string]store.Upload{}
+		}
+		it.Uploads[cacheKey] = up
+	}); err != nil {
+		return up, err
+	}
 	return up, nil
 }
 
@@ -1785,8 +1812,10 @@ func (r *Runner) finish(id string) error {
 		it.FinishedAt = r.opts.Now()
 		it.Usage, it.CostKRW = itemCost(it.Units)
 		it.Batch = nil
-		// The .md is the record; dropping texts keeps items.json small.
+		// The .md is the record; dropping texts and uploads keeps items.json
+		// small.
 		it.Units = nil
+		it.Uploads = nil
 	}); err != nil {
 		return err
 	}
