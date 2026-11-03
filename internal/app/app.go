@@ -187,9 +187,16 @@ func (a *App) context() context.Context {
 // returns the language now in use. The window knows the OS language even when
 // the process has no locale environment variable (macOS apps launched from
 // Finder, for example), so it decides and Go follows.
+//
+// The menu bar was built before the window loaded, in the language main
+// guessed from the environment, so it is rebuilt when the language changes.
 func (a *App) UseLanguage(lang string) string {
+	before := i18n.Language()
 	if err := i18n.SetLanguage(lang); err != nil {
 		return i18n.Language()
+	}
+	if i18n.Language() != before {
+		a.refreshMenu()
 	}
 	return i18n.Language()
 }

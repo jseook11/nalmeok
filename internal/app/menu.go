@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	goruntime "runtime"
 
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -41,6 +42,17 @@ func (a *App) Menu() *menu.Menu {
 	help := bar.AddSubmenu(i18n.T("help.title"))
 	help.AddText(i18n.T("menubar.help"), nil, a.emitMenu(EventMenuHelp))
 	return bar
+}
+
+// refreshMenu replaces the macOS menu bar with one built in the current
+// language. It does nothing on other platforms or before the window exists.
+func (a *App) refreshMenu() {
+	if goruntime.GOOS != "darwin" {
+		return
+	}
+	if ctx := a.context(); ctx != nil {
+		wailsruntime.MenuSetApplicationMenu(ctx, a.Menu())
+	}
 }
 
 // withContext runs fn with the window's context once the window exists.

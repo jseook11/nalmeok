@@ -3,7 +3,9 @@
   "action.cancel": "Cancel",
   "action.continuePaid": "Continue paid",
   "action.delete": "Delete",
+  "action.locate": "Locate…",
   "action.rename": "Rename",
+  "action.restore": "Save again",
   "action.retry": "Retry",
 
   "cli.batchAndFree": "--batch and --free cannot be used together",
@@ -44,7 +46,10 @@
   "duration.minutes": "{minutes} min",
 
   "dialog.audioFiles": "Audio files",
+  "dialog.locateTitle": "Find moved transcript",
+  "dialog.mdFiles": "Markdown files",
   "dialog.pickTitle": "Choose audio files",
+  "dialog.restoreTitle": "Save transcript",
 
   "empty.label": "Choose audio files or a folder",
   "empty.text": "Drop audio files or a folder here",
@@ -82,6 +87,7 @@
   "error.nameBadChars": "Name cannot contain / \\ :",
   "error.nameRequired": "Enter a name",
   "error.network": "Network error · check your connection",
+  "error.noArchive": "No archived copy",
   "error.noAudio": "No audio to transcribe",
   "error.noConfig": "Could not load settings",
   "error.noConfigDir": "No config folder",
@@ -147,6 +153,7 @@
   "keys.tier": "Tier",
   "keys.title": "API keys",
 
+  "list.label": "File list",
   "list.noResults": "No results",
 
   "media.mp3NoFrame": "No MP3 frames",
@@ -163,6 +170,14 @@
   "menu.open": "Open",
   "menu.revealExplorer": "Show in Explorer",
   "menu.revealFinder": "Show in Finder",
+
+  "menubar.close": "Close",
+  "menubar.help": "Nalmeok Help",
+  "menubar.hide": "Hide Nalmeok",
+  "menubar.minimize": "Minimize",
+  "menubar.quit": "Quit Nalmeok",
+  "menubar.settings": "Settings…",
+  "menubar.window": "Window",
 
   "mode.label": "Processing mode",
 
@@ -188,6 +203,8 @@
   "pane.empty": "No item selected",
   "pane.emptyText": "Empty transcript",
   "pane.exhaustedNote": "The rest can continue as paid",
+  "pane.label": "Transcript",
+  "pane.moved": "Original file not found; showing archived copy",
   "pane.progress": "{percent}% done",
   "pane.toggle": "Show transcript",
   "pane.truncated": "File is large; showing the beginning",
@@ -204,10 +221,16 @@
   "picker.autoByPriority": "Auto (by priority)",
   "picker.title": "Key for new files",
 
+  "quit.confirm": "Quit",
+  "quit.keep": "Keep transcribing",
+  "quit.message": "Quitting now pauses the transcription. It picks up where it left off when you reopen the app.",
+  "quit.title": "A free transcription is in progress",
+
   "row.failed": "Failed",
   "row.failedReason": "Failed · {reason}",
   "row.freeExhausted": "Free quota used up for today",
   "row.elapsed": "{status} · {minutes} min",
+  "row.moved": "Moved",
   "row.running": "Running",
   "row.waiting": "Waiting",
 
@@ -236,6 +259,8 @@
   "toast.copied": "Copied",
   "toast.keyDeleted": "Key deleted",
   "toast.keySaved": "Key saved",
+  "toast.located": "File reconnected",
   "toast.removed": "Removed from list",
+  "toast.restored": "Saved again",
   "toast.undo": "Undo"
 }
