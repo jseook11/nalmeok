@@ -166,6 +166,14 @@
   "menu.revealExplorer": "탐색기에서 보기",
   "menu.revealFinder": "Finder에서 보기",
 
+  "menubar.close": "닫기",
+  "menubar.help": "Nalmeok 도움말",
+  "menubar.hide": "Nalmeok 가리기",
+  "menubar.minimize": "최소화",
+  "menubar.quit": "Nalmeok 종료",
+  "menubar.settings": "설정…",
+  "menubar.window": "윈도우",
+
   "mode.label": "처리 방식",
 
   "mp4.bad": "{box} 오류",

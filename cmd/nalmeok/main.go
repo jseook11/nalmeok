@@ -29,6 +29,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -202,12 +203,19 @@ func runGUI() {
 	if cfg.Pane() {
 		width, minWidth = app.PaneWidth, app.PaneMinWidth
 	}
+	// macOS gets the standard menu bar (Edit shortcuts, ⌘, and ⌘W); Windows
+	// keeps none.
+	var appMenu *menu.Menu
+	if runtime.GOOS == "darwin" {
+		appMenu = application.Menu()
+	}
 	err = wails.Run(&options.App{
 		Title:     "Nalmeok",
 		Width:     width,
 		Height:    680,
 		MinWidth:  minWidth,
 		MinHeight: app.WindowMinTall,
+		Menu:      appMenu,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
