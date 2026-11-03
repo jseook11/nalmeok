@@ -92,6 +92,8 @@
   const toast = $("toast");
   const toastText = $("toast-text");
   const toastAction = $("toast-action");
+  const announcePolite = $("announce-polite");
+  const announceAssertive = $("announce-assertive");
 
   const KEY_SOURCE_URL = "https://aistudio.google.com/apikey";
   const IS_WINDOWS = /Windows/i.test(navigator.userAgent);
@@ -153,14 +155,115 @@
     })[ch]);
   }
 
+  // ── Focus & announcer ─────────────────────────────────────
+  //
+  // Every surface that opens over the window (sheets, the PDF card, menus)
+  // opens and closes through here, so focus is saved, moved in, kept in and
+  // given back by one set of rules. Screen-reader messages go through
+  // announce(), the only writer of the two live regions in index.html.
+
+  // Open surfaces, innermost last: { el, returnTo, trap }.
+  const surfaces = [];
+
+  const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])";
+
+  // Visible and enabled. display:none (the hidden attribute, or sitting in a
+  // hidden sheet) leaves an element without client rects.
+  function canFocus(el) {
+    return Boolean(el && el.isConnected && !el.disabled && el.getClientRects().length);
+  }
+
+  // openSurface shows el and moves focus to `focus`: a first control, or el
+  // itself (tabindex=-1). trap keeps Tab inside el until it closes. Opening
+  // an open surface again only moves focus; it still returns to whatever
+  // had focus when it first opened.
+  function openSurface(el, { focus = el, trap = true } = {}) {
+    if (!surfaces.some((s) => s.el === el)) {
+      surfaces.push({ el, returnTo: document.activeElement, trap });
+    }
+    el.hidden = false;
+    focus.focus();
+  }
+
+  // closeSurface hides el and, if focus was inside it (or already nowhere),
+  // gives focus back to what had it before el opened. Focus the user has
+  // since moved elsewhere, e.g. by clicking another control, stays there.
+  function closeSurface(el) {
+    const index = surfaces.findIndex((s) => s.el === el);
+    if (index < 0) return;
+    const [{ returnTo }] = surfaces.splice(index, 1);
+    const active = document.activeElement;
+    const lost = !active || active === document.body || el.contains(active);
+    el.hidden = true;
+    if (lost) restoreFocus(returnTo);
+  }
+
+  // Focus that started nowhere (body: WebKit does not focus a clicked
+  // button) goes back to nowhere rather than jumping to a field. A saved
+  // element that is gone or hidden falls back to the innermost open modal
+  // surface, then the search field, then the empty-state button.
+  function restoreFocus(target) {
+    if (!target || target === document.body) {
+      document.activeElement?.blur();
+      return;
+    }
+    const modal = trapSurface();
+    const next = [target, modal && modal.el, search, empty].find(canFocus);
+    if (next) next.focus();
+  }
+
+  function trapSurface() {
+    for (let i = surfaces.length - 1; i >= 0; i -= 1) {
+      if (surfaces[i].trap) return surfaces[i];
+    }
+    return null;
+  }
+
+  // trapTab keeps Tab and Shift+Tab inside the innermost modal surface,
+  // wrapping at either end. Focus on no control of it (outside, or on the
+  // surface itself) goes to its first or, with Shift, last control. The
+  // keydown handler in Events calls it.
+  function trapTab(event) {
+    const top = trapSurface();
+    if (!top) return;
+    const items = Array.from(top.el.querySelectorAll(FOCUSABLE)).filter(canFocus);
+    const at = items.indexOf(document.activeElement);
+    const last = items.length - 1;
+    let next = null;
+    if (!items.length) next = top.el;
+    else if (at < 0) next = items[event.shiftKey ? last : 0];
+    else if (event.shiftKey && at === 0) next = items[last];
+    else if (!event.shiftKey && at === last) next = items[0];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+  }
+
+  // announce reads a short message aloud: polite by default, assertive only
+  // for what must interrupt. The region is emptied first and filled a moment
+  // later, so the same message twice in a row is read twice.
+  const announceTimers = new Map();
+
+  function announce(message, { assertive = false } = {}) {
+    const region = assertive ? announceAssertive : announcePolite;
+    clearTimeout(announceTimers.get(region));
+    region.textContent = "";
+    announceTimers.set(region, setTimeout(() => {
+      region.textContent = message;
+    }, 100));
+  }
+
   // ── Toast ─────────────────────────────────────────────────
 
   let toastTimer = null;
   let toastOnAction = null;
 
+  // The toast is visual only; screen readers hear the message through
+  // announce(), so it is not read twice.
   function showToast(message, options = {}) {
     clearTimeout(toastTimer);
     toastText.textContent = message;
+    announce(message);
     toastOnAction = options.onAction || null;
     toastAction.hidden = !toastOnAction;
     if (toastOnAction) toastAction.textContent = options.action || t("toast.undo");
@@ -1108,7 +1211,7 @@
         ${danger ? 'class="is-danger"' : ""}>${label}</button>`;
     }).join("");
     menu.dataset.id = item.ID;
-    menu.hidden = false;
+    openSurface(menu, { trap: false });
     menuRow = rowEl;
     rowEl.classList.add("is-menu");
 
@@ -1124,7 +1227,7 @@
 
   function closeMenu() {
     if (menu.hidden) return;
-    menu.hidden = true;
+    closeSurface(menu);
     menu.classList.remove("has-checks");
     if (menuRow) menuRow.classList.remove("is-menu");
     menuRow = null;
@@ -1539,7 +1642,7 @@
       + pickerKeys().map((key) => entry(key.ID, key.Label)).join("");
     menu.classList.add("has-checks");
     delete menu.dataset.id;
-    menu.hidden = false;
+    openSurface(menu, { trap: false });
     menuRow = keyPicker;
     keyPicker.classList.add("is-menu");
 
@@ -1559,22 +1662,24 @@
     keyError.hidden = true;
     state.openKey = "";
     renderKeys();
-    keysSheet.hidden = false;
-    if (state.keys.length === 0) keyValue.focus();
+    // With no key yet the field is the only thing to do; otherwise the sheet
+    // itself takes focus and Tab walks it from the top.
+    openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
   }
 
   function openHelp() {
     closeMenu();
-    helpSheet.hidden = false;
+    openSurface(helpSheet);
   }
 
   function closeSheets() {
-    keysSheet.hidden = true;
-    helpSheet.hidden = true;
+    closeSurface(keysSheet);
+    closeSurface(helpSheet);
   }
 
+  // A modal surface (a sheet or the PDF card) is open.
   function sheetOpen() {
-    return !keysSheet.hidden || !helpSheet.hidden || !pdfSheet.hidden;
+    return trapSurface() !== null;
   }
 
   // ── PDF choice ────────────────────────────────────────────
@@ -1596,7 +1701,7 @@
   function showNextPDFChoice() {
     pdfCurrent = pdfQueue.shift() || null;
     if (!pdfCurrent) {
-      pdfSheet.hidden = true;
+      closeSurface(pdfSheet);
       return;
     }
     closeMenu();
@@ -1624,10 +1729,9 @@
       }
       pdfList.append(row);
     }
-    pdfSheet.hidden = false;
     // Focus the card, not the button: Enter still starts (see keydown) and
     // no focus ring shows until the keyboard moves it.
-    pdfForm.focus();
+    openSurface(pdfSheet, { focus: pdfForm });
   }
 
   // answerPDF sends the choice for the folder on the card: a list of paths
@@ -1835,6 +1939,10 @@
     trackHover(pdfList, ".pdf-row");
 
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Tab") {
+        trapTab(event);
+        return;
+      }
       if (!pdfSheet.hidden) {
         // The card is modal: Escape cancels this folder, other shortcuts wait.
         if (event.key === "Escape") {
