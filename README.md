@@ -2,7 +2,7 @@
 
 # Nalmeok (nalmeok)
 
-> **시작하기** — [최신 버전 다운로드](https://github.com/jseook11/nalmeok/releases/latest) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
+> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
 
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
@@ -19,7 +19,7 @@
 
 ## 설치
 
-[Releases](https://github.com/jseook11/nalmeok/releases/latest)에서 내려받아요.
+[내려받기](https://nalmeok.seook.dev/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
 
 **macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
