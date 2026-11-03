@@ -2059,6 +2059,15 @@
         if (noKeys) explainMissingKey();
         else showToast(errorText(message));
       });
+      // The macOS menu bar (internal/app/menu.go) does what ⚙ and ? do. Its
+      // shortcuts skip the keydown handler, so the PDF card's "other
+      // shortcuts wait" rule is applied here too.
+      window.runtime.EventsOn("menu:settings", () => {
+        if (pdfSheet.hidden) openKeys();
+      });
+      window.runtime.EventsOn("menu:help", () => {
+        if (pdfSheet.hidden) openHelp();
+      });
     }
 
     // The window opened at the width for this choice (cmd/nalmeok).
