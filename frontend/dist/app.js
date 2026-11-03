@@ -509,8 +509,12 @@
         };
       case "canceled":
         return { tone: "quiet", dot: false, text: t("status.canceled") };
-      case "done":
-        return { tone: "", dot: false, text: finishedAt(finishStamp(item)) };
+      case "done": {
+        // A .md moved outside the app is noted quietly; the text is kept.
+        const when = finishedAt(finishStamp(item));
+        const text = item.OutputMissing ? [when, t("row.moved")].filter(Boolean).join(" · ") : when;
+        return { tone: "", dot: false, text };
+      }
       default:
         return { tone: "quiet", dot: false, text: item.Detail || t("status.queued") };
     }
@@ -799,7 +803,7 @@
   }
 
   let paneHeadHTML = "";
-  let paneBodyKey = ""; // what the body shows: "text:<id>|<output>", "state:<html>" or "empty"
+  let paneBodyKey = ""; // what the body shows: "text:<id>|<output>|<missing>", "state:<html>" or "empty"
 
   function paneMeta(item) {
     const parts = [];
@@ -846,24 +850,38 @@
       + notes.map((note) => `<p class="pane-note">${esc(note)}</p>`).join("");
   }
 
+  // Text read from the app's copy (the .md was moved) says so above it, with
+  // the item's ways to bring the file back.
+  function movedHTML(item) {
+    const id = esc(item.ID);
+    const buttons = rowActions(item).filter((entry) => entry.group === "relink").map((entry) =>
+      `<button class="plain-button" type="button" data-action="${entry.action}" data-id="${id}">${esc(entry.label)}</button>`).join("");
+    return `<div class="pane-moved"><p class="pane-note">${t("pane.moved")}</p>${buttons}</div>`;
+  }
+
   // Paragraphs split on blank lines; single line breaks stay (pre-wrap).
-  function transcriptHTML(out) {
+  function transcriptHTML(out, item) {
+    const moved = out.Moved ? movedHTML(item) : "";
     const paragraphs = String(out.Text || "")
       .replace(/\r\n?/g, "\n")
       .split(/\n[ \t]*\n+/)
       .map((p) => p.replace(/^\n+|\s+$/g, ""))
       .filter(Boolean);
-    if (!paragraphs.length) return `<p class="pane-note">${t("pane.emptyText")}</p>`;
+    if (!paragraphs.length) return `${moved}<p class="pane-note">${t("pane.emptyText")}</p>`;
     const note = out.Truncated ? `<p class="pane-note">${t("pane.truncated")}</p>` : "";
-    return `<div class="pane-text">${paragraphs.map((p) => `<p>${esc(p)}</p>`).join("")}</div>${note}`;
+    return `${moved}<div class="pane-text">${paragraphs.map((p) => `<p>${esc(p)}</p>`).join("")}</div>${note}`;
   }
 
   async function loadTranscript(item, key) {
+    // Focus on a body control that is about to go (the moved note's buttons
+    // after relinking) stays in the pane instead of dropping to nowhere.
+    const hadFocus = paneBody.contains(document.activeElement) && document.activeElement !== paneBody;
     paneBody.innerHTML = "";
+    if (hadFocus) paneBody.focus();
     try {
       const out = await call("ReadOutput", item.ID);
       if (paneBodyKey !== key) return; // selection moved on
-      paneBody.innerHTML = transcriptHTML(out || {});
+      paneBody.innerHTML = transcriptHTML(out || {}, item);
     } catch (error) {
       if (paneBodyKey !== key) return;
       paneBody.innerHTML = `<p class="pane-note">${esc(errorText(error))}</p>`;
@@ -892,7 +910,7 @@
       return;
     }
     if (item.State === "done") {
-      const key = `text:${item.ID}|${item.Output}`;
+      const key = `text:${item.ID}|${item.Output}|${item.OutputMissing ? "missing" : ""}`;
       if (paneBodyKey !== key) {
         paneBodyKey = key;
         loadTranscript(item, key);
@@ -1157,8 +1175,10 @@
   // the whole list. The swipe buttons, the row button and the pane each pick
   // from it by group or lead, so anything a gesture offers is also in the
   // menu, and a keyboard path can open that same menu.
-  //   group  "output" (finished transcript), "resume" (start a halted item
-  //          again or move it to paid), "stop", "edit" (rename, delete)
+  //   group  "output" (finished transcript), "relink" (find or rewrite a
+  //          moved .md; the pane's moved note shows these), "resume" (start
+  //          a halted item again or move it to paid), "stop", "edit"
+  //          (rename, delete)
   //   lead   the state's main actions, shown in the pane
   //   danger destructive
 
@@ -1171,6 +1191,14 @@
     };
     switch (item.State) {
       case "done":
+        // A moved .md cannot be opened, shown or renamed; the app's copy can
+        // still be copied, and the file found again or written back out.
+        if (item.OutputMissing) {
+          add("copy", t("menu.copy"), "output", { lead: true });
+          add("locate", t("action.locate"), "relink");
+          add("restore", t("action.restore"), "relink");
+          break;
+        }
         add("open", t("menu.open"), "output");
         add("copy", t("menu.copy"), "output", { lead: true });
         add("reveal", REVEAL_LABEL, "output", { lead: true });
@@ -1197,16 +1225,18 @@
       default:
         break;
     }
-    add("rename", t("action.rename"), "edit");
+    // Renaming a finished item renames its .md, which a moved one lacks.
+    if (!(item.State === "done" && item.OutputMissing)) add("rename", t("action.rename"), "edit");
     add("delete", t("action.delete"), "edit", { danger: true });
     return actions;
   }
 
   // Swiping reveals two buttons: stopping a working item (or else renaming
-  // it), then deleting it.
+  // it, or finding a moved transcript), then deleting it.
   function swipeActions(item) {
     const actions = rowActions(item);
-    const first = actions.find((a) => a.lead && a.group === "stop") || actions.find((a) => a.action === "rename");
+    const first = actions.find((a) => a.lead && a.group === "stop")
+      || actions.find((a) => a.action === "rename" || a.action === "locate");
     return [first, actions.find((a) => a.danger)];
   }
 
@@ -1223,6 +1253,12 @@
         case "reveal":
           await call("RevealOutput", id);
           break;
+        case "locate":
+          await relink(id, "LocateOutput", t("toast.located"));
+          return;
+        case "restore":
+          await relink(id, "RestoreOutput", t("toast.restored"));
+          return;
         case "retry":
           await call("Retry", id);
           break;
@@ -1251,10 +1287,20 @@
     }
   }
 
+  // relink points a moved item at a .md again (LocateOutput or
+  // RestoreOutput) and says so. A canceled file dialog changes nothing and
+  // says nothing.
+  async function relink(id, method, done) {
+    const before = itemByID(id)?.Output;
+    await call(method, id);
+    await refreshItems();
+    if (itemByID(id)?.Output !== before) showToast(done);
+  }
+
   // Double-click and Enter open a finished transcript in its default app.
   function openRow(id) {
     const item = itemByID(id);
-    if (item && item.State === "done") runAction("open", id);
+    if (item && rowActions(item).some((a) => a.action === "open")) runAction("open", id);
   }
 
   // ── Context menu ──────────────────────────────────────────
@@ -2051,10 +2097,13 @@
       openRow(rowEl.dataset.id);
     });
 
-    paneHead.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-action]");
-      if (button) runAction(button.dataset.action, button.dataset.id);
-    });
+    // The head's actions, and the moved note's in the body.
+    for (const el of [paneHead, paneBody]) {
+      el.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (button) runAction(button.dataset.action, button.dataset.id);
+      });
+    }
     paneToggle.addEventListener("click", () => setPane(!state.pane));
 
     list.addEventListener("contextmenu", (event) => {
