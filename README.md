@@ -25,6 +25,13 @@
 
 **Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러요.
 
+**Windows (Scoop)** — [Scoop](https://scoop.sh)을 쓰면 명령 두 줄로 설치하고, 시작 메뉴에도 들어가요. 업데이트는 `scoop update nalmeok`이에요.
+
+```powershell
+scoop bucket add nalmeok https://github.com/jseook11/scoop-bucket
+scoop install nalmeok/nalmeok
+```
+
 ## 처음 사용
 
 1. 앱을 열어요. 키가 없으면 **API 키** 시트가 먼저 열려요.
