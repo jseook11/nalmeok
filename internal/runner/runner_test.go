@@ -93,6 +93,7 @@ type fakeClient struct {
 	uploads   []string
 	mimes     []string
 	generates int
+	systems   []string // each Generate call's system instruction
 	gen       genFunc
 	hold      chan struct{} // when set, Generate waits for it or ctx
 	unwind    chan struct{} // when set, a held Generate whose ctx ends waits for it before returning
@@ -106,8 +107,11 @@ func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Uploa
 	return store.Upload{URI: c.key + ":" + filepath.Base(path), MIME: mime, UploadedAt: time.Now()}, nil
 }
 
-func (c *fakeClient) Generate(ctx context.Context, parts []gemini.Part) (gemini.Result, error) {
-	text, finish, err := c.generate(ctx, parts)
+func (c *fakeClient) Generate(ctx context.Context, req gemini.Request) (gemini.Result, error) {
+	c.mu.Lock()
+	c.systems = append(c.systems, req.System)
+	c.mu.Unlock()
+	text, finish, err := c.generate(ctx, req.Parts)
 	if err != nil {
 		return gemini.Result{Finish: finish}, err
 	}
@@ -475,25 +479,26 @@ func TestFreeSuccessAcrossTwoUnits(t *testing.T) {
 
 func TestSingleAudioUsesPromptMultiUsesLivePrompt(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
-	var prompts []string
-	var mu sync.Mutex
-	h.world.client("AIza-f1").gen = func(_ int, parts []gemini.Part) (string, string, error) {
-		mu.Lock()
-		prompts = append(prompts, parts[0].Text)
-		mu.Unlock()
+	c := h.world.client("AIza-f1")
+	c.gen = func(_ int, parts []gemini.Part) (string, string, error) {
+		for _, p := range parts {
+			if p.Text != "" {
+				t.Errorf("the prompt must be the system instruction, not a part: %q", p.Text)
+			}
+		}
 		return answer(parts), gemini.FinishStop, nil
 	}
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("a.m4a"), "free")
 	h.wait(item.ID, StateDone)
-	mu.Lock()
-	defer mu.Unlock()
-	if len(prompts) != 2 {
-		t.Fatalf("prompts = %d", len(prompts))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.systems) != 2 {
+		t.Fatalf("requests = %d", len(c.systems))
 	}
-	for _, p := range prompts {
+	for _, p := range c.systems {
 		if p != gemini.Prompt {
-			t.Errorf("single-audio request used a different prompt")
+			t.Errorf("single-audio request used a different system instruction")
 		}
 	}
 }
@@ -545,8 +550,11 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	if len(reqs) != 1 || reqs[0].Key != "unit-1" {
 		t.Fatalf("batch requests = %+v", reqs)
 	}
-	if !strings.HasPrefix(reqs[0].Parts[1].FileURI, "AIza-p1:") {
+	if !strings.HasPrefix(reqs[0].Parts[0].FileURI, "AIza-p1:") {
 		t.Errorf("batch must use files uploaded with the paid key: %+v", reqs[0].Parts)
+	}
+	if reqs[0].System != gemini.Prompt {
+		t.Errorf("batch request must carry the prompt as its system instruction")
 	}
 
 	h.r.PollOnce(h.ctx) // still running
@@ -644,7 +652,7 @@ func TestResumeRunningItemAfterRestart(t *testing.T) {
 func TestResumeBatchWaitingPollsOnStart(t *testing.T) {
 	h := newHarness(t, paidKey("p1"))
 	src := h.source("lec.m4a")
-	h.world.batches["batches/old"] = []gemini.BatchRequest{{Key: "unit-0", Parts: []gemini.Part{{FileURI: "AIza-p1:x.m4a"}}}}
+	h.world.batches["batches/old"] = []gemini.BatchRequest{{Key: "unit-0", Request: gemini.Request{Parts: []gemini.Part{{FileURI: "AIza-p1:x.m4a"}}}}}
 	h.world.setBatchState(gemini.BatchSucceeded)
 	err := h.st.Add(store.Item{
 		ID: "item-b", Source: src, Kind: "file", Name: "lec.m4a", Mode: "batch",

@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -140,5 +141,46 @@ func TestTruncateUTF8(t *testing.T) {
 	got := truncateUTF8(s, 120)
 	if len(got) != 120 || got != strings.Repeat("가", 40) {
 		t.Errorf("truncate = %d bytes", len(got))
+	}
+}
+
+func TestPromptIsSystemInstruction(t *testing.T) {
+	req := Request{System: Prompt, Parts: []Part{{FileURI: "files/a", MIME: "audio/m4a"}}}
+
+	cfg := generationConfig(req.System)
+	if cfg.SystemInstruction == nil || len(cfg.SystemInstruction.Parts) != 1 || cfg.SystemInstruction.Parts[0].Text != Prompt {
+		t.Fatalf("live config system instruction = %+v", cfg.SystemInstruction)
+	}
+	if generationConfig("").SystemInstruction != nil {
+		t.Error("an empty prompt must send no system instruction")
+	}
+	for _, p := range contents(req.Parts)[0].Parts {
+		if p.Text != "" {
+			t.Errorf("the prompt must not be a user part: %q", p.Text)
+		}
+	}
+
+	data, err := json.Marshal(jsonlRequest(BatchRequest{Key: "unit-0", Request: req}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row struct {
+		Request struct {
+			SystemInstruction struct {
+				Parts []struct{ Text string } `json:"parts"`
+			} `json:"systemInstruction"`
+		} `json:"request"`
+	}
+	if err := json.Unmarshal(data, &row); err != nil {
+		t.Fatal(err)
+	}
+	if p := row.Request.SystemInstruction.Parts; len(p) != 1 || p[0].Text != Prompt {
+		t.Errorf("Batch file row system instruction = %+v", p)
+	}
+}
+
+func TestPromptFor(t *testing.T) {
+	if PromptFor(0) != Prompt || PromptFor(1) != Prompt || PromptFor(2) != LivePrompt {
+		t.Error("PromptFor must pick LivePrompt only for more than one audio part")
 	}
 }

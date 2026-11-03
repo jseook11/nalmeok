@@ -63,7 +63,7 @@ type Client interface {
 	Upload(ctx context.Context, path, mime string) (store.Upload, error)
 	// Generate runs one live request and returns its text, finish reason
 	// and token usage (Result.Error stays empty; failures are err).
-	Generate(ctx context.Context, parts []Part) (Result, error)
+	Generate(ctx context.Context, req Request) (Result, error)
 	// SubmitBatch creates a Batch job with one request per BatchRequest.
 	SubmitBatch(ctx context.Context, reqs []BatchRequest, displayName string) (name string, err error)
 	// FindBatch returns the name of a Batch job with exactly this display
@@ -87,10 +87,19 @@ type Part struct {
 	MIME    string
 }
 
+// Request is one transcription request. System is the instruction, sent as
+// the system instruction rather than as a user part so the model treats it
+// as the rules of the answer and not as more input; Parts are the PDFs and
+// audio.
+type Request struct {
+	System string
+	Parts  []Part
+}
+
 // BatchRequest is one request inside a Batch job.
 type BatchRequest struct {
-	Key   string
-	Parts []Part
+	Key string
+	Request
 }
 
 // Result is one request's outcome. Error is set when a Batch request failed.
@@ -147,11 +156,20 @@ func New(apiKey string) (Client, error) {
 	return &client{c: c}, nil
 }
 
-func generationConfig() *genai.GenerateContentConfig {
+func generationConfig(system string) *genai.GenerateContentConfig {
 	return &genai.GenerateContentConfig{
-		MaxOutputTokens: MaxOutputTokens,
-		ThinkingConfig:  &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow},
+		SystemInstruction: systemContent(system),
+		MaxOutputTokens:   MaxOutputTokens,
+		ThinkingConfig:    &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow},
 	}
+}
+
+// systemContent is the system instruction, or nil when there is none.
+func systemContent(system string) *genai.Content {
+	if system == "" {
+		return nil
+	}
+	return genai.NewContentFromText(system, "")
 }
 
 func contents(parts []Part) []*genai.Content {
@@ -220,8 +238,8 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 	return store.Upload{URI: file.URI, MIME: mime, UploadedAt: uploadedAt}, nil
 }
 
-func (c *client) Generate(ctx context.Context, parts []Part) (Result, error) {
-	resp, err := c.c.Models.GenerateContent(ctx, Model, contents(parts), generationConfig())
+func (c *client) Generate(ctx context.Context, req Request) (Result, error) {
+	resp, err := c.c.Models.GenerateContent(ctx, Model, contents(req.Parts), generationConfig(req.System))
 	if err != nil {
 		return Result{}, err
 	}
@@ -276,7 +294,7 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 		inline = append(inline, &genai.InlinedRequest{
 			Contents: contents(r.Parts),
 			Metadata: map[string]string{"key": r.Key},
-			Config:   generationConfig(),
+			Config:   generationConfig(r.System),
 		})
 	}
 	size, _ := json.Marshal(inline)
@@ -302,22 +320,29 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 type jsonlLine struct {
 	Key     string `json:"key"`
 	Request struct {
-		Contents         []*genai.Content `json:"contents"`
-		GenerationConfig map[string]any   `json:"generationConfig"`
+		Contents          []*genai.Content `json:"contents"`
+		SystemInstruction *genai.Content   `json:"systemInstruction,omitempty"`
+		GenerationConfig  map[string]any   `json:"generationConfig"`
 	} `json:"request"`
+}
+
+// jsonlRequest is r as one row of a Batch request file.
+func jsonlRequest(r BatchRequest) jsonlLine {
+	var line jsonlLine
+	line.Key = r.Key
+	line.Request.Contents = contents(r.Parts)
+	line.Request.SystemInstruction = systemContent(r.System)
+	line.Request.GenerationConfig = map[string]any{
+		"maxOutputTokens": MaxOutputTokens,
+		"thinkingConfig":  map[string]any{"thinkingLevel": string(genai.ThinkingLevelLow)},
+	}
+	return line
 }
 
 func (c *client) uploadJSONL(ctx context.Context, reqs []BatchRequest) (string, error) {
 	var buf bytes.Buffer
 	for _, r := range reqs {
-		var line jsonlLine
-		line.Key = r.Key
-		line.Request.Contents = contents(r.Parts)
-		line.Request.GenerationConfig = map[string]any{
-			"maxOutputTokens": MaxOutputTokens,
-			"thinkingConfig":  map[string]any{"thinkingLevel": string(genai.ThinkingLevelLow)},
-		}
-		data, err := json.Marshal(line)
+		data, err := json.Marshal(jsonlRequest(r))
 		if err != nil {
 			return "", err
 		}

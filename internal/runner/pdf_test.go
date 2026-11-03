@@ -78,8 +78,8 @@ func TestFolderSendsEveryPDFByDefault(t *testing.T) {
 		if got := pdfURIs(req); !slices.Equal(got, want) {
 			t.Errorf("PDF parts = %v, want %v", got, want)
 		}
-		if req[0].Text == "" || req[1].MIME != mimePDF || req[len(req)-1].MIME == mimePDF {
-			t.Errorf("order must be prompt, PDFs, audio: %+v", req)
+		if req[0].MIME != mimePDF || req[len(req)-1].MIME == mimePDF {
+			t.Errorf("order must be PDFs, audio: %+v", req)
 		}
 	}
 	// Uploaded once per key, not once per request.
