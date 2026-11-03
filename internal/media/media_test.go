@@ -61,7 +61,7 @@ func fixtures(t *testing.T) string {
 		fixtureDir = dir
 		aiff := filepath.Join(dir, "x.aiff")
 		cmds := [][]string{
-			{"say", "-o", aiff, sayText},
+			{"say", "-o", aiff, strings.Repeat(sayText, 3)},
 			{"afconvert", "-f", "m4af", "-d", "aac", aiff, filepath.Join(dir, "x.m4a")},
 			{"afconvert", "-f", "mp4f", "-d", "aac", aiff, filepath.Join(dir, "x.mp4")},
 			{"afconvert", "-f", "WAVE", "-d", "LEI16", aiff, filepath.Join(dir, "x.wav")},
@@ -76,6 +76,12 @@ func fixtures(t *testing.T) string {
 	})
 	if fixtureErr != nil {
 		t.Skipf("fixture 생성 실패: %v", fixtureErr)
+	}
+	// say may read Korean much faster on some machines (CI runners without a
+	// Korean voice), leaving too little audio to split. Skip instead of failing
+	// a test that only checks splitting.
+	if total, err := Duration(filepath.Join(fixtureDir, "x.wav")); err == nil && total < 5 {
+		t.Skipf("fixture 오디오가 너무 짧습니다(%.1fs): say가 충분히 길게 읽지 못했습니다", total)
 	}
 	return fixtureDir
 }

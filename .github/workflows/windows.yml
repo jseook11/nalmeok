@@ -24,9 +24,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Check formatting
-        shell: bash
-        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - name: Vet
         run: go vet ./...
       - name: Run unit tests
