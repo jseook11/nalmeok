@@ -9,133 +9,52 @@ on:
 permissions:
   contents: read
 
-# The Python app now lives in old/. The Go app gets its own CI after merge.
-defaults:
-  run:
-    working-directory: old
-
 concurrency:
   group: windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Test (Windows, Python ${{ matrix.python-version }})
+    name: Test (Windows)
     runs-on: windows-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        shell: bash
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - name: Vet
+        run: go vet ./...
       - name: Run unit tests
-        env:
-          PYTHONUTF8: "1"
-          PYTHONIOENCODING: "utf-8"
-        run: python -m unittest discover -s tests -v
-
-  test-posix:
-    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Run unit tests
-        env:
-          PYTHONUTF8: "1"
-          PYTHONIOENCODING: "utf-8"
-        run: python -m unittest discover -s tests -v
+        run: go test ./...
 
   build:
-    name: Build Windows ZIP
-    runs-on: windows-latest
+    name: Build Windows executables
+    runs-on: ubuntu-latest
     needs: test
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-      - name: Build the distribution
-        env:
-          PYTHONUTF8: "1"
-          PYTHONIOENCODING: "utf-8"
-        run: python scripts/build_windows.py
-      - name: Smoke test the extracted thin ZIP
-        shell: pwsh
-        env:
-          PYTHONUTF8: "1"
-          PYTHONIOENCODING: "utf-8"
+          go-version-file: go.mod
+          cache: true
+      - name: Build executables
+        run: scripts/build_windows_app.sh
+      - name: Check executables
         run: |
-          $ErrorActionPreference = 'Stop'
-          $zip = Get-ChildItem -Path dist -Filter 'nalmeok-*-win64.zip' |
-            Where-Object { $_.Name -notlike '*offline*' } |
-            Select-Object -First 1
-          if (-not $zip) { throw 'No thin ZIP found in dist/' }
-
-          Remove-Item -Recurse -Force smoke -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path smoke | Out-Null
-          tar -xf $zip.FullName -C smoke
-          if ($LASTEXITCODE -ne 0) { throw "ZIP extraction failed: $LASTEXITCODE" }
-
-          Push-Location smoke
-          try {
-            $extra = Get-ChildItem -Name | Where-Object { $_ -notin @('installer.cmd', 'app') }
-            if ($extra) { throw "unexpected entries in the ZIP root: $($extra -join ', ')" }
-            if (-not (Test-Path 'installer.cmd')) { throw 'installer.cmd is missing from the ZIP root' }
-            foreach ($name in @('nalmeok.cmd', 'nalmeok-drop.cmd', 'bootstrap.ps1',
-                                'bootstrap.env', 'shortcuts.ps1', 'install.ps1',
-                                'messages.ps1', 'nalmeok\__init__.py',
-                                'nalmeok\__main__.py')) {
-              if (-not (Test-Path (Join-Path 'app' $name))) { throw "app\$name is missing from the ZIP" }
-            }
-
-            $env:PYTHONPATH = (Resolve-Path 'app').Path
-            & python -m nalmeok --version
-            if ($LASTEXITCODE -ne 0) { throw "nalmeok --version failed: $LASTEXITCODE" }
-
-            # First run downloads Python into LOCALAPPDATA, then prints the version.
-            & cmd /c '.\app\nalmeok.cmd --version < NUL'
-            if ($LASTEXITCODE -ne 0) { throw "nalmeok.cmd --version failed: $LASTEXITCODE" }
-            $current = Join-Path $env:LOCALAPPDATA 'nalmeok\runtime\current.txt'
-            if (-not (Test-Path $current)) { throw 'bootstrap did not install Python' }
-
-            & cmd /c '.\app\nalmeok-drop.cmd --help < NUL'
-            if ($LASTEXITCODE -ne 0) { throw "nalmeok-drop.cmd --help failed: $LASTEXITCODE" }
-
-            # Regression guard: cmd.exe used to execute fragments of Korean text
-            # after chcp 65001. The .cmd files must stay pure ASCII.
-            $installerOut = (& cmd /c '.\installer.cmd < NUL' 2>&1 | Out-String)
-            $installerCode = $LASTEXITCODE
-            if ($installerCode -ne 0) { throw "installer.cmd failed ($installerCode): $installerOut" }
-            if ($installerOut -match 'is not recognized') {
-              throw "installer.cmd output contains a cmd parsing error: $installerOut"
-            }
-            $installed = Join-Path $env:LOCALAPPDATA 'Programs\nalmeok\nalmeok.cmd'
-            if (-not (Test-Path $installed)) { throw 'installer.cmd did not copy app\ into Programs\nalmeok' }
-          } finally {
-            Pop-Location
-          }
-      - name: Upload ZIP and SHA256SUMS
+          test -s build/windows/Nalmeok.exe
+          test -s build/windows/Nalmeok-arm64.exe
+      - name: Upload executables
         uses: actions/upload-artifact@v4
         with:
-          name: nalmeok-windows-${{ github.sha }}
+          name: nalmeok-windows-unsigned-${{ github.sha }}
           path: |
-            old/dist/*.zip
-            old/dist/nalmeok-app.zip
-            old/dist/manifest.json
-            old/dist/SHA256SUMS.txt
+            build/windows/Nalmeok.exe
+            build/windows/Nalmeok-arm64.exe
           if-no-files-found: error
           retention-days: 14

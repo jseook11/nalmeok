@@ -1,7 +1,6 @@
 package gemini
 
-// Prompt started as a copy of the old Python app's PROMPT
-// (old/nalmeok/constants.py). Since 2026-11-03 it adds explicit paragraph
+// Prompt started as a copy of the old Python app's PROMPT (constants.py). Since 2026-11-03 it adds explicit paragraph
 // rules, a rule to start with the first spoken words (the model sometimes
 // wrote its plan, a timestamped draft or a slide outline into the answer) and
 // LaTeX for spoken math. This file is the source of truth.
@@ -37,7 +36,7 @@ Guidelines:
    - Write formulas, equations, and math symbols the speaker reads out in LaTeX: inline as $...$, and an equation that stands on its own as $$...$$ on its own line. Keep the spoken words around them unchanged.
    - Write only what is spoken. Do not add terms, symbols, or steps the speaker did not say, and do not copy formulas from the reference documents that are not spoken.`
 
-// LivePrompt is copied verbatim from nalmeok/constants.py LIVE_PROMPT. It is
+// LivePrompt is copied verbatim from the old Python app's LIVE_PROMPT. It is
 // used when one request carries more than one audio part.
 const LivePrompt = Prompt + `
 

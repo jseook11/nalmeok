@@ -1,10 +1,10 @@
-# Python
+# 아이콘 생성 스크립트가 만드는 캐시
 __pycache__/
 *.py[oc]
+
+# 빌드 산출물
 build/
 dist/
-wheels/
-*.egg-info
 
 # Wails 프런트엔드 정적 자산 (go:embed 대상)
 !frontend/dist/
@@ -36,8 +36,6 @@ wheels/
 !CLAUDE.md
 !docs/**/*.md
 !scripts/README.md
-!old/docs/*.md
-!old/scripts/README.md
 
 # Command Code 세션 설정
 .commandcode/

@@ -11,7 +11,7 @@ import (
 )
 
 // A lecture converted from .mp4 to .m4a keeps both files; only the .m4a is
-// transcribed, like the Python app (old/nalmeok/media.py estimate_files).
+// transcribed, like the old Python app (estimate_files).
 func TestScanSkipsMP4WithSameStemM4A(t *testing.T) {
 	fx := fixtures(t)
 	dir := t.TempDir()
