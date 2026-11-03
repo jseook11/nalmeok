@@ -2,6 +2,8 @@
 
 # Nalmeok (nalmeok)
 
+> **시작하기** — [최신 버전 다운로드](https://github.com/jseook11/nalmeok/releases/latest) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
+
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
 - `.m4a`, `.mp4`(AAC), `.mp3`, `.wav`를 받아요.
@@ -25,13 +27,13 @@
 3. 음성 파일이나 폴더를 창에 놓아요. 확인 없이 바로 시작해요.
 4. 끝나면 원본 옆에 `.md`가 생겨요. 끝난 행에서 **Finder에서 보기**(Windows는 **탐색기에서 보기**)를 누르면 파일 위치가 열려요.
 
-키는 [Google AI Studio](https://aistudio.google.com/apikey)에서 받아요. 무료 키는 바로 전사에, 유료 키는 Batch(대기 후 처리)에 써요. 두 종류를 모두 넣으면 위쪽 **무료** / **유료** 토글로 골라요.
+키 발급과 등록은 [무료 Gemini API 키 발급과 등록](docs/gemini-api-key.md)에 사진과 함께 있어요. 무료 키는 바로 전사에, 유료 키는 Batch(대기 후 처리)에 써요. 두 종류를 모두 넣으면 위쪽 **무료** / **유료** 토글로 골라요. Google AI Pro 구독자라면 [월 $10 크레딧으로 유료 키를 쓸 수 있어요](docs/google-ai-pro-credit.md).
 
 파일은 `강의09.m4a`를 놓으면 `강의09.md`, 폴더는 `ch07`을 놓으면 `ch07/ch07.md`로 원본 옆에 저장돼요.
 
 ## 더 알아보기
 
-[사용 설명서](docs/usage.md)에 목록, 검색, 이름 변경, 비용, 키 발급, FAQ가 있어요.
+[사용 설명서](docs/usage.md)에 목록, 검색, 이름 변경, 비용, FAQ가 있어요. 키 발급은 [무료 키](docs/gemini-api-key.md)와 [Google AI Pro 크레딧으로 유료 키 쓰기](docs/google-ai-pro-credit.md)에 사진과 함께 정리했어요.
 
 ## 라이선스
 
