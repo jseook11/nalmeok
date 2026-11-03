@@ -39,7 +39,7 @@ import (
 
 // version is overridden at build time with
 // -ldflags "-X main.version=...".
-var version = "0.7.0-dev"
+var version = "0.8.1-dev"
 
 func main() {
 	args := filterPSNArgs(os.Args[1:])
