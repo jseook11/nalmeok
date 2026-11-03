@@ -475,9 +475,9 @@
   const isQueued = (item) => item.State === "running" && item.Detail === t("status.queued");
   const isRetrying = (item) => item.State === "running" && item.Detail === t("status.retrying");
 
-  // Each state as one line: tone (dot colour), text, the moving line under
-  // the row, and at most one action. Free or paid shows in the pane, not
-  // here.
+  // Each state as one line: tone (dot colour), text and the moving line
+  // under the row. Free or paid shows in the pane, not here. What the row
+  // can do comes from rowActions.
   function rowState(item) {
     switch (item.State) {
       case "running": {
@@ -499,22 +499,16 @@
         return { tone: "waiting", dot: true, text: withElapsed(t("row.waiting"), since), line: "waiting" };
       }
       case "free_exhausted":
-        return {
-          tone: "alert",
-          dot: true,
-          text: t("row.freeExhausted"),
-          action: ["batch", t("action.continuePaid")],
-        };
+        return { tone: "alert", dot: true, text: t("row.freeExhausted") };
       case "failed":
         return {
           tone: "failed",
           dot: true,
           text: item.Detail ? t("row.failedReason", { reason: item.Detail }) : t("row.failed"),
           title: item.Detail,
-          action: ["retry", t("action.retry"), true],
         };
       case "canceled":
-        return { tone: "quiet", dot: false, text: t("status.canceled"), action: ["retry", t("action.retry")] };
+        return { tone: "quiet", dot: false, text: t("status.canceled") };
       case "done":
         return { tone: "", dot: false, text: finishedAt(finishStamp(item)) };
       default:
@@ -533,14 +527,13 @@
     return "";
   }
 
+  // The row's own button: how to get a halted item going again (its lead
+  // "resume" action). It takes the red of a failed row.
   function rowActionHTML(item, s) {
-    if (!s.action) return "";
-    const [action, label, danger] = s.action;
-    // "유료로 이어서" needs a paid key; without one the context menu and the
-    // pane still offer key settings.
-    if (action === "batch" && !state.available.paid) return "";
-    return `<button class="row-action${danger ? " is-danger" : ""}" type="button"
-      data-action="${action}" data-id="${esc(item.ID)}">${esc(label)}</button>`;
+    const entry = rowActions(item).find((a) => a.lead && a.group === "resume");
+    if (!entry) return "";
+    return `<button class="row-action${s.tone === "failed" ? " is-danger" : ""}" type="button"
+      data-action="${entry.action}" data-id="${esc(item.ID)}">${esc(entry.label)}</button>`;
   }
 
   function isActive(item) {
@@ -550,14 +543,11 @@
   function rowHTML(item) {
     const id = esc(item.ID);
     const s = rowState(item);
-    const first = isActive(item)
-      ? `<button class="act-rename" type="button" data-action="cancel" data-id="${id}">${t("action.cancel")}</button>`
-      : `<button class="act-rename" type="button" data-action="rename" data-id="${id}">${t("action.rename")}</button>`;
+    const swiped = swipeActions(item).map((entry) =>
+      `<button class="act-${entry.danger ? "delete" : "rename"}" type="button" data-action="${entry.action}"
+        data-id="${id}">${esc(entry.label)}</button>`).join("");
     return `
-      <div class="row-actions">
-        ${first}
-        <button class="act-delete" type="button" data-action="delete" data-id="${id}">${t("action.delete")}</button>
-      </div>
+      <div class="row-actions">${swiped}</div>
       <div class="row-main">
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
         <div class="row-body">
@@ -781,24 +771,16 @@
     return parts.filter(Boolean).map(esc).join(" · ");
   }
 
+  // The pane offers the item's lead actions. Copying a finished transcript
+  // is the main one; resuming a halted item is accented.
+  const PANE_BUTTON = { copy: "primary-button", resume: "plain-button is-accent" };
+
   function paneActionsHTML(item) {
     const id = esc(item.ID);
-    const button = (action, label, cls) =>
-      `<button class="${cls}" type="button" data-action="${action}" data-id="${id}">${esc(label)}</button>`;
-    switch (item.State) {
-      case "done":
-        return button("copy", t("menu.copy"), "primary-button") + button("reveal", REVEAL_LABEL, "plain-button");
-      case "running":
-      case "batch_waiting":
-        return button("cancel", t("action.cancel"), "plain-button");
-      case "free_exhausted":
-        return button("batch", t("action.continuePaid"), "plain-button is-accent");
-      case "failed":
-      case "canceled":
-        return button("retry", t("action.retry"), "plain-button is-accent");
-      default:
-        return "";
-    }
+    return rowActions(item).filter((entry) => entry.lead).map((entry) => {
+      const cls = PANE_BUTTON[entry.action] || PANE_BUTTON[entry.group] || "plain-button";
+      return `<button class="${cls}" type="button" data-action="${entry.action}" data-id="${id}">${esc(entry.label)}</button>`;
+    }).join("");
   }
 
   // A non-finished item: its state line, then what else is known.
@@ -1125,6 +1107,62 @@
   }
 
   // ── Row actions ───────────────────────────────────────────
+  //
+  // rowActions(item) lists every action an item offers in its state, in
+  // menu order; runAction(action, id) performs one. The context menu shows
+  // the whole list. The swipe buttons, the row button and the pane each pick
+  // from it by group or lead, so anything a gesture offers is also in the
+  // menu, and a keyboard path can open that same menu.
+  //   group  "output" (finished transcript), "resume" (start a halted item
+  //          again or move it to paid), "stop", "edit" (rename, delete)
+  //   lead   the state's main actions, shown in the pane
+  //   danger destructive
+
+  function rowActions(item) {
+    const actions = [];
+    const add = (action, label, group, extra) => actions.push({ action, label, group, lead: false, ...extra });
+    // "유료로 이어서" needs a paid key.
+    const toPaid = (extra) => {
+      if (state.available.paid) add("batch", t("action.continuePaid"), "resume", extra);
+    };
+    switch (item.State) {
+      case "done":
+        add("open", t("menu.open"), "output");
+        add("copy", t("menu.copy"), "output", { lead: true });
+        add("reveal", REVEAL_LABEL, "output", { lead: true });
+        break;
+      case "running":
+        // A free item can move to paid mid-run (e.g. while the server is busy).
+        if (item.Mode !== "batch") toPaid();
+        add("cancel", t("action.cancel"), "stop", { lead: true });
+        break;
+      case "batch_waiting":
+        add("cancel", t("action.cancel"), "stop", { lead: true });
+        break;
+      case "free_exhausted":
+        toPaid({ lead: true });
+        add("cancel", t("action.cancel"), "stop");
+        break;
+      case "failed":
+      case "canceled":
+        add("retry", t("action.retry"), "resume", { lead: true });
+        if (item.Mode !== "batch") toPaid();
+        break;
+      default:
+        break;
+    }
+    add("rename", t("action.rename"), "edit");
+    add("delete", t("action.delete"), "edit", { danger: true });
+    return actions;
+  }
+
+  // Swiping reveals two buttons: stopping a working item (or else renaming
+  // it), then deleting it.
+  function swipeActions(item) {
+    const actions = rowActions(item);
+    const first = actions.find((a) => a.lead && a.group === "stop") || actions.find((a) => a.action === "rename");
+    return [first, actions.find((a) => a.danger)];
+  }
 
   async function runAction(action, id) {
     try {
@@ -1171,45 +1209,18 @@
 
   let menuRow = null;
 
-  function menuEntries(item) {
-    const entries = [];
-    switch (item.State) {
-      case "done":
-        entries.push(["open", t("menu.open")], ["copy", t("menu.copy")], ["reveal", REVEAL_LABEL]);
-        break;
-      case "running":
-        // A free item can move to paid mid-run (e.g. while the server is busy).
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "batch_waiting":
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "free_exhausted":
-        if (state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        entries.push(["cancel", t("action.cancel")]);
-        break;
-      case "failed":
-      case "canceled":
-        entries.push(["retry", t("action.retry")]);
-        if (item.Mode !== "batch" && state.available.paid) entries.push(["batch", t("action.continuePaid")]);
-        break;
-      default:
-        break;
-    }
-    if (entries.length) entries.push(null);
-    entries.push(["rename", t("action.rename")], ["delete", t("action.delete"), true]);
-    return entries;
+  // The whole list, with a rule before rename and delete.
+  function menuHTML(item) {
+    return rowActions(item).map((entry, i, all) => {
+      const rule = i > 0 && entry.group === "edit" && all[i - 1].group !== "edit" ? "<hr>" : "";
+      return `${rule}<button type="button" role="menuitem" data-action="${entry.action}"
+        ${entry.danger ? 'class="is-danger"' : ""}>${esc(entry.label)}</button>`;
+    }).join("");
   }
 
   function openMenu(event, item, rowEl) {
     closeMenu();
-    menu.innerHTML = menuEntries(item).map((entry) => {
-      if (!entry) return "<hr>";
-      const [action, label, danger] = entry;
-      return `<button type="button" role="menuitem" data-action="${action}"
-        ${danger ? 'class="is-danger"' : ""}>${label}</button>`;
-    }).join("");
+    menu.innerHTML = menuHTML(item);
     menu.dataset.id = item.ID;
     openSurface(menu, { trap: false });
     menuRow = rowEl;
