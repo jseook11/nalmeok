@@ -70,6 +70,10 @@ type Item struct {
 	// used.
 	PDFChosen bool     `json:"PDFChosen,omitempty"`
 	PDFs      []string `json:"PDFs,omitempty"`
+	// Uploads caches the free path's uploaded files, keyed by key ID, path
+	// and file stamp, so a restart reuses them instead of uploading again.
+	// Batch keeps its own in Batch.Uploads.
+	Uploads map[string]Upload `json:"Uploads,omitempty"`
 }
 
 // Usage is the token count Gemini reported (usageMetadata). Text is every
@@ -114,7 +118,7 @@ type BatchRef struct {
 	Marker string `json:"Marker,omitempty"`
 }
 
-// Upload records a file uploaded for a Batch job.
+// Upload records a file uploaded to Gemini, for a Batch job or a free request.
 type Upload struct {
 	URI        string    `json:"URI"`
 	MIME       string    `json:"MIME"`
@@ -367,6 +371,7 @@ func cloneItem(item Item) Item {
 		c := *item.CostKRW
 		item.CostKRW = &c
 	}
+	item.Uploads = maps.Clone(item.Uploads)
 	if item.Batch != nil {
 		batch := *item.Batch
 		batch.Uploads = maps.Clone(item.Batch.Uploads)

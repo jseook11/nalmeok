@@ -227,6 +227,45 @@ func TestUpdateDetectsBatchUploadsChange(t *testing.T) {
 	}
 }
 
+func TestItemUploadsSurviveReloadAndAreCloned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "items.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+	want := Upload{URI: "files/a", MIME: "audio/m4a", UploadedAt: at}
+	if err := s.Add(Item{ID: "f", Uploads: map[string]Upload{"k\x00a.m4a\x001@2": want}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.Get("f")
+	got.Uploads["k\x00a.m4a\x001@2"] = Upload{URI: "changed"}
+	if again, _ := s.Get("f"); again.Uploads["k\x00a.m4a\x001@2"] != want {
+		t.Fatalf("Get shares the Uploads map: %+v", again.Uploads)
+	}
+
+	var count atomic.Int64
+	s.SetOnChange(func() { count.Add(1) })
+	if err := s.Update("f", func(item *Item) {
+		item.Uploads["k\x00b.m4a\x001@2"] = want
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count.Load() != 1 {
+		t.Fatalf("onChange count = %d, want 1 for an added upload", count.Load())
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _ := reloaded.Get("f")
+	if len(item.Uploads) != 2 || item.Uploads["k\x00a.m4a\x001@2"] != want {
+		t.Fatalf("reloaded uploads = %+v", item.Uploads)
+	}
+}
+
 func TestAddManySavesAndNotifiesOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "items.json")
 	s, err := Load(path)
