@@ -7,18 +7,23 @@
 # Optional signing/notarization:
 #   NALMEOK_SIGN_IDENTITY="Developer ID Application: ..." \
 #   NALMEOK_NOTARY_PROFILE="nalmeok-notary" ./scripts/build_mac_app.sh
+#
+# With both credentials set, the notarized and stapled .app is also written to
+# the release archive:
+#   dist/Nalmeok-<version>-macos-universal.zip
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
-VERSION="${VERSION:-0.8.1}"
+VERSION="${VERSION:-0.9.0}"
 BIN="build/nalmeok"
 UNIVERSAL="build/nalmeok-universal"
 APP="build/Nalmeok.app"
 CONTENTS="$APP/Contents"
 ICNS="assets/nalmeok.icns"
 LDFLAGS="-s -w -X main.version=$VERSION"
+NOTARIZED=0
 
 if [ ! -f "$ICNS" ]; then
 	echo "아이콘이 없어요: $ICNS (scripts/make_icns.sh로 만드세요)" >&2
@@ -95,6 +100,7 @@ if [ -n "${NALMEOK_SIGN_IDENTITY:-}" ]; then
 			--keychain-profile "$NALMEOK_NOTARY_PROFILE" --wait
 		xcrun stapler staple "$APP"
 		rm -f "$ZIP"
+		NOTARIZED=1
 		echo "공증과 스테이플링을 마쳤습니다: $APP"
 	fi
 else
@@ -102,6 +108,30 @@ else
 	# (kr.nalmeok.app) is the app's identity, which macOS notifications use.
 	codesign --force --sign - "$APP"
 	echo "임시 서명(ad-hoc)만 한 앱입니다: $APP"
+fi
+
+if [ "$NOTARIZED" = 1 ]; then
+	mkdir -p dist
+	DIST_ZIP="dist/Nalmeok-$VERSION-macos-universal.zip"
+	rm -f "$DIST_ZIP"
+	# ditto keeps the bundle's signature, extended attributes and the stapled
+	# notarization ticket; plain zip can break them.
+	ditto -c -k --keepParent "$APP" "$DIST_ZIP"
+	echo "배포용 ZIP: $DIST_ZIP"
+
+	# Keep the checksum file in step with a rebuilt ZIP; other lines (Windows
+	# executables built by build_windows_app.sh) are left as they are.
+	CHECKSUMS="dist/SHA256SUMS.txt"
+	if [ -f "$CHECKSUMS" ]; then
+		sed "/  Nalmeok-$VERSION-macos-universal.zip\$/d" "$CHECKSUMS" > "$CHECKSUMS.tmp"
+	else
+		: > "$CHECKSUMS.tmp"
+	fi
+	shasum -a 256 "$DIST_ZIP" | sed 's#  dist/#  #' >> "$CHECKSUMS.tmp"
+	mv "$CHECKSUMS.tmp" "$CHECKSUMS"
+	echo "체크섬 갱신: $CHECKSUMS"
+else
+	echo "공증까지 마치지 않은 빌드라 dist에 배포용 ZIP을 만들지 않았습니다."
 fi
 
 echo "빌드 완료: $APP"

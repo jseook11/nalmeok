@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
 // A lecture converted from .mp4 to .m4a keeps both files; only the .m4a is
@@ -35,7 +37,7 @@ func TestScanCountsConvertedPairsOnce(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		touch(t, dir, fmt.Sprintf("%d.mp4", i), fmt.Sprintf("%d.m4a", i))
 	}
-	if _, err := Scan(dir); err != nil && strings.Contains(err.Error(), "최대") {
+	if _, err := Scan(dir); err != nil && strings.Contains(err.Error(), i18n.T("media.tooMany", "count", 11, "max", MaxFiles)) {
 		t.Fatalf("10 lectures with .mp4 and .m4a counted twice: %v", err)
 	}
 }

@@ -9,7 +9,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
-VERSION="${VERSION:-0.8.1}"
+VERSION="${VERSION:-0.9.0}"
 OUT="build/windows"
 LDFLAGS="-s -w -H windowsgui -X main.version=$VERSION"
 

@@ -20,7 +20,7 @@ func TestDirIsUnderDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, "Documents", "Nalmeok", "음성 메모"); dir != want {
+	if want := filepath.Join(home, "Documents", "Nalmeok", "Voice Memos"); dir != want {
 		t.Fatalf("Dir() = %q, want %q", dir, want)
 	}
 }

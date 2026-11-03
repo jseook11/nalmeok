@@ -28,7 +28,7 @@ internal/app        Wails 바인딩
 internal/notify     완료 알림: macOS 앱 번들은 UNUserNotificationCenter, 번들 밖은 osascript, Windows는 토스트
 internal/i18n       문구 카탈로그 읽기: T(키), Error(키)
 frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
-frontend/dist/i18n  문구 카탈로그 (ko.json)
+frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 ```
 
 전사 결과는 원본 옆 `.md`와 함께 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`). 화면은 원래 위치의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`)을 낸다. 보관본이 생기기 전 항목은 처음 읽을 때와 앱을 켤 때 옮겨 두고, 목록에서 지우면 보관본도 지운다.
@@ -38,7 +38,7 @@ frontend/dist/i18n  문구 카탈로그 (ko.json)
 ```bash
 go test ./...
 go build -tags desktop,production -o build/nalmeok ./cmd/nalmeok   # -o 필수: 루트의 Python nalmeok/ 폴더와 이름이 겹친다
-scripts/build_mac_app.sh      # build/Nalmeok.app (arm64·amd64 범용, 아이콘 포함, 서명 정보 없으면 ad-hoc 서명)
+scripts/build_mac_app.sh      # build/Nalmeok.app (arm64·amd64 범용, 아이콘 포함). 서명·공증 자격이 있으면 dist/Nalmeok-<version>-macos-universal.zip까지
 scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.exe
 ```
 
@@ -53,7 +53,7 @@ scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.
 
 Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 Windows 백엔드는 순수 Go라 cgo가 필요 없다. exe의 아이콘과 애플리케이션 매니페스트는 `cmd/nalmeok/rsrc_windows_amd64.syso`·`rsrc_windows_arm64.syso`에 들어 있다. `GOOS=windows`로 빌드하면 Go 링커가 이 파일을 알아서 넣고, 다른 OS 빌드는 무시한다. `assets/nalmeok.ico`나 `scripts/winres/nalmeok.exe.manifest`를 바꾸면 저장소 루트에서 `go run ./scripts/winres`로 다시 만들어 커밋한다. 표준 라이브러리만 쓰는 작은 생성기라 따로 설치할 도구는 없다. 아이콘 그룹 ID는 3이다. Wails가 창 아이콘을 이 번호로 읽는다. 매니페스트는 asInvoker, Common Controls v6, PerMonitorV2 DPI, Windows 10·11, UTF-8 코드 페이지를 지정한다. `go test ./scripts/winres`는 커밋된 `.syso`가 지금 아이콘·매니페스트와 다르면 실패한다.
 
-서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 없으면 임시 서명(ad-hoc)한 `.app`만 만든다.
+서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 둘 다 있으면 공증·staple 뒤 `ditto -c -k --keepParent`로 `dist/Nalmeok-<version>-macos-universal.zip`을 만들고, `dist/SHA256SUMS.txt`의 macOS ZIP 줄도 갱신한다(Windows 실행 파일 줄은 유지). 없으면 임시 서명(ad-hoc)한 `.app`만 만들고 `dist/`에는 쓰지 않는다.
 
 ### 플랫폼별 동작
 
@@ -61,7 +61,7 @@ Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 
 - Windows 알림: PowerShell의 WinRT 연결로 토스트를 띄운다. 스크립트는 `-EncodedCommand`, 프로세스는 `CREATE_NO_WINDOW`. 앱 ID `kr.nalmeok.app`을 `HKCU\Software\Classes\AppUserModelId`에 이름·아이콘(`%LOCALAPPDATA%\Nalmeok\notify-icon.png`, `assets/nalmeok.ico`의 256px)과 함께 등록한다. 누르면 아무 일도 없다.
 - Windows 폴더 열기·파일 열기: `explorer.exe /select,"<경로>"`·`explorer.exe "<경로>"`를 `SysProcAttr.CmdLine`으로 그대로 넘긴다. explorer는 성공해도 종료 코드 1이라 시작만 확인한다.
 - Windows CLI 출력: exe가 `-H windowsgui`라 콘솔이 없다. 인자가 있으면 `AttachConsole(ATTACH_PARENT_PROCESS)`로 부모 콘솔에 붙어 출력한다. cmd·PowerShell은 GUI 프로그램을 기다리지 않으므로 출력이 프롬프트 뒤에 찍히고 종료 코드도 바로 안 나온다. 기다리려면 `start /wait Nalmeok.exe doctor`(cmd) 또는 `Start-Process -Wait -NoNewWindow .\Nalmeok.exe doctor`(PowerShell).
-- `scripts/build_mac_app.sh`는 서명 정보가 없으면 `.app`을 임시 서명(ad-hoc)한다. Info.plist와 번들 식별자를 묶어 알림이 앱 이름으로 붙게 한다.
+- `scripts/build_mac_app.sh`는 서명 정보가 없으면 `.app`을 임시 서명(ad-hoc)하고, 공증 자격이 없으면 `dist/`에 배포용 ZIP을 만들지 않는다. Info.plist와 번들 식별자를 묶어 알림이 앱 이름으로 붙게 한다.
 
 ### CLI: 테스트·AI 에이전트용
 
@@ -77,14 +77,14 @@ build/nalmeok --version
 
 ### 문구 (문자열 카탈로그)
 
-사용자에게 보이는 문구는 모두 `frontend/dist/i18n/ko.json` 한 파일에 있다. 화면, 오류 메시지, 항목 상태, 파일 선택 창, 알림, CLI 출력이 다 여기서 나온다. 평평한 JSON 객체이고 키는 `영역.이름`(`error.emptyResult`, `status.transcribing`, `cli.done` 등)이다. 값 안의 `{name}`, `{minutes}` 같은 자리는 부르는 쪽이 채운다. 한국어라 복수형 처리는 없다.
+사용자에게 보이는 문구는 `frontend/dist/i18n/` 아래 언어별 JSON 파일에 있다. `en.json`이 기준 언어이고 `ko.json`이 같은 키를 한국어로 담는다. 화면, 오류 메시지, 항목 상태, 파일 선택 창, 알림, CLI 출력이 다 여기서 나온다. 평평한 JSON 객체이고 키는 `영역.이름`(`error.emptyResult`, `status.transcribing`, `cli.done` 등)이다. 값 안의 `{name}`, `{minutes}` 같은 자리는 부르는 쪽이 채운다. 복수형 처리는 없다(영어 문구도 단수·복수를 구분하지 않게 쓴다).
 
 - Go: `i18n.T("cli.done", "name", name, "output", path)`는 문구를, `i18n.Error(키, ...)`는 그 문구를 메시지로 하는 오류를 돌려준다. `i18n.Wrap(키, err, ...)`는 원래 오류를 감싸고 문구의 `{error}` 자리에 넣는다. 오류 문구는 `Error()`를 부를 때 찾으므로 패키지 변수로 만든 오류도 언어를 따라간다. 파일은 `frontend` 패키지의 embed로 실행 파일에 들어간다.
-- 화면: `app.js`가 시작할 때 `i18n/ko.json`을 `fetch`로 읽는다(앱 안의 파일이라 오프라인에서도 된다). 코드에서는 `t("row.waitingMinutes", { minutes })`를 쓰고, `index.html`의 고정 문구는 비워 두고 `data-i18n="키"`로 채운다. 속성은 `data-i18n-aria-label`, `data-i18n-title`, `data-i18n-placeholder`를 쓴다.
-- 없는 키는 키 이름이 그대로 보인다. `go test ./internal/i18n`이 이것을 막는다. 코드(Go·JS·HTML)가 쓰는 키가 모두 ko.json에 있는지, ko.json에 안 쓰는 키가 없는지, Go 문자열과 JS·HTML·CSS에 카탈로그 밖 한글이 없는지 검사한다. 주석, `_test.go`, 전사 프롬프트(`internal/gemini/prompt.go`)는 예외다. 키는 문자열 그대로 써야 한다(`t(변수)`는 검사가 못 보므로 실패한다).
+- 화면: `app.js`가 시작할 때 기준 언어(`i18n/en.json`)와 OS 설정에서 고른 언어의 파일을 `fetch`로 읽는다(앱 안의 파일이라 오프라인에서도 된다). 코드에서는 `t("row.waitingMinutes", { minutes })`를 쓰고, `index.html`의 고정 문구는 비워 두고 `data-i18n="키"`로 채운다. 속성은 `data-i18n-aria-label`, `data-i18n-title`, `data-i18n-placeholder`를 쓴다.
+- 없는 키는 기준 언어 문구로 대신하고, 기준 언어에도 없으면 키 이름이 그대로 보인다. `go test ./internal/i18n`이 이것을 막는다. 코드(Go·JS·HTML)가 쓰는 키가 모두 en.json에 있는지, en.json에 안 쓰는 키가 없는지, 모든 언어 파일이 en.json에 있는 키만 쓰고 `{자리}`가 같은지, Go 문자열과 JS·HTML·CSS에 카탈로그 밖 한글이 없는지 검사한다. 주석, `_test.go`, 전사 프롬프트(`internal/gemini/prompt.go`)는 예외다. 키는 문자열 그대로 써야 한다(`t(변수)`는 검사가 못 보므로 실패한다).
 - 로그(`nalmeok.log`)와 개발자용 메시지는 카탈로그에 넣지 않는다.
 
-문구를 추가할 때는 ko.json에 키를 넣고 코드에서 그 키를 부른다. 다른 언어를 추가할 때는 `frontend/dist/i18n/en.json`처럼 같은 키로 파일을 하나 만든다. 빠진 키는 ko 문구로 대신한다. 테스트가 ko에 없는 키나 `{자리}`가 다른 문구를 잡는다. 언어를 고르는 곳은 Go의 `i18n.SetLanguage("en")`와 `app.js` 맨 위의 `LANG`이다(지금은 둘 다 ko 고정).
+문구를 추가할 때는 en.json에 키를 넣고 코드에서 그 키를 부른다. 다른 언어를 추가할 때는 `frontend/dist/i18n/<lang>.json`을 같은 키로 만들고, 테스트가 그 언어를 읽을 수 있는지 확인한다. 기본 언어는 en이고 언어는 실행할 때 OS 설정에서 고른다. CLI는 `LC_ALL`·`LC_MESSAGES`·`LANGUAGE`·`LANG`을 보고(`i18n.Detect`), 한국어면 ko, 그 밖의 로케일이나 설정 없음·`C`·`POSIX`면 기준 언어 en이다. GUI는 Wails 페이지의 `navigator.languages[0]`로 같은 규칙을 적용하고 `App.UseLanguage`로 Go 쪽 언어를 맞춘다. Finder에서 실행한 앱은 환경변수에 로케일이 없어 이 동기화가 필요하다.
 
 ### 화면 미리보기 (스크린샷용)
 
