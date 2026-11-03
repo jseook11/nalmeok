@@ -1256,6 +1256,15 @@
 
   let menuRow = null;
 
+  // menuRow is the trigger of the open menu: a row, or the key picker. The
+  // picker stays on screen and says whether its menu is open with
+  // aria-expanded, the way paneToggle says its state with aria-pressed; a row
+  // menu has no persistent trigger to carry it.
+  function setMenuRow(el) {
+    menuRow = el;
+    keyPicker.setAttribute("aria-expanded", String(el === keyPicker));
+  }
+
   // The whole list, with a rule before rename and delete.
   function menuHTML(item) {
     return rowActions(item).map((entry, i, all) => {
@@ -1272,7 +1281,7 @@
     menu.innerHTML = menuHTML(item);
     menu.dataset.id = item.ID;
     openSurface(menu, { trap: false });
-    menuRow = rowEl;
+    setMenuRow(rowEl);
     rowEl.classList.add("is-menu");
 
     const { innerWidth, innerHeight } = window;
@@ -1310,8 +1319,8 @@
     if (menu.hidden) return;
     closeSurface(menu);
     menu.classList.remove("has-checks");
-    if (menuRow) menuRow.classList.remove("is-menu");
-    menuRow = null;
+    menuRow?.classList.remove("is-menu");
+    setMenuRow(null);
   }
 
   // WKWebView can leave :hover stuck on rows the pointer already left (seen
@@ -1724,7 +1733,7 @@
     menu.classList.add("has-checks");
     delete menu.dataset.id;
     openSurface(menu, { trap: false });
-    menuRow = keyPicker;
+    setMenuRow(keyPicker);
     keyPicker.classList.add("is-menu");
 
     const anchor = keyPicker.getBoundingClientRect();
