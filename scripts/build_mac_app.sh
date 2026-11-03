@@ -16,7 +16,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
-VERSION="${VERSION:-0.8.1}"
+VERSION="${VERSION:-0.9.0}"
 BIN="build/nalmeok"
 UNIVERSAL="build/nalmeok-universal"
 APP="build/Nalmeok.app"
