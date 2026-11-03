@@ -1140,7 +1140,9 @@
         add("cancel", t("action.cancel"), "stop", { lead: true });
         break;
       case "free_exhausted":
-        toPaid({ lead: true });
+        // Paid is the only way on, so it is offered even without a paid key:
+        // runAction then opens the key sheet to add one.
+        add("batch", t("action.continuePaid"), "resume", { lead: true });
         add("cancel", t("action.cancel"), "stop");
         break;
       case "failed":
