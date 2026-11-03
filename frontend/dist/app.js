@@ -574,6 +574,13 @@
     return state.items.find((item) => item.ID === id) || null;
   }
 
+  // "items:changed" arrives once per change (a folder of files, a running
+  // job), so refreshing on every event would run ListItems once per event.
+  // Every refresh funnels through here: at most one request in flight, at most
+  // one trailing request, and never two closer than REFRESH_MIN_GAP_MS. A user
+  // action still lands at once, because the gap is counted from the last load.
+  const REFRESH_MIN_GAP_MS = 120;
+
   let listRequest = 0;
 
   async function loadItems() {
@@ -584,12 +591,52 @@
     renderItems();
   }
 
-  async function refreshItems() {
-    try {
-      await loadItems();
-    } catch (error) {
-      showToast(errorText(error));
+  let itemsLoading = null; // the load in flight, shared by every refreshItems
+  let itemsDirty = false; // refreshed during a load: run one trailing load
+  let itemsTimer = null; // trailing load waiting for the minimum gap
+  let itemsLastEnd = 0; // when the last load settled
+  let itemsWaiters = []; // callers waiting for a load that starts after them
+
+  function startRefreshItems() {
+    clearTimeout(itemsTimer);
+    itemsTimer = null;
+    itemsDirty = false;
+    const waiters = itemsWaiters;
+    itemsWaiters = [];
+    const loading = (async () => {
+      try {
+        await loadItems();
+      } catch (error) {
+        // One toast per failed load, not one per caller waiting on it.
+        showToast(errorText(error));
+      }
+      itemsLastEnd = Date.now();
+      itemsLoading = null;
+      for (const resolve of waiters) resolve();
+      if (itemsDirty) {
+        const wait = REFRESH_MIN_GAP_MS - (Date.now() - itemsLastEnd);
+        if (wait > 0) itemsTimer = setTimeout(startRefreshItems, wait);
+        else startRefreshItems();
+      }
+    })();
+    itemsLoading = loading;
+    return loading;
+  }
+
+  // The returned promise settles when a load that started after this call
+  // finishes, so awaiting refreshItems() shows the latest list.
+  function refreshItems() {
+    if (itemsLoading || itemsTimer) {
+      itemsDirty = true;
+      return new Promise((resolve) => itemsWaiters.push(resolve));
     }
+    const wait = REFRESH_MIN_GAP_MS - (Date.now() - itemsLastEnd);
+    if (wait > 0) {
+      itemsDirty = true;
+      itemsTimer = setTimeout(startRefreshItems, wait);
+      return new Promise((resolve) => itemsWaiters.push(resolve));
+    }
+    return startRefreshItems();
   }
 
   // ── Selection and the transcript pane ─────────────────────
@@ -1893,8 +1940,17 @@
 
     // The drop listener is registered at the very top of this file.
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
+      // Subscribe before the first list load, so a change that lands between
+      // that response and a later subscription cannot be missed.
       // A folder with several PDFs waits for the PDF card.
       window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
+      window.runtime.EventsOn("items:changed", refreshItems);
+      window.runtime.EventsOn("keys:changed", reloadKeys);
+      // A drop the backend could not take, e.g. before any key exists.
+      window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
+        if (noKeys) explainMissingKey();
+        else showToast(errorText(message));
+      });
     }
 
     // The window opened at the width for this choice (cmd/nalmeok).
@@ -1911,7 +1967,7 @@
     }
 
     try {
-      await loadItems();
+      await refreshItems();
     } catch (error) {
       showToast(errorText(error));
     }
@@ -1920,16 +1976,6 @@
     if (state.keys.length === 0) openKeys("free");
 
     await loadPendingPDFChoices();
-
-    if (window.runtime && typeof window.runtime.EventsOn === "function") {
-      window.runtime.EventsOn("items:changed", refreshItems);
-      window.runtime.EventsOn("keys:changed", reloadKeys);
-      // A drop the backend could not take, e.g. before any key exists.
-      window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
-        if (noKeys) explainMissingKey();
-        else showToast(errorText(message));
-      });
-    }
 
     // Keep "진행 중 · N분" and "기다리는 중 · N분" current without a backend
     // round trip.
