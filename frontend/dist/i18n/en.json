@@ -133,6 +133,18 @@
   "gemini.uploadProcessFailed": "Uploaded file processing failed: {message}",
   "gemini.uploadTooSlow": "Uploaded file processing is slow",
 
+  "health.bad": "Very unstable",
+  "health.fake429": "Refused with quota left: {percent}%",
+  "health.good": "Normal",
+  "health.pane": "Free tier {level} · {percent}% success",
+  "health.poor": "Unstable",
+  "health.row": "Free tier {level}",
+  "health.shaky": "Slightly unstable",
+  "health.statusPage": "Status page",
+  "health.statusUrl": "https://nalmeok.seook.dev/en/status/",
+  "health.success": "{percent}% success · last {minutes} min",
+  "health.title": "Free tier · {level}",
+
   "help.formats": "Formats",
   "help.formatsBody": "m4a, mp4, mov, mp3, wav, aiff, flac, ogg, opus, aac · PDFs in the folder are used for terminology",
   "help.freeBody": "Transcribes right away · daily quota",
@@ -247,6 +259,10 @@
   "search.placeholder": "Search",
 
   "sheet.done": "Done",
+
+  "signals.about": "What is sent",
+  "signals.body": "Sends only an anonymous result code per request — never files, transcripts or API keys.",
+  "signals.label": "Send free key status signals",
 
   "status.canceled": "Canceled",
   "status.checkingRequest": "Checking request",

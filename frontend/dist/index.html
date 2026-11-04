@@ -11,6 +11,10 @@
   <header class="topbar">
     <div class="topbar-side"></div>
     <div class="topbar-center">
+      <!-- Free-tier health: drawn over the Free segment's left edge, but its
+           own control so pointing at it never switches the mode. -->
+      <button class="health-dot" id="health-dot" type="button" aria-haspopup="dialog" aria-expanded="false"
+              aria-controls="health-pop" hidden><i class="dot"></i></button>
       <div class="segmented" id="mode-toggle" role="tablist" data-i18n-aria-label="mode.label" hidden>
         <button type="button" role="tab" data-mode="free" aria-selected="true" data-i18n="tier.free"></button>
         <button type="button" role="tab" data-mode="batch" aria-selected="false" data-i18n="tier.paid"></button>
@@ -55,6 +59,12 @@
     <div class="list" id="list" role="listbox" tabindex="0" data-i18n-aria-label="list.label"></div>
     <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
       <span id="empty-text" data-i18n="empty.text"></span>
+    </button>
+    <button class="health-row" id="health-row" type="button" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="health-pop" hidden>
+      <i class="dot"></i>
+      <span class="health-row-label" id="health-row-label"></span>
+      <span class="health-row-rate" id="health-row-rate"></span>
     </button>
   </main>
 
@@ -103,6 +113,22 @@
       <p class="form-error" id="key-error" role="alert" hidden></p>
       <button class="primary-button" id="key-save" type="submit" data-i18n="keys.save"></button>
     </form>
+    <div class="setting" id="signals-setting" hidden>
+      <div class="setting-row">
+        <label class="setting-label" for="signals-switch" data-i18n="signals.label"></label>
+        <button class="info-button" id="signals-about" type="button" aria-expanded="false" aria-controls="signals-body"
+                data-i18n-aria-label="signals.about" data-i18n-title="signals.about">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.4"/>
+            <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
+            <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <input class="switch" id="signals-switch" type="checkbox" role="switch">
+      </div>
+      <p class="setting-note" id="signals-body" data-i18n="signals.body" hidden></p>
+    </div>
   </div>
 </div>
 
@@ -155,6 +181,13 @@
 </div>
 
 <div class="menu" id="menu" role="menu" tabindex="-1" hidden></div>
+
+<div class="popover health-pop" id="health-pop" role="dialog" tabindex="-1" aria-labelledby="health-pop-title" hidden>
+  <p class="health-pop-title" id="health-pop-title"><i class="dot"></i><span id="health-pop-level"></span></p>
+  <p class="health-pop-line" id="health-pop-success"></p>
+  <p class="health-pop-line" id="health-pop-fake" hidden></p>
+  <button class="text-button" id="health-pop-link" type="button" data-i18n="health.statusPage"></button>
+</div>
 
 <div class="toast" id="toast">
   <span id="toast-text"></span>

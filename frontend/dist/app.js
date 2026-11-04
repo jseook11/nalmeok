@@ -116,6 +116,20 @@
   const quitForm = $("quit-form");
   const quitConfirm = $("quit-confirm");
 
+  const healthDot = $("health-dot");
+  const healthRow = $("health-row");
+  const healthRowLabel = $("health-row-label");
+  const healthRowRate = $("health-row-rate");
+  const healthPop = $("health-pop");
+  const healthPopLevel = $("health-pop-level");
+  const healthPopSuccess = $("health-pop-success");
+  const healthPopFake = $("health-pop-fake");
+  const healthPopLink = $("health-pop-link");
+  const signalsSetting = $("signals-setting");
+  const signalsSwitch = $("signals-switch");
+  const signalsAbout = $("signals-about");
+  const signalsBody = $("signals-body");
+
   const menu = $("menu");
   const toast = $("toast");
   const toastText = $("toast-text");
@@ -206,6 +220,9 @@
   // an open surface again only moves focus; it still returns to whatever
   // had focus when it first opened.
   function openSurface(el, { focus = el, trap = true } = {}) {
+    // Anything else that opens (a menu, a sheet, a card) replaces the
+    // health popover, which floats over the window like a tooltip.
+    if (el !== healthPop) closeHealthPop();
     if (!surfaces.some((s) => s.el === el)) {
       surfaces.push({ el, returnTo: document.activeElement, trap });
     }
@@ -321,6 +338,7 @@
     }
     renderPicker();
     renderEmpty();
+    renderHealth(); // the dot follows the toggle, the row the free key
   }
 
   // With no key at all the empty area asks for one; once a key is added it
@@ -417,6 +435,265 @@
       showToast(errorText(error));
     }
     renderMode();
+  }
+
+  // ── Free-tier health ──────────────────────────────────────
+  //
+  // How well the free tier works for everyone right now, as the download
+  // site judges it from all apps' anonymous signals (App.FreeStatus). It is
+  // a hint about the service, not about this key, so it stays quiet: a dot
+  // on the Free segment, one line under the list, and a lead toward paid
+  // only on an item that already stopped. Anything uncertain (no answer,
+  // too little data, numbers older than HEALTH_STALE_MS) shows nothing
+  // rather than a guess.
+
+  const HEALTH_POLL_MS = 5 * 60000;
+  const HEALTH_STALE_MS = 15 * 60000;
+  const HEALTH_MIN_GAP_MS = 30000; // Go caches the status for 60 s anyway
+  const HEALTH_LEVELS = ["good", "shaky", "poor", "bad"];
+
+  let health = null; // { level, success, fake, minutes, at }, or null = show nothing
+  let healthLoading = null;
+  let healthAt = 0; // when the last request started
+  let healthSoon = null; // a load waiting out HEALTH_MIN_GAP_MS
+
+  function levelLabel(level) {
+    switch (level) {
+      case "good": return t("health.good");
+      case "shaky": return t("health.shaky");
+      case "poor": return t("health.poor");
+      case "bad": return t("health.bad");
+      default: return "";
+    }
+  }
+
+  // Mid-sentence ("Free tier slightly unstable"); Korean has no case.
+  const inlineLevel = (level) => levelLabel(level).toLowerCase();
+
+  const asRate = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const percentOf = (rate) => Math.round(rate * 100);
+
+  // The binding's JSON uses the snake_case tags of telemetry.Status.
+  function readHealth(status) {
+    const free = status && (status.free || status.Free);
+    if (!free || !HEALTH_LEVELS.includes(free.level)) return null;
+    const success = asRate(free.success_rate);
+    const minutes = Number(free.window_minutes) || 0;
+    if (success === null || minutes <= 0) return null;
+    const updated = Date.parse((status.updated || status.Updated || ""));
+    if (!Number.isNaN(updated) && Date.now() - updated > HEALTH_STALE_MS) return null;
+    return { level: free.level, success, fake: asRate(free.fake_429_rate), minutes, at: Date.now() };
+  }
+
+  function currentHealth() {
+    return health && Date.now() - health.at < HEALTH_STALE_MS ? health : null;
+  }
+
+  // A failed or missing call hides everything: the old numbers are not shown
+  // as if they were current.
+  function loadHealth() {
+    clearTimeout(healthSoon);
+    healthSoon = null;
+    if (healthLoading) return healthLoading;
+    healthAt = Date.now();
+    healthLoading = (async () => {
+      try {
+        health = readHealth(await call("FreeStatus"));
+      } catch (_) {
+        health = null;
+      }
+      healthLoading = null;
+      renderHealth();
+    })();
+    return healthLoading;
+  }
+
+  // A free item that just failed, ran out or started retrying is the moment
+  // the status matters, so it is asked for at once (or right after the gap).
+  function loadHealthSoon() {
+    if (healthLoading || healthSoon) return;
+    const wait = HEALTH_MIN_GAP_MS - (Date.now() - healthAt);
+    if (wait <= 0) loadHealth();
+    else healthSoon = setTimeout(loadHealth, wait);
+  }
+
+  const healthSeen = new Map(); // free item id -> the trouble it last showed ("" = none)
+  let healthSeeded = false; // the first list only records; startup loads anyway
+
+  function noteHealthTriggers(items) {
+    let trouble = false;
+    for (const item of items) {
+      if (isPaid(item)) continue;
+      const now = item.State === "failed" || item.State === "free_exhausted" || isRetrying(item)
+        ? `${item.State}|${item.Detail}` : "";
+      if (now && healthSeen.get(item.ID) !== now) trouble = true;
+      healthSeen.set(item.ID, now);
+    }
+    if (trouble && healthSeeded) loadHealthSoon();
+    healthSeeded = true;
+  }
+
+  // Every minute: drop numbers that went stale, and ask again every
+  // HEALTH_POLL_MS while the window is visible. A window shown again after
+  // a while asks at once.
+  function startHealth() {
+    loadHealth();
+    const tick = () => {
+      if (document.visibilityState === "visible" && Date.now() - healthAt >= HEALTH_POLL_MS) loadHealth();
+      else renderHealth();
+    };
+    setInterval(tick, 60000);
+    document.addEventListener("visibilitychange", tick);
+  }
+
+  function renderHealth() {
+    const h = currentHealth();
+    const label = h ? levelLabel(h.level) : "";
+
+    const showDot = Boolean(h) && !modeToggle.hidden;
+    healthDot.hidden = !showDot;
+    modeToggle.classList.toggle("has-health", showDot);
+    if (h) {
+      healthDot.dataset.level = h.level;
+      healthDot.setAttribute("aria-label", t("health.title", { level: label }));
+    }
+
+    // The row is about the user's own free key, so it needs one.
+    const showRow = Boolean(h) && state.available.free;
+    healthRow.hidden = !showRow;
+    appEl.classList.toggle("has-health", showRow);
+    if (h) {
+      healthRow.dataset.level = h.level;
+      healthRowLabel.textContent = t("health.row", { level: inlineLevel(h.level) });
+      healthRowRate.textContent = `${percentOf(h.success)}%`;
+    }
+
+    if (!healthPop.hidden) {
+      if (!h || !healthAnchor || healthAnchor.hidden) closeHealthPop();
+      else fillHealthPop(h);
+    }
+    renderPane();
+  }
+
+  // ── Health popover ──
+  //
+  // Hovering the dot or the row shows it for as long as the pointer stays;
+  // a click or the keyboard pins it until Escape or a click elsewhere.
+
+  let healthAnchor = null; // the dot or the row it hangs from
+  let healthPinned = false;
+  let healthHoverTimer = null;
+
+  function fillHealthPop(h) {
+    healthPop.dataset.level = h.level;
+    healthPopLevel.textContent = t("health.title", { level: levelLabel(h.level) });
+    healthPopSuccess.textContent = t("health.success", { minutes: h.minutes, percent: percentOf(h.success) });
+    const fake = h.fake === null ? 0 : percentOf(h.fake);
+    healthPopFake.hidden = fake < 1;
+    healthPopFake.textContent = fake < 1 ? "" : t("health.fake429", { percent: fake });
+  }
+
+  // Under the dot, or above the row (it sits at the bottom of the window),
+  // with the popover's dot over the anchor's.
+  function placeHealthPop() {
+    const anchorDot = healthAnchor.querySelector(".dot").getBoundingClientRect();
+    const popDot = healthPop.querySelector(".dot").getBoundingClientRect();
+    const rect = healthPop.getBoundingClientRect();
+    const inset = popDot.left - rect.left;
+    const x = Math.min(anchorDot.left - inset, window.innerWidth - rect.width - 6);
+    const anchor = healthAnchor.getBoundingClientRect();
+    const y = healthAnchor === healthRow ? anchor.top - rect.height - 4 : anchor.bottom + 6;
+    healthPop.style.left = `${Math.max(6, x)}px`;
+    healthPop.style.top = `${Math.max(6, y)}px`;
+  }
+
+  function openHealthPop(anchor, pinned) {
+    clearTimeout(healthHoverTimer);
+    const h = currentHealth();
+    if (!h) return;
+    if (healthAnchor && healthAnchor !== anchor) closeHealthPop();
+    if (!healthPop.hidden && (healthPinned || !pinned)) return;
+    closeMenu();
+    healthAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    fillHealthPop(h);
+    if (pinned) {
+      healthPinned = true;
+      openSurface(healthPop, { trap: false });
+    } else {
+      healthPop.hidden = false;
+    }
+    placeHealthPop();
+  }
+
+  function closeHealthPop() {
+    clearTimeout(healthHoverTimer);
+    if (healthPop.hidden) return;
+    if (surfaces.some((s) => s.el === healthPop)) closeSurface(healthPop);
+    else healthPop.hidden = true;
+    healthAnchor?.setAttribute("aria-expanded", "false");
+    healthAnchor = null;
+    healthPinned = false;
+  }
+
+  function onHealthAnchorClick(event) {
+    event.stopPropagation(); // the dot sits on the Free segment
+    const anchor = event.currentTarget;
+    if (healthPinned && healthAnchor === anchor) closeHealthPop();
+    else openHealthPop(anchor, true);
+  }
+
+  // A short delay both ways, so passing over the dot does not flash it and
+  // the pointer can move from the anchor onto the popover's link.
+  function bindHealthHover(el, anchor) {
+    el.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      clearTimeout(healthHoverTimer);
+      if (anchor && healthPop.hidden) healthHoverTimer = setTimeout(() => openHealthPop(anchor, false), 150);
+    });
+    el.addEventListener("pointerleave", () => {
+      clearTimeout(healthHoverTimer);
+      if (!healthPinned && !healthPop.hidden) healthHoverTimer = setTimeout(closeHealthPop, 200);
+    });
+  }
+
+  // Escape closes; Tab goes to the link and, from there, out (closing it),
+  // the way a menu gives focus back to where it was opened.
+  function healthPopKeys(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeHealthPop();
+      return true;
+    }
+    if (event.key === "Tab" && healthPop.contains(document.activeElement)) {
+      event.preventDefault();
+      if (document.activeElement === healthPop && !event.shiftKey) healthPopLink.focus();
+      else closeHealthPop();
+      return true;
+    }
+    return false;
+  }
+
+  // ── Status signals setting ──
+  //
+  // Hidden when the backend cannot say (an older build): no switch that
+  // does nothing.
+  async function loadSignals() {
+    try {
+      signalsSwitch.checked = Boolean(await call("SignalsEnabled"));
+      signalsSetting.hidden = false;
+    } catch (_) {
+      signalsSetting.hidden = true;
+    }
+  }
+
+  async function setSignals(on) {
+    try {
+      await call("SetSignalsEnabled", on);
+    } catch (error) {
+      signalsSwitch.checked = !on;
+      showToast(errorText(error));
+    }
   }
 
   // ── Rows ──────────────────────────────────────────────────
@@ -743,6 +1020,7 @@
     const items = await call("ListItems", state.query);
     if (token !== listRequest) return; // a newer search won
     state.items = Array.isArray(items) ? items : [];
+    noteHealthTriggers(state.items);
     renderItems();
   }
 
@@ -859,14 +1137,38 @@
     return parts.filter(Boolean).map(esc).join(" · ");
   }
 
+  // A free item that stopped while the free tier is struggling for everyone
+  // (and a paid key is there to move to): the health it stopped under, else
+  // null. The pane then says so in one line and leads with paid.
+  function paidHint(item) {
+    if (isPaid(item) || !state.available.paid) return null;
+    if (item.State !== "failed" && item.State !== "free_exhausted") return null;
+    const h = currentHealth();
+    return h && h.level !== "good" ? h : null;
+  }
+
+  function paneHealthHTML(item) {
+    const h = paidHint(item);
+    if (!h) return "";
+    const text = t("health.pane", { level: inlineLevel(h.level), percent: percentOf(h.success) });
+    return `<p class="pane-meta pane-health" data-level="${h.level}"><i class="dot"></i><span>${esc(text)}</span></p>`;
+  }
+
   // The pane offers the item's lead actions. Copying a finished transcript
-  // is the main one; resuming a halted item is accented.
+  // is the main one; resuming a halted item is accented. An action marked
+  // primary (paid, under paidHint) comes first and filled, and the other
+  // resume actions step back to plain.
   const PANE_BUTTON = { copy: "primary-button", resume: "plain-button is-accent" };
 
   function paneActionsHTML(item) {
     const id = esc(item.ID);
-    return rowActions(item).filter((entry) => entry.lead).map((entry) => {
-      const cls = PANE_BUTTON[entry.action] || PANE_BUTTON[entry.group] || "plain-button";
+    const leads = rowActions(item).filter((entry) => entry.lead);
+    const hasPrimary = leads.some((entry) => entry.primary);
+    leads.sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
+    return leads.map((entry) => {
+      let cls = PANE_BUTTON[entry.action] || PANE_BUTTON[entry.group] || "plain-button";
+      if (entry.primary) cls = "primary-button";
+      else if (hasPrimary && entry.group === "resume") cls = "plain-button";
       return `<button class="${cls}" type="button" data-action="${entry.action}" data-id="${id}">${esc(entry.label)}</button>`;
     }).join("");
   }
@@ -939,6 +1241,7 @@
     const head = item ? `
       <h1 class="pane-title" title="${esc(item.Source || item.Name)}">${esc(displayName(item))}</h1>
       <p class="pane-meta">${paneMeta(item)}</p>
+      ${paneHealthHTML(item)}
       <div class="pane-actions">${paneActionsHTML(item)}</div>` : "";
     if (head !== paneHeadHTML) {
       paneHeadHTML = head;
@@ -1258,13 +1561,15 @@
       case "free_exhausted":
         // Paid is the only way on, so it is offered even without a paid key:
         // runAction then opens the key sheet to add one.
-        add("batch", t("action.continuePaid"), "resume", { lead: true });
+        add("batch", t("action.continuePaid"), "resume", { lead: true, primary: Boolean(paidHint(item)) });
         add("cancel", t("action.cancel"), "stop");
         break;
       case "failed":
       case "canceled":
+        // Retry stays first, so the row's own button is still retry; the
+        // pane puts paid first when the free tier is struggling.
         add("retry", t("action.retry"), "resume", { lead: true });
-        if (item.Mode !== "batch") toPaid();
+        if (item.Mode !== "batch") toPaid(paidHint(item) ? { lead: true, primary: true } : undefined);
         break;
       default:
         break;
@@ -1849,6 +2154,7 @@
     keyError.hidden = true;
     state.openKey = "";
     renderKeys();
+    loadSignals();
     // With no key yet the field is the only thing to do; otherwise the sheet
     // itself takes focus and Tab walks it from the top.
     openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
@@ -2105,6 +2411,16 @@
     });
     keyPicker.addEventListener("click", openPickerMenu);
 
+    for (const anchor of [healthDot, healthRow]) {
+      anchor.addEventListener("click", onHealthAnchorClick);
+      bindHealthHover(anchor, anchor);
+    }
+    bindHealthHover(healthPop, null);
+    healthPopLink.addEventListener("click", () => {
+      closeHealthPop();
+      openExternal(t("health.statusUrl"));
+    });
+
     // Search runs on every input, also while the Korean IME is composing:
     // the backend matches by jamo (internal/store/match.go), so a half-built
     // syllable such as 컴픁 (on the way to 컴퓨터) keeps its results.
@@ -2199,12 +2515,19 @@
 
     document.addEventListener("pointerdown", (event) => {
       if (!menu.hidden && !menu.contains(event.target) && !keyPicker.contains(event.target)) closeMenu();
+      if (!healthPop.hidden && !healthPop.contains(event.target) && !healthAnchor?.contains(event.target)) {
+        closeHealthPop();
+      }
       if (swipe.offsets.size && !event.target.closest(".row")) closeOtherRows(null);
     }, true);
     list.addEventListener("scroll", closeMenu, { passive: true });
     list.addEventListener("scroll", syncScrolled, { passive: true });
     window.addEventListener("resize", syncScrolled);
+    window.addEventListener("resize", () => {
+      if (!healthPop.hidden && healthAnchor) placeHealthPop();
+    });
     window.addEventListener("blur", closeMenu);
+    window.addEventListener("blur", closeHealthPop);
 
     toastAction.addEventListener("click", () => {
       const action = toastOnAction;
@@ -2241,7 +2564,9 @@
     // list, then the window.
     document.addEventListener("keydown", (event) => {
       // An open menu takes every key, Tab included, as a native menu does;
-      // a menu and a sheet are never open together.
+      // a menu and a sheet are never open together. The health popover
+      // floats over everything else and goes first.
+      if (!healthPop.hidden && healthPopKeys(event)) return;
       if (!menu.hidden) menuKeys(event);
       else if (event.key === "Tab") trapTab(event);
       else if (sheetOpen()) modalKeys(event);
@@ -2259,7 +2584,14 @@
     trackHover(keyList, ".key-row");
     trackHover(list, ".row");
     // Buttons outside the list get the same JS hover (see trackHover).
-    trackHover(document.body, ".tool-button, .foot-button, .picker-button, .row-action, .plain-button, .text-button, .empty");
+    trackHover(document.body, ".tool-button, .foot-button, .picker-button, .row-action, .plain-button, .text-button, .empty, .health-row, .info-button");
+
+    signalsSwitch.addEventListener("change", () => setSignals(signalsSwitch.checked));
+    signalsAbout.addEventListener("click", () => {
+      const open = signalsBody.hidden;
+      signalsBody.hidden = !open;
+      signalsAbout.setAttribute("aria-expanded", String(open));
+    });
 
     keyList.addEventListener("click", (event) => {
       const del = event.target.closest("[data-key-delete]");
@@ -2328,6 +2660,7 @@
 
   async function init() {
     bindEvents();
+    startHealth();
 
     // The drop listener is registered at the very top of this file.
     if (window.runtime && typeof window.runtime.EventsOn === "function") {
