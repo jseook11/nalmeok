@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
@@ -78,6 +79,11 @@ type App struct {
 	runner Runner
 
 	ctx atomicContext
+
+	// quitConfirmed is set when the user chooses Quit on the in-app card.
+	// runtime.Quit calls BeforeClose again, and that must not ask a second
+	// time.
+	quitConfirmed atomic.Bool
 
 	mu sync.Mutex // serializes config reads and writes
 
@@ -151,22 +157,39 @@ func (a *App) Shutdown(context.Context) {
 // quitting stops it mid-way (it resumes on the next launch). A Batch job runs
 // on Google's side and is fetched later, so it never asks. Every way out (the
 // close button, ⌘Q, ⌘W) goes through here. It returns true to stay open.
+//
+// The window asks with its own card ("quit:confirm") rather than an OS dialog,
+// so the app's icon and button names are kept on every platform.
 func (a *App) BeforeClose(ctx context.Context) bool {
 	// A window that never started (the CLI holds the folder lock) runs
 	// nothing of its own, so it closes without asking.
 	if a.context() == nil || a.store == nil || !liveRunning(a.store.List("")) {
 		return false
 	}
-	quit := i18n.T("quit.confirm")
-	answer, err := wailsruntime.MessageDialog(ctx, wailsruntime.MessageDialogOptions{
-		Type:          wailsruntime.QuestionDialog,
-		Title:         i18n.T("quit.title"),
-		Message:       i18n.T("quit.message"),
-		Buttons:       []string{quit, i18n.T("quit.keep")},
-		DefaultButton: i18n.T("quit.keep"),
-		CancelButton:  i18n.T("quit.keep"),
-	})
-	return err == nil && answer != quit
+	// The user already chose Quit; runtime.Quit calls this again.
+	if a.quitConfirmed.Load() {
+		return false
+	}
+	// Windows calls this on the UI thread, so window calls go beside it
+	// instead of blocking the close. The card asks from the front window.
+	go func() {
+		wailsruntime.WindowUnminimise(ctx)
+		wailsruntime.Show(ctx)
+		wailsruntime.WindowShow(ctx)
+	}()
+	wailsruntime.EventsEmit(ctx, "quit:confirm")
+	return true
+}
+
+// ConfirmQuit closes the app after the user chose Quit on the in-app card.
+// The choice is marked first because runtime.Quit calls BeforeClose again.
+func (a *App) ConfirmQuit() {
+	ctx := a.context()
+	if ctx == nil {
+		return
+	}
+	a.quitConfirmed.Store(true)
+	wailsruntime.Quit(ctx)
 }
 
 // liveRunning reports whether a free item is in progress.

@@ -54,7 +54,7 @@
     </label>
     <div class="list" id="list" role="listbox" tabindex="0" data-i18n-aria-label="list.label"></div>
     <button class="empty" id="empty" type="button" data-i18n-aria-label="empty.label">
-      <span data-i18n="empty.text"></span>
+      <span id="empty-text" data-i18n="empty.text"></span>
     </button>
   </main>
 
@@ -139,6 +139,17 @@
     <div class="modal-actions">
       <button class="secondary-button" id="pdf-cancel" type="button" data-i18n="pdf.cancel"></button>
       <button class="primary-button" id="pdf-start" type="submit" data-i18n="pdf.start"></button>
+    </div>
+  </form>
+</div>
+
+<div class="modal" id="quit-sheet" role="alertdialog" aria-modal="true" aria-labelledby="quit-title" aria-describedby="quit-sub" hidden>
+  <form class="modal-card" id="quit-form" tabindex="-1" novalidate>
+    <h2 class="modal-title" id="quit-title" data-i18n="quit.title"></h2>
+    <p class="modal-sub" id="quit-sub" data-i18n="quit.message"></p>
+    <div class="modal-actions">
+      <button class="secondary-button" id="quit-confirm" type="button" data-i18n="quit.confirm"></button>
+      <button class="primary-button" id="quit-keep" type="submit" data-i18n="quit.keep"></button>
     </div>
   </form>
 </div>

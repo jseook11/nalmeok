@@ -52,6 +52,8 @@
   "dialog.restoreTitle": "Save transcript",
 
   "empty.label": "Choose audio files or a folder",
+  "empty.noKey": "Add an API key first",
+  "empty.noKeyLabel": "Add an API key",
   "empty.text": "Drop audio files or a folder here",
 
   "error.apiKeyInvalid": "API key rejected · check key settings",
