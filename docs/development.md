@@ -20,7 +20,7 @@ cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
 internal/config     설정 폴더, config.json(키·gui.mode·signals)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
-internal/plan       조각 계획(130분), 예상 비용
+internal/plan       조각 계획(요청당 최대 65분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
@@ -47,7 +47,9 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 | `.flac` | 프레임 경계에서 자르고 STREAMINFO를 새로 씀 |
 | `.ogg`·`.opus`(Opus·Vorbis) | 페이지 경계에서 자르고 코덱 헤더 페이지를 조각마다 반복, granule·순번·CRC를 다시 씀 |
 
-130분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
+요청 하나는 오디오 최대 65분이다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담았더니 넘쳤다(2026-11-05). 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
+
+65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
 `go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
 
@@ -117,7 +119,7 @@ build/nalmeok --version
 Gemini 요청 결과를 익명으로 모아 `https://nalmeok.seook.dev`의 `POST /api/signal`로 보낸다. 사이트가 모든 앱의 신호로 무료·Batch가 지금 잘 되는지 판단해 `/status/` 페이지와 `GET /api/status`로 내놓고, 앱은 `App.FreeStatus`로 그것을 읽는다. 사용자 설명은 `usage.md`의 "앱이 보내는 정보"에 있다.
 
 - 기록 위치(`internal/runner`, `Options.Signal`, nil이면 기록하지 않음): 무료는 `freeAttempt`의 `Generate` 시도마다 한 건(`attempt`는 같은 요청의 1부터 센 재시도 번호)과 업로드 실패 한 건. Batch는 업로드 실패, 작업 제출(`SubmitBatch`) 한 건, 끝난 작업 한 건(성공 `ok`, 실패 `other`, 만료 `timeout`, 차단 `blocked`; 사용자가 취소한 작업은 빼고, 상태 확인 실패는 다시 확인하므로 기록하지 않는다).
-- 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(`MAX_TOKENS`, 다른 중단 이유)는 `other`.
+- 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(텍스트 없이 `MAX_TOKENS`, 다른 중단 이유)는 `other`. 텍스트가 있는 `MAX_TOKENS`는 잘린 채 저장하므로 `ok`.
 - 키, 경로, 전사 내용, 오류 메시지는 보내지 않는다. 설치 ID는 UTC 날짜마다 새로 만들어 `<설정 폴더>/signal-id.json`에 둔다.
 - `under_quota`(무료 429에만): 실행기는 키마다 RPM·TPM 아래로 간격을 둔다(`gap()`). 그러니 429는 하루 한도이거나 Google이 부하를 덜어 내는 경우다. 실행기가 키마다 이번 할당 날(미국 태평양 자정 기준, tzdata 없이 UTC-8 고정)에 보낸 `Generate` 수를 메모리에 세고, 이번 요청 전 수가 `freeDailyRequestsFloor`(20, 무료 등급 하루 요청 수의 보수적 하한)보다 적으면 true다. 앱 자신의 수라서 같은 키를 쓰는 다른 앱은 보이지 않고, 다시 켜면 0부터 센다.
 - 상태 조회(`telemetry.Status`, 60초 캐시): 신호가 켜져 있으면 `GET /api/status?install=<오늘 ID>`로 묻는다. 서버가 그 ID를 뺀 최근 1시간 무료 실패 설치 수를 `free.others_failing`으로 더해 준다(ID는 저장하지 않음). 무료 항목이 실패했을 때 "다른 사용자도 실패 중"을 보여 주는 근거다. 꺼져 있으면 ID 없이 묻고 그 필드는 없다. 서버의 판정 기준(60분·8건·2곳, 모자라면 360분)은 nalmeok-web README에 있다.
