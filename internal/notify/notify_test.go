@@ -47,6 +47,18 @@ func TestToastScript(t *testing.T) {
 	}
 }
 
+func TestPackagedToastScript(t *testing.T) {
+	s := packagedToastScript("seook.Nalmeok_abc123!App", "done")
+	for _, want := range []string{"$id = 'seook.Nalmeok_abc123!App'", "CreateTextNode('done')", "CreateToastNotifier($id)"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("script lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "HKCU") || strings.Contains(s, "catch") {
+		t.Errorf("packaged script registers an app ID:\n%s", s)
+	}
+}
+
 func TestEncodePowerShell(t *testing.T) {
 	in := "Write-Output '전사 완료'"
 	raw, err := base64.StdEncoding.DecodeString(encodePowerShell(in))
