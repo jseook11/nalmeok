@@ -63,6 +63,7 @@ CI는 `.github/workflows/`에서 돈다. macOS·Windows에서 `gofmt`·`go vet`�
 - Windows 알림: PowerShell의 WinRT 연결로 토스트를 띄운다. 스크립트는 `-EncodedCommand`, 프로세스는 `CREATE_NO_WINDOW`. 앱 ID `kr.nalmeok.app`을 `HKCU\Software\Classes\AppUserModelId`에 이름·아이콘(`%LOCALAPPDATA%\Nalmeok\notify-icon.png`, `assets/nalmeok.ico`의 256px)과 함께 등록한다. 누르면 아무 일도 없다.
 - Windows 폴더 열기·파일 열기: `explorer.exe /select,"<경로>"`·`explorer.exe "<경로>"`를 `SysProcAttr.CmdLine`으로 그대로 넘긴다. explorer는 성공해도 종료 코드 1이라 시작만 확인한다.
 - Windows CLI 출력: exe가 `-H windowsgui`라 콘솔이 없다. 인자가 있으면 `AttachConsole(ATTACH_PARENT_PROCESS)`로 부모 콘솔에 붙어 출력한다. cmd·PowerShell은 GUI 프로그램을 기다리지 않으므로 출력이 프롬프트 뒤에 찍히고 종료 코드도 바로 안 나온다. 기다리려면 `start /wait Nalmeok.exe doctor`(cmd) 또는 `Start-Process -Wait -NoNewWindow .\Nalmeok.exe doctor`(PowerShell).
+- 무료 전사 중 종료 확인: OS 대화상자가 아니라 앱 안의 카드다. `BeforeClose`가 창을 앞으로 가져오고 `quit:confirm` 이벤트를 보낸 뒤 닫기를 막는다. 카드에서 종료를 고르면 `ConfirmQuit`가 표시를 남기고 `runtime.Quit`를 부른다(Quit가 `BeforeClose`를 다시 부르므로 표시가 필요하다). Wails v2의 Windows `MessageBox`는 앱 아이콘과 버튼 이름을 받지 못해 바꿨다.
 - `scripts/build_mac_app.sh`는 서명 정보가 없으면 `.app`을 임시 서명(ad-hoc)하고, 공증 자격이 없으면 `dist/`에 배포용 ZIP을 만들지 않는다. Info.plist와 번들 식별자를 묶어 알림이 앱 이름으로 붙게 한다.
 
 ### CLI: 테스트·AI 에이전트용

@@ -85,6 +85,7 @@
   const search = $("search");
   const list = $("list");
   const empty = $("empty");
+  const emptyText = $("empty-text");
   const helpButton = $("help");
   const gear = $("gear");
   const paneToggle = $("pane-toggle");
@@ -111,6 +112,9 @@
   const pdfList = $("pdf-list");
   const pdfNone = $("pdf-none");
   const pdfCancel = $("pdf-cancel");
+  const quitSheet = $("quit-sheet");
+  const quitForm = $("quit-form");
+  const quitConfirm = $("quit-confirm");
 
   const menu = $("menu");
   const toast = $("toast");
@@ -316,6 +320,19 @@
       button.setAttribute("aria-disabled", String(missing));
     }
     renderPicker();
+    renderEmpty();
+  }
+
+  // With no key at all the empty area asks for one; once a key is added it
+  // goes back to the usual drop hint.
+  function renderEmpty() {
+    if (hasKeys()) {
+      emptyText.textContent = t("empty.text");
+      empty.setAttribute("aria-label", t("empty.label"));
+    } else {
+      emptyText.textContent = t("empty.noKey");
+      empty.setAttribute("aria-label", t("empty.noKeyLabel"));
+    }
   }
 
   // First click on a tier without keys: nudge the control and say why, with
@@ -1845,6 +1862,13 @@
     openSurface(helpSheet);
   }
 
+  // The backend asks through "quit:confirm" before a close would stop a free
+  // transcription. The card offers to quit or to keep going.
+  function openQuit() {
+    closeMenu();
+    openSurface(quitSheet, { focus: quitForm });
+  }
+
   function closeSheets() {
     closeSurface(keysSheet);
     closeSurface(helpSheet);
@@ -1969,16 +1993,19 @@
 
   // Keyboard scopes, each called from the one keydown listener in bindEvents.
 
-  // A sheet or the PDF card. The card is modal: Escape cancels this folder,
-  // other shortcuts wait.
+  // A sheet, the PDF card or the quit card. The cards are modal: Escape
+  // closes them (keep transcribing / no PDF), other shortcuts wait.
   function modalKeys(event) {
-    if (!pdfSheet.hidden) {
+    if (!pdfSheet.hidden || !quitSheet.hidden) {
+      const quit = !quitSheet.hidden;
       if (event.key === "Escape") {
         event.preventDefault();
-        answerPDF(null);
-      } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
+        if (quit) closeSurface(quitSheet);
+        else answerPDF(null);
+      } else if (event.key === "Enter" && !event.isComposing && event.target === (quit ? quitForm : pdfForm)) {
         event.preventDefault();
-        answerPDF(checkedPDFs());
+        if (quit) closeSurface(quitSheet);
+        else answerPDF(checkedPDFs());
       }
       return;
     }
@@ -2057,7 +2084,10 @@
     bindDragHighlight();
 
     addButton.addEventListener("click", pickFiles);
-    empty.addEventListener("click", pickFiles);
+    empty.addEventListener("click", () => {
+      if (hasKeys()) pickFiles();
+      else openKeys("free");
+    });
 
     modeToggle.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-mode]");
@@ -2193,6 +2223,14 @@
     pdfCancel.addEventListener("click", () => answerPDF(null));
     trackHover(pdfList, ".pdf-row");
 
+    quitForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      closeSurface(quitSheet);
+    });
+    quitConfirm.addEventListener("click", () => {
+      call("ConfirmQuit").catch((error) => showToast(errorText(error)));
+    });
+
     // The only document keydown listener. Each scope takes the keys while it
     // is the innermost one: a modal surface, then the menu, then the focused
     // list, then the window.
@@ -2294,19 +2332,21 @@
       window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
       window.runtime.EventsOn("items:changed", refreshItems);
       window.runtime.EventsOn("keys:changed", reloadKeys);
+      // The backend holds a window close until the user answers this card.
+      window.runtime.EventsOn("quit:confirm", openQuit);
       // A drop the backend could not take, e.g. before any key exists.
       window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
         if (noKeys) explainMissingKey();
         else showToast(errorText(message));
       });
       // The macOS menu bar (internal/app/menu.go) does what ⚙ and ? do. Its
-      // shortcuts skip the keydown handler, so the PDF card's "other
-      // shortcuts wait" rule is applied here too.
+      // shortcuts skip the keydown handler, so the PDF and quit cards'
+      // "other shortcuts wait" rule is applied here too.
       window.runtime.EventsOn("menu:settings", () => {
-        if (pdfSheet.hidden) openKeys();
+        if (pdfSheet.hidden && quitSheet.hidden) openKeys();
       });
       window.runtime.EventsOn("menu:help", () => {
-        if (pdfSheet.hidden) openHelp();
+        if (pdfSheet.hidden && quitSheet.hidden) openHelp();
       });
     }
 

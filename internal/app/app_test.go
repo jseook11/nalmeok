@@ -553,3 +553,22 @@ func TestBeforeCloseWithoutWindowDoesNotAsk(t *testing.T) {
 		t.Fatal("BeforeClose kept the window open without a started window")
 	}
 }
+
+// After the card's Quit choice, runtime.Quit calls BeforeClose again; it must
+// not ask a second time.
+func TestBeforeCloseAfterConfirmDoesNotAsk(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.store.Add(store.Item{ID: "x", State: "running", Mode: "free"}); err != nil {
+		t.Fatal(err)
+	}
+	ta.app.ctx.set(context.Background())
+	ta.app.quitConfirmed.Store(true)
+	if ta.app.BeforeClose(context.Background()) {
+		t.Fatal("BeforeClose asked again after the user confirmed quit")
+	}
+}
+
+// Without a started window there is nothing to quit.
+func TestConfirmQuitWithoutWindowIsIgnored(t *testing.T) {
+	New(nil, nil, nil).ConfirmQuit()
+}
