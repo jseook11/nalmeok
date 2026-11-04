@@ -3,12 +3,12 @@
 # Usage: powershell -File scripts/package_windows_msix.ps1 [-Version x.y.z] [-Register]
 #   -Version      three-part version; the package version appends ".0"
 #                 (default: the VERSION default in scripts/build_windows_app.sh)
-#   -IdentityName package identity name (default: $env:NALMEOK_MSIX_NAME, else seook.Nalmeok.Dev)
-#   -Publisher    publisher DN (default: $env:NALMEOK_MSIX_PUBLISHER, else CN=seook-dev)
+#   -IdentityName package identity name (default: $env:NALMEOK_MSIX_NAME, else Seook.Nalmeok)
+#   -Publisher    publisher DN (default: $env:NALMEOK_MSIX_PUBLISHER, else the Store publisher)
 #   -ExeDir       folder with Nalmeok.exe and Nalmeok-arm64.exe (default: build/windows)
 #   -OutDir       output folder for .msix and .msixbundle (default: dist)
 #   -Register     register the current PC's layout for local testing instead of
-#                 packing (developer mode, no signing, no package output)
+#                 packing (developer mode, no signing, no SDK, no package output)
 param(
     [string]$Version,
     [string]$IdentityName,
@@ -35,40 +35,11 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 # The fourth part is always 0 for Store submissions.
 $PackageVersion = $Version + ".0"
 
-$testIdentity = $false
-if (-not $IdentityName) {
-    $IdentityName = $env:NALMEOK_MSIX_NAME
-}
-if (-not $IdentityName) {
-    $IdentityName = "seook.Nalmeok.Dev"
-    $testIdentity = $true
-}
-if (-not $Publisher) {
-    $Publisher = $env:NALMEOK_MSIX_PUBLISHER
-}
-if (-not $Publisher) {
-    $Publisher = "CN=seook-dev"
-    $testIdentity = $true
-}
-if ($testIdentity) {
-    Write-Warning "시험용 identity($IdentityName / $Publisher)다. Store에 올릴 수 없다. Partner Center의 Product identity 값을 -IdentityName·-Publisher 또는 NALMEOK_MSIX_NAME·NALMEOK_MSIX_PUBLISHER로 넣는다."
-}
-
-$KitsBin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-if (-not (Test-Path $KitsBin)) {
-    throw "Windows SDK를 찾지 못했다: $KitsBin"
-}
-$sdk = Get-ChildItem $KitsBin -Directory |
-    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
-    Sort-Object { [version]$_.Name } -Descending |
-    Select-Object -First 1
-if (-not $sdk) {
-    throw "Windows SDK 10을 찾지 못했다: $KitsBin"
-}
-$MakeAppx = Join-Path $sdk.FullName "x64\makeappx.exe"
-if (-not (Test-Path $MakeAppx)) {
-    throw "makeappx.exe를 찾지 못했다: $MakeAppx"
-}
+# Partner Center → Product identity (not secret).
+if (-not $IdentityName) { $IdentityName = $env:NALMEOK_MSIX_NAME }
+if (-not $IdentityName) { $IdentityName = "Seook.Nalmeok" }
+if (-not $Publisher) { $Publisher = $env:NALMEOK_MSIX_PUBLISHER }
+if (-not $Publisher) { $Publisher = "CN=9C1988C4-DDED-41A0-88F0-2005D33927CF" }
 
 $TemplatePath = Join-Path $Root "packaging/windows/AppxManifest.xml"
 $AssetsDir = Join-Path $Root "packaging/windows/Assets"
@@ -120,6 +91,22 @@ if ($Register) {
     Add-AppxPackage -Register (Join-Path $layout "AppxManifest.xml")
     Write-Host "등록했다: $layout (개발자 모드 필요)"
     return
+}
+
+$KitsBin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+if (-not (Test-Path $KitsBin)) {
+    throw "Windows SDK를 찾지 못했다: $KitsBin"
+}
+$sdk = Get-ChildItem $KitsBin -Directory |
+    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+    Sort-Object { [version]$_.Name } -Descending |
+    Select-Object -First 1
+if (-not $sdk) {
+    throw "Windows SDK 10을 찾지 못했다: $KitsBin"
+}
+$MakeAppx = Join-Path $sdk.FullName "x64\makeappx.exe"
+if (-not (Test-Path $MakeAppx)) {
+    throw "makeappx.exe를 찾지 못했다: $MakeAppx"
 }
 
 New-Item -ItemType Directory -Path $OutDirPath -Force | Out-Null

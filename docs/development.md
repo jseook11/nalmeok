@@ -67,9 +67,9 @@ scripts/package_windows_msix.ps1 [-Version x.y.z] [-Register]
 
 - 매니페스트 템플릿은 `packaging/windows/AppxManifest.xml`, 로고는 `packaging/windows/Assets/`다. 로고는 `scripts/make_msix_assets.py`로 만들고 결과물을 커밋한다(위 아이콘 절차와 같다).
 - 패키지 버전은 네 자리이고 마지막은 0이다(`<version>.0`). `-Version`을 생략하면 `scripts/build_windows_app.sh`의 기본 버전을 읽는다.
-- identity 값은 Partner Center의 **Product identity**에서 가져온다. `-IdentityName`·`-Publisher`로 넘기거나 `NALMEOK_MSIX_NAME`·`NALMEOK_MSIX_PUBLISHER`에 넣는다. 비밀 값은 아니다. 기본값(`seook.Nalmeok.Dev`, `CN=seook-dev`)은 시험용이라 Store가 거부한다.
+- identity 값은 Partner Center의 **Product identity**와 같다(Name `Seook.Nalmeok`, Publisher `CN=9C1988C4-DDED-41A0-88F0-2005D33927CF`, 표시 이름 `Seook`). 비밀 값이 아니라 스크립트 기본값으로 둔다. 바꿀 때만 `-IdentityName`·`-Publisher`나 `NALMEOK_MSIX_NAME`·`NALMEOK_MSIX_PUBLISHER`를 쓴다. 표시 이름은 매니페스트에 있고 대소문자까지 Partner Center와 같아야 한다.
 - 서명은 Store가 한다. 스크립트는 서명하지 않고, CI는 unsigned `.msixbundle`만 아티팩트로 올린다.
-- `-Register`는 패키지를 만들지 않고 현재 PC 아키텍처의 레이아웃(`build/msix/<arch>/`)을 `Add-AppxPackage -Register`로 등록한다. 개발자 모드가 필요하고 서명도 필요 없다. VM에서 Store 설치본과 같은 동작을 시험할 때 쓴다.
+- `-Register`는 패키지를 만들지 않고 현재 PC 아키텍처의 레이아웃(`build/msix/<arch>/`)을 `Add-AppxPackage -Register`로 등록한다. 개발자 모드가 필요하고 서명·Windows SDK는 필요 없다. VM에서 Store 설치본과 같은 동작을 시험할 때 쓴다.
 - MSIX 앱은 파일·레지스트리 쓰기가 패키지 전용 공간으로 가상화된다. 기존 `%APPDATA%\nalmeok`의 설정은 읽지만, 새로 쓰는 키·목록은 `%LOCALAPPDATA%\Packages\<PackageFamilyName>\LocalCache\` 아래로 간다. 그래서 포터블 exe판과 설정이 갈라지고, Store판을 제거하면 그 설정도 함께 지워진다. 가상화를 끄려면 `unvirtualizedResources` 제한 권한과 심사 사유가 필요하므로 켜 둔다.
 - 최소 버전은 Windows 10 1903(`10.0.18362.0`)이다. 위 가상화 동작의 기준 버전이다.
 

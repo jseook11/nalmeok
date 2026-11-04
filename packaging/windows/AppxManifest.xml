@@ -7,7 +7,7 @@
   <Identity Name="{{IDENTITY_NAME}}" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="{{ARCH}}" />
   <Properties>
     <DisplayName>Nalmeok</DisplayName>
-    <PublisherDisplayName>seook</PublisherDisplayName>
+    <PublisherDisplayName>Seook</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Resources>
