@@ -85,6 +85,7 @@
   const search = $("search");
   const list = $("list");
   const empty = $("empty");
+  const emptyText = $("empty-text");
   const helpButton = $("help");
   const gear = $("gear");
   const paneToggle = $("pane-toggle");
@@ -316,6 +317,19 @@
       button.setAttribute("aria-disabled", String(missing));
     }
     renderPicker();
+    renderEmpty();
+  }
+
+  // With no key at all the empty area asks for one; once a key is added it
+  // goes back to the usual drop hint.
+  function renderEmpty() {
+    if (hasKeys()) {
+      emptyText.textContent = t("empty.text");
+      empty.setAttribute("aria-label", t("empty.label"));
+    } else {
+      emptyText.textContent = t("empty.noKey");
+      empty.setAttribute("aria-label", t("empty.noKeyLabel"));
+    }
   }
 
   // First click on a tier without keys: nudge the control and say why, with
@@ -2057,7 +2071,10 @@
     bindDragHighlight();
 
     addButton.addEventListener("click", pickFiles);
-    empty.addEventListener("click", pickFiles);
+    empty.addEventListener("click", () => {
+      if (hasKeys()) pickFiles();
+      else openKeys("free");
+    });
 
     modeToggle.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-mode]");

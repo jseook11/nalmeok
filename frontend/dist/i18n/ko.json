@@ -52,6 +52,8 @@
   "dialog.restoreTitle": "전사본 저장",
 
   "empty.label": "음성 파일이나 폴더 선택",
+  "empty.noKey": "API 키를 먼저 넣어 주세요",
+  "empty.noKeyLabel": "API 키 넣기",
   "empty.text": "음성 파일이나 폴더를 여기에 놓기",
 
   "error.apiKeyInvalid": "API 키 거부됨 · 키 설정 확인",
