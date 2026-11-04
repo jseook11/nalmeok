@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 )
 
@@ -65,15 +64,6 @@ func rf64Bytes(wav []byte, form string) []byte {
 	return out
 }
 
-func writeTemp(t *testing.T, data []byte) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "in.wav")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 func haveTool(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -82,7 +72,7 @@ func haveTool(name string) bool {
 func TestRF64Duration(t *testing.T) {
 	for _, form := range []string{"RF64", "BW64"} {
 		t.Run(form, func(t *testing.T) {
-			path := writeTemp(t, rf64Bytes(pcmWAVBytes(3), form))
+			path := writeTemp(t, "in.wav", rf64Bytes(pcmWAVBytes(3), form))
 			w, err := parseWAV(path)
 			if err != nil {
 				t.Fatal(err)
@@ -107,7 +97,7 @@ func TestRF64Duration(t *testing.T) {
 }
 
 func TestPrepareRF64(t *testing.T) {
-	src := writeTemp(t, rf64Bytes(pcmWAVBytes(3), "RF64"))
+	src := writeTemp(t, "in.wav", rf64Bytes(pcmWAVBytes(3), "RF64"))
 	for _, tc := range []struct {
 		maxSeconds float64
 		want       int
@@ -162,7 +152,7 @@ func TestRF64MissingDs64(t *testing.T) {
 	out = append(out, "data"...)
 	out = binary.LittleEndian.AppendUint32(out, 0xFFFFFFFF)
 	out = append(out, wav[44:]...)
-	if _, err := Duration(writeTemp(t, out)); !errors.Is(err, errWAV) {
+	if _, err := Duration(writeTemp(t, "in.wav", out)); !errors.Is(err, errWAV) {
 		t.Fatalf("err = %v, want errWAV", err)
 	}
 }

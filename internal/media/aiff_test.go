@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -21,23 +20,14 @@ func convertAIFF(t *testing.T, src, name string, args ...string) string {
 	return out
 }
 
-// aiffFixtures makes a fresh speech source long enough to split in two, then
-// converts it into the AIFF/AIFC variants we accept. It does not use the
-// shared fixtures() because its 5-second guard skips early on machines where
-// say reads fast, and these tests need more than one 2-second piece.
+// aiffFixtures converts the shared source into the AIFF/AIFC variants we
+// accept.
 func aiffFixtures(t *testing.T) map[string]string {
 	t.Helper()
-	needTools(t, "say", "afconvert", "afinfo")
-	src := filepath.Join(t.TempDir(), "src.aiff")
-	if out, err := exec.Command("say", "-o", src, strings.Repeat(sayText, 8)).CombinedOutput(); err != nil {
-		t.Skipf("say 실패: %v\n%s", err, out)
-	}
-	if d := afinfoDuration(t, src); d < 5 {
-		t.Skipf("fixture 오디오가 너무 짧습니다(%.1fs)", d)
-	}
+	src := filepath.Join(fixtures(t), "source.wav")
 	return map[string]string{
 		"aiff.aiff": convertAIFF(t, src, "aiff.aiff", "-f", "AIFF", "-d", "BEI16"),
-		"aifc.aiff": convertAIFF(t, src, "aifc.aiff", "-f", "AIFC", "-d", "BEI16"),
+		"aifc.aifc": convertAIFF(t, src, "aifc.aifc", "-f", "AIFC", "-d", "BEI16"),
 		"f32.aiff":  convertAIFF(t, src, "f32.aiff", "-f", "AIFC", "-d", "BEF32"),
 	}
 }

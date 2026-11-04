@@ -6,7 +6,7 @@
 //     inside such a container is written out as plain MP3 frames.
 //   - .aac (ADTS): the frames are remuxed into M4A the same way.
 //   - .mp3: uploaded as-is, split at MP3 frame boundaries.
-//   - .wav (RIFF/RF64), .aif/.aiff: uploaded as-is, split at sample
+//   - .wav (RIFF/RF64), .aif/.aiff/.aifc: uploaded as-is, split at sample
 //     boundaries with a fresh header.
 //   - .flac: uploaded as-is, split at FLAC frame boundaries.
 //   - .ogg/.opus (Opus or Vorbis): uploaded as-is, split at Ogg page
@@ -43,7 +43,7 @@ var formats = map[string]string{
 	".aac": FormatADTS,
 	".mp3": FormatMP3,
 	".wav": FormatWAV,
-	".aif": FormatAIFF, ".aiff": FormatAIFF,
+	".aif": FormatAIFF, ".aiff": FormatAIFF, ".aifc": FormatAIFF,
 	".flac": FormatFLAC,
 	".ogg":  FormatOgg, ".opus": FormatOgg,
 }
