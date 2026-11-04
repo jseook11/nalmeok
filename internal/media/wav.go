@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 
 	"github.com/jseook11/nalmeok/internal/i18n"
@@ -17,6 +18,7 @@ type wavInfo struct {
 	blockAlign int
 	dataOff    int64
 	dataSize   int64
+	rf64       bool // RF64/BW64 source: its 64-bit sizes need a plain RIFF rewrite
 }
 
 func (w *wavInfo) seconds() float64 {
@@ -39,10 +41,21 @@ func parseWAV(path string) (*wavInfo, error) {
 	if _, err := f.ReadAt(head[:], 0); err != nil {
 		return nil, errWAV
 	}
-	if string(head[:4]) != "RIFF" || string(head[8:12]) != "WAVE" {
+	// RF64 (and its BW64 variant) store sizes beyond 4 GiB in a ds64 chunk.
+	rf64 := false
+	switch string(head[:4]) {
+	case "RIFF":
+	case "RF64", "BW64":
+		rf64 = true
+	default:
 		return nil, errWAV
 	}
-	w := &wavInfo{}
+	if string(head[8:12]) != "WAVE" {
+		return nil, errWAV
+	}
+	w := &wavInfo{rf64: rf64}
+	var ds64 bool
+	var ds64Data uint64
 	for pos := int64(12); pos+8 <= size; {
 		var ch [8]byte
 		if _, err := f.ReadAt(ch[:], pos); err != nil {
@@ -52,6 +65,16 @@ func parseWAV(path string) (*wavInfo, error) {
 		n := int64(binary.LittleEndian.Uint32(ch[4:]))
 		body := pos + 8
 		switch id {
+		case "ds64":
+			// 64-bit sizes for the chunks whose 32-bit fields are 0xFFFFFFFF.
+			var b [16]byte
+			if n < 16 || body+16 > size {
+				return nil, errWAV
+			}
+			if _, err := f.ReadAt(b[:], body); err != nil {
+				return nil, errWAV
+			}
+			ds64, ds64Data = true, binary.LittleEndian.Uint64(b[8:])
 		case "fmt ":
 			if n < 16 || n > 1<<16 || body+n > size {
 				return nil, errWAV
@@ -65,6 +88,12 @@ func parseWAV(path string) (*wavInfo, error) {
 		case "data":
 			if w.fmtChunk == nil {
 				return nil, errWAV
+			}
+			if n == 0xFFFFFFFF && w.rf64 {
+				if !ds64 {
+					return nil, errWAV
+				}
+				n = int64(min(ds64Data, uint64(size-body)))
 			}
 			w.dataOff = body
 			// streaming writers leave 0 or 0xFFFFFFFF; clamp to the file
@@ -110,7 +139,9 @@ func prepareWAV(path, dir string, maxSeconds float64) ([]Piece, error) {
 		return nil, err
 	}
 	total := w.seconds()
-	if maxSeconds <= 0 || total <= maxSeconds {
+	// An RF64 source is never uploadable as-is: its 64-bit sizes are not
+	// plain RIFF, so even one whole piece is rewritten below.
+	if !w.rf64 && (maxSeconds <= 0 || total <= maxSeconds) {
 		p := Piece{Path: piecePath(dir, path, 1, ".wav"), MIME: "audio/wav", Seconds: total}
 		if err := linkOrCopy(path, p.Path); err != nil {
 			return nil, err
@@ -122,7 +153,13 @@ func prepareWAV(path, dir string, maxSeconds float64) ([]Piece, error) {
 		return nil, err
 	}
 	defer f.Close()
-	frames := max(int64(maxSeconds*float64(w.sampleRate)), 1)
+	frames := w.dataSize / int64(w.blockAlign)
+	if maxSeconds > 0 {
+		frames = min(frames, max(int64(maxSeconds*float64(w.sampleRate)), 1))
+	}
+	// RIFF sizes are 32-bit: keep each piece's data well below 4 GiB.
+	frames = min(frames, (int64(math.MaxUint32)-1<<17)/int64(w.blockAlign))
+	frames = max(frames, 1)
 	step := frames * int64(w.blockAlign)
 	var pieces []Piece
 	for off := int64(0); off < w.dataSize; off += step {
