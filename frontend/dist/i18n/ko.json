@@ -133,6 +133,19 @@
   "gemini.uploadProcessFailed": "업로드 파일 처리 실패: {message}",
   "gemini.uploadTooSlow": "업로드 파일 처리 지연",
 
+  "health.bad": "매우 불안정",
+  "health.fake429": "쿼터 남은 상태 거절 {percent}%",
+  "health.good": "원활",
+  "health.othersFailing": "다른 사용자 {count}명도 최근 1시간 실패 · Gemini 무료 할당 문제 · 잠시 뒤 재시도",
+  "health.pane": "무료 등급 {level} · 성공률 {percent}%",
+  "health.poor": "불안정",
+  "health.row": "무료 등급 {level}",
+  "health.shaky": "다소 불안정",
+  "health.statusPage": "상태 페이지",
+  "health.statusUrl": "https://nalmeok.seook.dev/status/",
+  "health.success": "최근 {minutes}분 성공률 {percent}%",
+  "health.title": "무료 등급 · {level}",
+
   "help.formats": "형식",
   "help.formatsBody": "m4a, mp4, mov, mp3, wav, aiff, flac, ogg, opus, aac · 폴더 안 PDF는 용어 표기 참고에 사용",
   "help.freeBody": "요청 즉시 전사 · 하루 사용량 제한",
@@ -247,6 +260,10 @@
   "search.placeholder": "검색",
 
   "sheet.done": "완료",
+
+  "signals.about": "전송 내용",
+  "signals.body": "요청 결과 코드만 익명 전송. 파일·전사 내용·API 키는 전송 안 함.",
+  "signals.label": "무료 키 상태 신호 보내기",
 
   "status.canceled": "취소됨",
   "status.checkingRequest": "요청 확인 중",

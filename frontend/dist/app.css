@@ -35,6 +35,12 @@
   --scrim: rgba(0, 0, 0, 0.28);
   --card: #ffffff;
   --card-shadow: 0 12px 40px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  /* Free-tier health levels: muted, so a dot that is always there stays
+     calm. The level is always also written out. */
+  --level-good: #5c9e78;
+  --level-shaky: #c9a43a;
+  --level-poor: #d4843a;
+  --level-bad: #c9524c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -71,6 +77,10 @@
     --scrim: rgba(0, 0, 0, 0.45);
     --card: #2a2a2c;
     --card-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+    --level-good: #5fb487;
+    --level-shaky: #d6b552;
+    --level-poor: #e09550;
+    --level-bad: #e0665f;
   }
 }
 
@@ -125,6 +135,7 @@
   /* These edges were drawn by --card-shadow and --menu-shadow; forced
      colours drops box-shadow. */
   .menu,
+  .popover,
   .modal-card {
     border: 1px solid CanvasText;
   }
@@ -315,11 +326,40 @@ button {
 }
 
 .topbar-center {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
+
+/* The health dot sits over the Free segment's left padding (Free is the
+   toggle's first segment, at the start of this box). It is its own button,
+   not part of the segment, so it never switches the mode. */
+.health-dot {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+}
+
+#mode-toggle.has-health button[data-mode="free"] {
+  padding-left: 22px;
+}
+
+[data-level="good"] .dot { color: var(--level-good); }
+[data-level="shaky"] .dot { color: var(--level-shaky); }
+[data-level="poor"] .dot { color: var(--level-poor); }
+[data-level="bad"] .dot { color: var(--level-bad); }
 
 .segmented {
   display: inline-flex;
@@ -752,6 +792,53 @@ button {
   flex-grow: 0;
 }
 
+/* ── Health row ───────────────────────────────────────────── */
+
+/* One quiet line under the list: the free tier's level and success rate.
+   Its hairline also stands in for the footer's. */
+.health-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--gutter);
+  border: none;
+  border-top: var(--hairline) solid var(--separator);
+  background: none;
+  color: var(--secondary);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  transition: background-color 0.12s ease;
+}
+
+.health-row .dot {
+  flex-basis: 6px;
+  width: 6px;
+  height: 6px;
+}
+
+.health-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.health-row-rate {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-row.is-hover,
+.health-row[aria-expanded="true"] {
+  background: var(--hover);
+}
+
+.health-row:focus-visible {
+  outline-offset: -2px;
+}
+
 /* ── Empty state ──────────────────────────────────────────── */
 
 .empty {
@@ -825,6 +912,26 @@ button {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
+}
+
+/* Under the meta: the free tier's state, when it explains a stopped item. */
+.pane-health {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.pane-health .dot {
+  flex-basis: 6px;
+  width: 6px;
+  height: 6px;
+}
+
+/* The others-failing line is the longest; it wraps rather than cut off the
+   "try again later" that matters. */
+.pane-health span {
+  white-space: normal;
 }
 
 .pane-actions {
@@ -940,7 +1047,7 @@ button {
 
 /* The footer is part of the same surface. Its hairline shows only while
    more rows are hidden below the fold. */
-#app.is-more-below:not(.has-pane) .footer {
+#app.is-more-below:not(.has-pane):not(.has-health) .footer {
   border-top-color: var(--separator);
 }
 
@@ -964,7 +1071,8 @@ button {
 
 /* ── Context menu ─────────────────────────────────────────── */
 
-.menu {
+.menu,
+.popover {
   position: fixed;
   z-index: 90;
   min-width: 168px;
@@ -1012,6 +1120,39 @@ button {
   margin: 5px 10px;
   border: none;
   background: var(--separator);
+}
+
+/* ── Health popover ───────────────────────────────────────── */
+
+/* The menu's surface, holding three short lines and a link. The lines
+   after the title start under its text, past the dot. */
+.health-pop {
+  min-width: 200px;
+  max-width: 300px;
+  padding: 10px 14px 9px 12px;
+  white-space: nowrap;
+}
+
+.health-pop p {
+  margin: 0;
+}
+
+.health-pop-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+
+.health-pop .health-pop-line {
+  margin-top: 2px;
+  padding-left: 14px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.health-pop .text-button {
+  margin: 6px 0 0 14px;
 }
 
 /* ── Sheets ───────────────────────────────────────────────── */
@@ -1287,6 +1428,72 @@ button {
   margin: 0;
   color: var(--danger-text);
   font-size: 12px;
+}
+
+/* A setting under the key form: label, its "?" and a switch on one line;
+   the explanation opens below on the "?". */
+.setting {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: var(--hairline) solid var(--separator);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+}
+
+.setting-label {
+  font-size: 13px;
+}
+
+.info-button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--tertiary);
+  transition: color 0.12s ease;
+}
+
+.info-button.is-hover,
+.info-button[aria-expanded="true"] {
+  color: var(--secondary);
+}
+
+.setting-note {
+  margin: 4px 0 0;
+  color: var(--secondary);
+  font-size: 12px;
+}
+
+/* macOS-style small switch. The knob is a gradient: inputs have no
+   reliable pseudo-elements. */
+.switch {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 18px;
+  margin: 0 0 0 auto;
+  border-radius: 9px;
+  background: var(--fill-strong) radial-gradient(circle, #ffffff 0 6.5px, transparent 7px) left center / 18px 18px no-repeat;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background-color 0.15s ease, background-position 0.15s ease;
+}
+
+.switch:checked {
+  background-color: var(--accent-fill);
+  background-position: right center;
+}
+
+.switch:focus-visible {
+  outline-offset: 2px;
 }
 
 .primary-button {

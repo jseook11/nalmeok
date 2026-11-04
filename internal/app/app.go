@@ -16,6 +16,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/media"
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
+	"github.com/jseook11/nalmeok/internal/telemetry"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -114,6 +115,10 @@ type App struct {
 	// (output.ArchivePath), read when the .md next to the source is gone.
 	// main sets it before Startup; empty keeps no copies.
 	TranscriptsDir string
+
+	// Telemetry sends the anonymous free-key health signals and reads the
+	// shared status. main sets it; nil (preview mode, tests) sends nothing.
+	Telemetry *telemetry.Client
 }
 
 // New wires the app. The store's change callback emits "items:changed".
@@ -623,6 +628,49 @@ func (a *App) SetMode(mode string) error {
 		return i18n.Error("error.badMode")
 	}
 	return a.cfg.SetMode(mode)
+}
+
+// SignalsEnabled reports whether anonymous free-key health signals are sent.
+func (a *App) SignalsEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return true
+	}
+	return a.cfg.SignalsEnabled()
+}
+
+// SetSignalsEnabled stores the signals setting. The telemetry client reads
+// config.json on every event, so the change applies right away.
+func (a *App) SetSignalsEnabled(on bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	return a.cfg.SetSignalsEnabled(on)
+}
+
+// FreeStatus returns how well the free and Batch tiers work right now for
+// everyone, as judged by the download site from all apps' signals.
+func (a *App) FreeStatus() (telemetry.Status, error) {
+	ctx := a.context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	st, err := a.Telemetry.Status(ctx)
+	if err != nil {
+		return st, err
+	}
+	// No client (dev build, signals off by environment) gives an empty
+	// status; the window shows it like a status without enough data.
+	if st.Free.Level == "" {
+		st.Free.Level = "unknown"
+	}
+	if st.Batch.Level == "" {
+		st.Batch.Level = "unknown"
+	}
+	return st, nil
 }
 
 // Keys returns the read-only environment key (if any) first, then saved keys
