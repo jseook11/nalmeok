@@ -647,6 +647,16 @@ func TestMoovAtEnd(t *testing.T) {
 	}
 }
 
+// writeTemp writes data to a new file name in a test temp dir.
+func writeTemp(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)

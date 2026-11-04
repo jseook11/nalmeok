@@ -78,15 +78,6 @@ func synthOgg(codec string, n int) (data []byte, preskip, rate int64) {
 	return data, preskip, rate
 }
 
-func writeTemp(t *testing.T, name string, data []byte) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 // readOggPages reads every page of path, failing on any invalid page.
 func readOggPages(t *testing.T, path string) []oggPage {
 	t.Helper()

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -43,15 +42,6 @@ func synthADTS(frames int, crc bool) ([]byte, [][]byte) {
 		data = append(data, adtsFrame(1, 3, 2, 0, crc, p)...)
 	}
 	return data, payloads
-}
-
-func writeTemp(t *testing.T, name string, data []byte) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(p, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
 }
 
 // payloads returns the samples of t read from path, in order.
