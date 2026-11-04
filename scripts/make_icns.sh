@@ -4,6 +4,7 @@
 # artwork assets/nalmeok-art.png:
 #   uv run --no-project --with pillow python -I scripts/make_icon_master.py \
 #     assets/nalmeok-art.png assets/nalmeok.png assets/nalmeok.ico
+# Store MSIX logos: uv run --no-project --with pillow python -I scripts/make_msix_assets.py assets/nalmeok.png packaging/windows/Assets
 # All generated files are committed; run this only when the artwork changes.
 set -eu
 

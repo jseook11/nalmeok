@@ -38,11 +38,28 @@ func toastScript(appID, displayName, iconPath, message string) string {
 		b.WriteString("  New-ItemProperty -Path $k -Name IconUri -Value " + psQuote(iconPath) + " -PropertyType String -Force | Out-Null\n")
 	}
 	b.WriteString("} catch { $id = " + psQuote(powershellAppID) + " }\n")
+	writeToastShow(&b, message)
+	return b.String()
+}
+
+// packagedToastScript is toastScript for the MSIX build. The package already
+// gives the app an AppUserModelID with its name and logo (Start-menu entry),
+// so nothing is registered: HKCU writes from a packaged app are virtualized
+// and the notification platform would not see them.
+func packagedToastScript(appID, message string) string {
+	var b strings.Builder
+	b.WriteString("$ErrorActionPreference = 'Stop'\n")
+	b.WriteString("$id = " + psQuote(appID) + "\n")
+	writeToastShow(&b, message)
+	return b.String()
+}
+
+// writeToastShow appends the lines that show message under the app ID in $id.
+func writeToastShow(b *strings.Builder, message string) {
 	b.WriteString("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n")
 	b.WriteString("$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01)\n")
 	b.WriteString("$x.GetElementsByTagName('text').Item(0).AppendChild($x.CreateTextNode(" + psQuote(message) + ")) | Out-Null\n")
 	b.WriteString("[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($id).Show([Windows.UI.Notifications.ToastNotification]::new($x))\n")
-	return b.String()
 }
 
 // psQuote makes a PowerShell single-quoted string. PowerShell also treats

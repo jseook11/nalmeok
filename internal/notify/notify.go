@@ -8,6 +8,7 @@
 //     UNUserNotificationCenter throws without a bundle identifier.
 //   - Windows: a toast through PowerShell's WinRT bridge, under an app ID
 //     registered for the current user (no installer, no extra packages).
+//     The Store (MSIX) build uses the app ID its package provides instead.
 //   - elsewhere: nothing.
 //
 // Send never waits for the notification to be shown.

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"github.com/jseook11/nalmeok/assets"
 )
@@ -19,7 +20,10 @@ import (
 const createNoWindow = 0x08000000
 
 func send(title, message string) {
-	script := toastScript(windowsAppID, "Nalmeok", toastIcon(), message)
+	script := packagedToastScript(packageAppID(), message)
+	if packageAppID() == "" {
+		script = toastScript(windowsAppID, "Nalmeok", toastIcon(), message)
+	}
 	cmd := exec.Command(powershellPath(),
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-EncodedCommand", encodePowerShell(script))
@@ -66,4 +70,23 @@ var toastIcon = sync.OnceValue(func() string {
 		return ""
 	}
 	return path
+})
+
+// packageAppID returns the AppUserModelID Windows gave this process from its
+// MSIX package (<PackageFamilyName>!App), or "" for the portable exe.
+var packageAppID = sync.OnceValue(func() string {
+	proc := syscall.NewLazyDLL("kernel32.dll").NewProc("GetCurrentApplicationUserModelId")
+	if proc.Find() != nil {
+		return ""
+	}
+	const errorSuccess, errorInsufficientBuffer = 0, 122
+	n := uint32(0)
+	if r, _, _ := proc.Call(uintptr(unsafe.Pointer(&n)), 0); r != errorInsufficientBuffer || n == 0 {
+		return "" // APPMODEL_ERROR_NO_APPLICATION: not packaged
+	}
+	buf := make([]uint16, n)
+	if r, _, _ := proc.Call(uintptr(unsafe.Pointer(&n)), uintptr(unsafe.Pointer(&buf[0]))); r != errorSuccess {
+		return ""
+	}
+	return syscall.UTF16ToString(buf)
 })
