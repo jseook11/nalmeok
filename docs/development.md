@@ -119,7 +119,7 @@ build/nalmeok --version
 Gemini 요청 결과를 익명으로 모아 `https://nalmeok.seook.dev`의 `POST /api/signal`로 보낸다. 사이트가 모든 앱의 신호로 무료·Batch가 지금 잘 되는지 판단해 `/status/` 페이지와 `GET /api/status`로 내놓고, 앱은 `App.FreeStatus`로 그것을 읽는다. 사용자 설명은 `usage.md`의 "앱이 보내는 정보"에 있다.
 
 - 기록 위치(`internal/runner`, `Options.Signal`, nil이면 기록하지 않음): 무료는 `freeAttempt`의 `Generate` 시도마다 한 건(`attempt`는 같은 요청의 1부터 센 재시도 번호)과 업로드 실패 한 건. Batch는 업로드 실패, 작업 제출(`SubmitBatch`) 한 건, 끝난 작업 한 건(성공 `ok`, 실패 `other`, 만료 `timeout`, 차단 `blocked`; 사용자가 취소한 작업은 빼고, 상태 확인 실패는 다시 확인하므로 기록하지 않는다).
-- 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(`MAX_TOKENS`, 다른 중단 이유)는 `other`.
+- 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(텍스트 없이 `MAX_TOKENS`, 다른 중단 이유)는 `other`. 텍스트가 있는 `MAX_TOKENS`는 잘린 채 저장하므로 `ok`.
 - 키, 경로, 전사 내용, 오류 메시지는 보내지 않는다. 설치 ID는 UTC 날짜마다 새로 만들어 `<설정 폴더>/signal-id.json`에 둔다.
 - `under_quota`(무료 429에만): 실행기는 키마다 RPM·TPM 아래로 간격을 둔다(`gap()`). 그러니 429는 하루 한도이거나 Google이 부하를 덜어 내는 경우다. 실행기가 키마다 이번 할당 날(미국 태평양 자정 기준, tzdata 없이 UTC-8 고정)에 보낸 `Generate` 수를 메모리에 세고, 이번 요청 전 수가 `freeDailyRequestsFloor`(20, 무료 등급 하루 요청 수의 보수적 하한)보다 적으면 true다. 앱 자신의 수라서 같은 키를 쓰는 다른 앱은 보이지 않고, 다시 켜면 0부터 센다.
 - 상태 조회(`telemetry.Status`, 60초 캐시): 신호가 켜져 있으면 `GET /api/status?install=<오늘 ID>`로 묻는다. 서버가 그 ID를 뺀 최근 1시간 무료 실패 설치 수를 `free.others_failing`으로 더해 준다(ID는 저장하지 않음). 무료 항목이 실패했을 때 "다른 사용자도 실패 중"을 보여 주는 근거다. 꺼져 있으면 ID 없이 묻고 그 필드는 없다. 서버의 판정 기준(60분·8건·2곳, 모자라면 360분)은 nalmeok-web README에 있다.
