@@ -28,6 +28,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
+	"github.com/jseook11/nalmeok/internal/telemetry"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -99,33 +100,44 @@ func filterPSNArgs(args []string) []string {
 	return out
 }
 
-// newRuntime wires the config, history and runner shared by the GUI and CLI.
-func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
+// newRuntime wires the config, history, runner and health signals shared by
+// the GUI and CLI. The signals client is already started; callers Close it.
+func newRuntime() (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	itemsPath, err := config.ItemsPath()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	history, err := store.Load(itemsPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	workDir, err := config.WorkDir()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	transcriptsDir, err := config.TranscriptsDir()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	logPath, err := config.LogPath()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
+	dir, err := config.Dir()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	signals := telemetry.New(telemetry.Options{
+		App:     version,
+		Dir:     dir,
+		Enabled: signalsEnabled,
+	})
+	signals.Start()
 	engine := runner.New(runner.Options{
 		Store:          history,
 		Media:          runner.DefaultMedia{},
@@ -136,8 +148,29 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, error) {
 		UnitMaxSeconds: plan.UnitMaxSeconds,
 		EarlyEstimate:  true,
 		Notify:         notify.Send,
+		Signal:         signals.Record,
 	})
-	return cfg, history, engine, nil
+	return cfg, history, engine, signals, nil
+}
+
+// signalsEnabled re-reads config.json, so turning signals off in settings
+// (or in another process) applies to the next event. The file is written
+// atomically, so a read never sees half a file. config.Load treats an
+// unreadable file as empty (signals on), so a file that exists but cannot be
+// read right now (Windows sharing during a save) sends nothing instead.
+func signalsEnabled() bool {
+	path, err := config.ConfigPath()
+	if err != nil {
+		return false
+	}
+	if _, err := os.ReadFile(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return false
+	}
+	return cfg.SignalsEnabled()
 }
 
 func runGUI() {
@@ -150,13 +183,15 @@ func runGUI() {
 		defer folderLock.Close()
 	}
 
-	cfg, history, engine, err := newRuntime()
+	cfg, history, engine, signals, err := newRuntime()
 	if err != nil {
 		log.Fatal(err)
 	}
 	// The app closes the engine on shutdown; this also covers preview mode,
 	// where the engine is never handed to the app. Close is idempotent.
 	defer engine.Close()
+	// Sends what is still queued, waiting at most 2 s.
+	defer signals.Close()
 
 	var application *app.App
 	var onDomReady func(context.Context)
@@ -182,6 +217,7 @@ func runGUI() {
 	} else {
 		application = app.New(cfg, history, engine)
 		application.ValidateKey = gemini.ValidateKey
+		application.Telemetry = signals
 	}
 	transcriptsDir, err := config.TranscriptsDir()
 	if err != nil {
@@ -318,12 +354,13 @@ func runCLI(args []string) int {
 	}
 	defer folderLock.Close()
 
-	cfg, history, engine, err := newRuntime()
+	cfg, history, engine, signals, err := newRuntime()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	defer engine.Close()
+	defer signals.Close()
 
 	flags := flag.NewFlagSet("nalmeok", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)

@@ -31,6 +31,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/store"
+	"github.com/jseook11/nalmeok/internal/telemetry"
 )
 
 // Item states.
@@ -55,6 +56,10 @@ const (
 	freeTPM               = 250_000
 	freeRPM               = 5
 	rateTokensPerSecond   = 32
+	// freeDailyRequestsFloor is a conservative floor of the free tier's
+	// requests per day. A 429 before a key has sent this many requests today
+	// is not the daily quota, since gap() keeps each key under RPM and TPM.
+	freeDailyRequestsFloor = 20
 	// Reference PDFs are copied into the work directory as
 	// reference-001.pdf, reference-002.pdf, … in the order chosen. Work
 	// directories made before several PDFs were allowed hold reference.pdf;
@@ -140,6 +145,9 @@ type Options struct {
 	// audio length and paid estimate before its turn comes. Off in tests,
 	// which count scans.
 	EarlyEstimate bool
+	// Signal receives the anonymous outcome of every Gemini request
+	// (telemetry.Client.Record). nil records nothing.
+	Signal func(telemetry.Event)
 }
 
 // Runner implements app.Runner.
@@ -154,6 +162,9 @@ type Runner struct {
 	started   bool
 	clients   map[string]gemini.Client
 	lastStart map[string]time.Time
+	// freeSent counts Generate requests per free key in the current quota
+	// day, for the under_quota signal.
+	freeSent map[string]dailyCount
 
 	pollMu sync.Mutex // serializes Batch polling with Batch cancellation
 }
@@ -199,6 +210,7 @@ func New(opts Options) *Runner {
 		pollNow:   make(chan struct{}, 1),
 		clients:   make(map[string]gemini.Client),
 		lastStart: make(map[string]time.Time),
+		freeSent:  make(map[string]dailyCount),
 	}
 	r.log = log.New(io.Discard, "", log.LstdFlags)
 	if opts.LogPath != "" {
@@ -1158,6 +1170,8 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	}
 	req, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
 	if err != nil {
+		// The upload retries on its own; its failure is one event.
+		r.signal(ctx, "free", 1, err, r.freeUnderQuota(key.ID, false))
 		if outcome, ok := keyFailure(err); ok {
 			return gemini.Result{}, outcome, nil
 		}
@@ -1169,16 +1183,24 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 
 	r.setDetail(id, i18n.T("status.transcribing"))
 	var res gemini.Result
+	attempt := 0
 	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail()) }, func() error {
 		r.mu.Lock()
 		r.lastStart[key.ID] = r.opts.Now()
 		r.mu.Unlock()
+		attempt++
+		under := r.freeUnderQuota(key.ID, true)
 		var genErr error
 		res, genErr = client.Generate(ctx, req)
 		if genErr == nil && strings.TrimSpace(res.Text) == "" && (res.Finish == "" || res.Finish == gemini.FinishStop) {
 			// An empty answer with no reason comes from an overloaded
 			// server; the same request usually works when sent again.
 			genErr = &gemini.EmptyResponseError{Finish: res.Finish, Usage: "no usage"}
+		}
+		if genErr != nil {
+			r.signal(ctx, "free", attempt, genErr, under)
+		} else {
+			r.signal(ctx, "free", attempt, checkText(res.Text, res.Finish), nil)
 		}
 		return genErr
 	})
@@ -1204,6 +1226,80 @@ func keyFailure(err error) (keyOutcome, bool) {
 		return keyRejected, true
 	}
 	return keyOK, false
+}
+
+// signal records the outcome of one Gemini request. A canceled request says
+// nothing about the service and is left out. Only the outcome, HTTP status
+// and attempt leave the app; never keys, paths, text or error messages.
+func (r *Runner) signal(ctx context.Context, mode string, attempt int, err error, underQuota *bool) {
+	if r.opts.Signal == nil || ctx.Err() != nil {
+		return
+	}
+	var outcome string
+	var code int
+	var be blockedError
+	var ue userError
+	switch {
+	case errors.As(err, &be):
+		outcome = telemetry.Blocked
+	case errors.As(err, &ue):
+		// checkText: an answer came back but is unusable (cut off, or
+		// stopped for another reason).
+		outcome = telemetry.Other
+	default:
+		outcome, code = telemetry.Classify(err)
+	}
+	r.signalOutcome(mode, attempt, outcome, code, underQuota)
+}
+
+func (r *Runner) signalOutcome(mode string, attempt int, outcome string, code int, underQuota *bool) {
+	if r.opts.Signal == nil || outcome == "" {
+		return
+	}
+	if outcome != telemetry.RateLimited {
+		underQuota = nil
+	}
+	r.opts.Signal(telemetry.Event{
+		Time:       r.opts.Now(),
+		Mode:       mode,
+		Outcome:    outcome,
+		Code:       code,
+		UnderQuota: underQuota,
+		Attempt:    attempt,
+	})
+}
+
+// dailyCount is one free key's request count in one quota day.
+type dailyCount struct {
+	day string
+	n   int
+}
+
+// quotaDay names the free-tier quota day of t. Gemini's daily quotas reset at
+// midnight US Pacific; a fixed UTC-8 avoids loading tzdata, and the hour it
+// is off during daylight saving only matters around midnight.
+func quotaDay(t time.Time) string {
+	return t.UTC().Add(-8 * time.Hour).Format("2006-01-02")
+}
+
+// freeUnderQuota reports whether keyID had sent fewer than
+// freeDailyRequestsFloor requests this quota day before this one; count adds
+// this request. It is this app's own count: another app using the same key
+// is not seen, and a restart starts from zero.
+func (r *Runner) freeUnderQuota(keyID string, count bool) *bool {
+	day := quotaDay(r.opts.Now())
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.freeSent[keyID]
+	if c.day != day {
+		c = dailyCount{day: day}
+	}
+	under := c.n < freeDailyRequestsFloor
+	if count {
+		c.n++
+	}
+	r.freeSent[keyID] = c
+	return &under
 }
 
 // retryDetail is the item detail while a busy server is retried.
@@ -1516,6 +1612,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		}
 		up, err := r.upload(ctx, client, f.path, f.mime)
 		if err != nil {
+			r.signal(ctx, "batch", 1, err, nil)
 			return err
 		}
 		uploads[f.path] = up
@@ -1552,6 +1649,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		return err
 	}
 	name, err := client.SubmitBatch(ctx, reqs, marker)
+	r.signal(ctx, "batch", 1, err, nil)
 	if err != nil {
 		r.logf("item %s batch create (%s): %v", id, marker, r.redact(err))
 		return err
@@ -1666,12 +1764,16 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 	case gemini.BatchPending, gemini.BatchRunning:
 		return
 	case gemini.BatchFailed:
+		r.signalOutcome("batch", 1, telemetry.Other, 0, nil)
 		r.batchFail(id, i18n.T("error.batchFailed"))
 		return
 	case gemini.BatchCancelled:
+		// Canceled by the user: says nothing about how Batch works.
 		r.batchFail(id, i18n.T("error.batchCanceled"))
 		return
 	case gemini.BatchExpired:
+		// The job did not finish within the server's 48 h window.
+		r.signalOutcome("batch", 1, telemetry.Timeout, 0, nil)
 		r.batchFail(id, i18n.T("error.batchExpired"))
 		return
 	}
@@ -1747,6 +1849,15 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 	if err != nil {
 		r.logf("item %s save batch results: %v", id, err)
 		return
+	}
+	// One event per finished job, like the job's own state.
+	switch {
+	case blocked:
+		r.signalOutcome("batch", 1, telemetry.Blocked, 0, nil)
+	case failed > 0:
+		r.signalOutcome("batch", 1, telemetry.Other, 0, nil)
+	default:
+		r.signalOutcome("batch", 1, telemetry.OK, 0, nil)
 	}
 	if failed > 0 {
 		if blocked {

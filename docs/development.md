@@ -17,7 +17,7 @@ Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode)
+internal/config     설정 폴더, config.json(키·gui.mode·signals)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(130분), 예상 비용
@@ -25,6 +25,7 @@ internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
 internal/app        Wails 바인딩
+internal/telemetry  무료 키 상태 신호: 요청 결과를 모아 사이트로 보내고, 전체 상태를 읽는다 (아래 "상태 신호")
 internal/notify     완료 알림: macOS 앱 번들은 UNUserNotificationCenter, 번들 밖은 osascript, Windows는 토스트
 internal/i18n       문구 카탈로그 읽기: T(키), Error(키)
 frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
@@ -110,6 +111,18 @@ build/nalmeok --version
 ```
 
 실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다.
+
+### 상태 신호
+
+Gemini 요청 결과를 익명으로 모아 `https://nalmeok.seook.dev`의 `POST /api/signal`로 보낸다. 사이트가 모든 앱의 신호로 무료·Batch가 지금 잘 되는지 판단해 `/status/` 페이지와 `GET /api/status`로 내놓고, 앱은 `App.FreeStatus`로 그것을 읽는다. 사용자 설명은 `usage.md`의 "앱이 보내는 정보"에 있다.
+
+- 기록 위치(`internal/runner`, `Options.Signal`, nil이면 기록하지 않음): 무료는 `freeAttempt`의 `Generate` 시도마다 한 건(`attempt`는 같은 요청의 1부터 센 재시도 번호)과 업로드 실패 한 건. Batch는 업로드 실패, 작업 제출(`SubmitBatch`) 한 건, 끝난 작업 한 건(성공 `ok`, 실패 `other`, 만료 `timeout`, 차단 `blocked`; 사용자가 취소한 작업은 빼고, 상태 확인 실패는 다시 확인하므로 기록하지 않는다).
+- 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(`MAX_TOKENS`, 다른 중단 이유)는 `other`.
+- 키, 경로, 전사 내용, 오류 메시지는 보내지 않는다. 설치 ID는 UTC 날짜마다 새로 만들어 `<설정 폴더>/signal-id.json`에 둔다.
+- `under_quota`(무료 429에만): 실행기는 키마다 RPM·TPM 아래로 간격을 둔다(`gap()`). 그러니 429는 하루 한도이거나 Google이 부하를 덜어 내는 경우다. 실행기가 키마다 이번 할당 날(미국 태평양 자정 기준, tzdata 없이 UTC-8 고정)에 보낸 `Generate` 수를 메모리에 세고, 이번 요청 전 수가 `freeDailyRequestsFloor`(20, 무료 등급 하루 요청 수의 보수적 하한)보다 적으면 true다. 앱 자신의 수라서 같은 키를 쓰는 다른 앱은 보이지 않고, 다시 켜면 0부터 센다.
+- 끄기: 설정의 "무료 키 상태 신호 보내기"(`config.json`의 `"signals": false`, 없으면 켜짐). `telemetry.Client`는 이벤트·전송마다 `config.json`을 다시 읽어 바로 따른다. 환경변수 `NALMEOK_SIGNALS=0`이면 아예 만들지 않는다.
+- 개발 빌드(버전이 `-dev`로 끝남)는 보내지 않는다. `NALMEOK_SIGNAL_URL=<base URL>`을 주면 개발 빌드도 그 주소로 보낸다(로컬 Worker 시험용). 미리보기(`NALMEOK_UI_PREVIEW=1`)는 상태를 읽지 않는다.
+- 전송은 30초마다 또는 50건이 모이면 한 번. 실패하면 그 묶음은 버리고 다시 보내지 않는다. 종료 때 남은 것을 최대 2초 기다려 보낸다. CLI 실행도 같은 규칙으로 보낸다.
 
 ### 문구 (문자열 카탈로그)
 

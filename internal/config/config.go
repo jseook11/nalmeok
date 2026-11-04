@@ -362,6 +362,37 @@ func (c *Config) SetPane(open bool) error {
 	return nil
 }
 
+// SignalsEnabled reports whether the app sends anonymous free-key health
+// signals (top-level "signals"). On unless the user turned it off, so a
+// missing or unreadable value counts as on.
+func (c *Config) SignalsEnabled() bool {
+	var on bool
+	if err := json.Unmarshal(c.raw["signals"], &on); err != nil {
+		return true
+	}
+	return on
+}
+
+// SetSignalsEnabled stores and immediately persists the signals setting.
+func (c *Config) SetSignalsEnabled(on bool) error {
+	c.reload()
+	value, err := json.Marshal(on)
+	if err != nil {
+		return err
+	}
+	previous, had := c.raw["signals"]
+	c.raw["signals"] = value
+	if err := c.Save(); err != nil {
+		if had {
+			c.raw["signals"] = previous
+		} else {
+			delete(c.raw, "signals")
+		}
+		return err
+	}
+	return nil
+}
+
 // Tiers reports which processing tiers have at least one key.
 func (c *Config) Tiers() (free, paid bool) {
 	for _, key := range c.AllKeys() {
