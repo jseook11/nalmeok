@@ -40,7 +40,7 @@ import (
 
 // version is overridden at build time with
 // -ldflags "-X main.version=...".
-var version = "0.10.0-dev"
+var version = "0.10.1-dev"
 
 func main() {
 	// The GUI has no reliable locale in its environment when launched from
