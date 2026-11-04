@@ -173,6 +173,29 @@ func (t *mp4Track) writeM4A(path string, reader *windowReader, from, to int, tic
 	return pw.commit()
 }
 
+// writeMP3 writes samples [from, to) back to back: MP3 samples in an MP4
+// are complete MP3 frames, which on their own form a valid MP3 file.
+func (t *mp4Track) writeMP3(path string, reader *windowReader, from, to int, _ uint64) error {
+	pw, err := createPiece(path)
+	if err != nil {
+		return err
+	}
+	bw := bufio.NewWriterSize(pw, 256<<10)
+	for i := from; i < to; i++ {
+		data, err := reader.sample(i)
+		if err != nil {
+			pw.abort()
+			return err
+		}
+		bw.Write(data)
+	}
+	if err := bw.Flush(); err != nil {
+		pw.abort()
+		return err
+	}
+	return pw.commit()
+}
+
 func prepareMP4(path, dir string, maxSeconds float64) ([]Piece, error) {
 	t, err := parseMP4(path)
 	if err != nil {
@@ -210,7 +233,12 @@ func remuxPieces(t *mp4Track, path, dir string, maxSeconds float64) ([]Piece, er
 			MIME:    "audio/m4a",
 			Seconds: float64(ticks) / float64(t.timescale),
 		}
-		if err := t.writeM4A(piece.Path, reader, from, i, ticks); err != nil {
+		write := t.writeM4A
+		if t.mp3 {
+			piece.Path, piece.MIME = piecePath(dir, path, len(pieces)+1, ".mp3"), "audio/mp3"
+			write = t.writeMP3
+		}
+		if err := write(piece.Path, reader, from, i, ticks); err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
 		}
 		pieces = append(pieces, piece)

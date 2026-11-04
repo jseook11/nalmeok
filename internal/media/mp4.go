@@ -31,12 +31,15 @@ type mp4Track struct {
 	edited    float64 // presentation length from the edit list (0 if none)
 	// sampleEntry is the source mp4a box (with esds), copied verbatim into pieces.
 	sampleEntry []byte
-	profile     int // ADTS profile = AAC object type - 1
-	srIndex     int
-	channels    int
-	sizes       []uint32
-	offsets     []int64
-	deltas      []uint32
+	// mp3 marks MPEG audio (layer III) samples: they are whole MP3 frames,
+	// so pieces are written as plain MP3 instead of M4A.
+	mp3      bool
+	profile  int // ADTS profile = AAC object type - 1
+	srIndex  int
+	channels int
+	sizes    []uint32
+	offsets  []int64
+	deltas   []uint32
 }
 
 func (t *mp4Track) ticks() uint64 {
@@ -327,11 +330,15 @@ func parseAudioTrak(trak []byte, fragmented bool) (*mp4Track, error) {
 	if err != nil || len(entries) == 0 {
 		return nil, errMP4(i18n.T("mp4.bad", "box", "stsd"))
 	}
-	if entries[0].typ != "mp4a" {
+	switch entries[0].typ {
+	case "mp4a":
+		if err := t.parseMP4A(entries[0].body); err != nil {
+			return nil, err
+		}
+	case ".mp3": // QuickTime's MP3 sample entry
+		t.mp3 = true
+	default:
 		return nil, fmt.Errorf("%w (%s)", ErrNotAAC, entries[0].typ)
-	}
-	if err := t.parseMP4A(entries[0].body); err != nil {
-		return nil, err
 	}
 	t.sampleEntry = mp4Box("mp4a", entries[0].body)
 	if err := t.parseSampleTable(stbl, fragmented); err != nil {
@@ -359,9 +366,13 @@ func (t *mp4Track) parseMP4A(b []byte) error {
 	if esds == nil {
 		return errMP4(i18n.T("mp4.missing", "box", "esds"))
 	}
-	asc, err := decoderSpecificInfo(esds)
+	objectType, asc, err := decoderSpecificInfo(esds)
 	if err != nil {
 		return err
+	}
+	if objectType == 0x69 || objectType == 0x6B { // MPEG-2 / MPEG-1 audio
+		t.mp3 = true
+		return nil
 	}
 	return t.parseASC(asc)
 }
@@ -405,68 +416,72 @@ func readDescriptor(b []byte) (byte, []byte, []byte, error) {
 	return tag, b[i : i+n], b[i+n:], nil
 }
 
-func decoderSpecificInfo(esds []byte) ([]byte, error) {
+// decoderSpecificInfo returns the DecoderConfig object type and, for AAC,
+// its AudioSpecificConfig.
+func decoderSpecificInfo(esds []byte) (byte, []byte, error) {
 	if len(esds) < 4 {
-		return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+		return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 	}
 	tag, es, _, err := readDescriptor(esds[4:])
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if tag != 0x03 || len(es) < 3 {
-		return nil, errMP4(i18n.T("mp4.missing", "box", "ES_Descriptor"))
+		return 0, nil, errMP4(i18n.T("mp4.missing", "box", "ES_Descriptor"))
 	}
 	flags := es[2]
 	es = es[3:]
 	if flags&0x80 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
 	if flags&0x40 != 0 {
 		if len(es) < 1 || len(es) < 1+int(es[0]) {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[1+int(es[0]):]
 	}
 	if flags&0x20 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
 	for len(es) > 0 {
 		tag, body, rest, err := readDescriptor(es)
 		if err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 		es = rest
 		if tag != 0x04 {
 			continue
 		}
 		if len(body) < 13 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "DecoderConfig"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "DecoderConfig"))
 		}
 		switch body[0] {
 		case 0x40, 0x66, 0x67, 0x68: // MPEG-4 audio, MPEG-2 AAC main/LC/SSR
+		case 0x69, 0x6B: // MPEG-2 / MPEG-1 audio: no AudioSpecificConfig
+			return body[0], nil, nil
 		default:
-			return nil, fmt.Errorf("%w (objectType 0x%02x)", ErrNotAAC, body[0])
+			return 0, nil, fmt.Errorf("%w (objectType 0x%02x)", ErrNotAAC, body[0])
 		}
 		sub := body[13:]
 		for len(sub) > 0 {
 			tag, dsi, rest, err := readDescriptor(sub)
 			if err != nil {
-				return nil, err
+				return 0, nil, err
 			}
 			if tag == 0x05 {
-				return dsi, nil
+				return body[0], dsi, nil
 			}
 			sub = rest
 		}
-		return nil, errMP4(i18n.T("mp4.missing", "box", "AudioSpecificConfig"))
+		return 0, nil, errMP4(i18n.T("mp4.missing", "box", "AudioSpecificConfig"))
 	}
-	return nil, errMP4(i18n.T("mp4.missing", "box", "DecoderConfig"))
+	return 0, nil, errMP4(i18n.T("mp4.missing", "box", "DecoderConfig"))
 }
 
 type bitReader struct {
