@@ -57,6 +57,22 @@ CI는 `.github/workflows/`에서 돈다. macOS·Windows에서 `gofmt`·`go vet`�
 
 서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 둘 다 있으면 공증·staple 뒤 `ditto -c -k --keepParent`로 `dist/Nalmeok-<version>-macos-universal.zip`을 만들고, `dist/SHA256SUMS.txt`의 macOS ZIP 줄도 갱신한다(Windows 실행 파일 줄은 유지). 없으면 임시 서명(ad-hoc)한 `.app`만 만들고 `dist/`에는 쓰지 않는다.
 
+### Store판 (MSIX)
+
+Microsoft Store 제출물은 x64·arm64를 묶은 `Nalmeok-<version>-windows.msixbundle`이다. exe는 macOS·Linux에서 `scripts/build_windows_app.sh`로 만들거나 CI 아티팩트를 받아 `build/windows/`에 둔다. 그다음 Windows(SDK 설치됨)에서 아래를 돌린다. 결과는 `dist/`에 남는다.
+
+```powershell
+scripts/package_windows_msix.ps1 [-Version x.y.z] [-Register]
+```
+
+- 매니페스트 템플릿은 `packaging/windows/AppxManifest.xml`, 로고는 `packaging/windows/Assets/`다. 로고는 `scripts/make_msix_assets.py`로 만들고 결과물을 커밋한다(위 아이콘 절차와 같다).
+- 패키지 버전은 네 자리이고 마지막은 0이다(`<version>.0`). `-Version`을 생략하면 `scripts/build_windows_app.sh`의 기본 버전을 읽는다.
+- identity 값은 Partner Center의 **Product identity**에서 가져온다. `-IdentityName`·`-Publisher`로 넘기거나 `NALMEOK_MSIX_NAME`·`NALMEOK_MSIX_PUBLISHER`에 넣는다. 비밀 값은 아니다. 기본값(`seook.Nalmeok.Dev`, `CN=seook-dev`)은 시험용이라 Store가 거부한다.
+- 서명은 Store가 한다. 스크립트는 서명하지 않고, CI는 unsigned `.msixbundle`만 아티팩트로 올린다.
+- `-Register`는 패키지를 만들지 않고 현재 PC 아키텍처의 레이아웃(`build/msix/<arch>/`)을 `Add-AppxPackage -Register`로 등록한다. 개발자 모드가 필요하고 서명도 필요 없다. VM에서 Store 설치본과 같은 동작을 시험할 때 쓴다.
+- MSIX 앱은 파일·레지스트리 쓰기가 패키지 전용 공간으로 가상화된다. 기존 `%APPDATA%\nalmeok`의 설정은 읽지만, 새로 쓰는 키·목록은 `%LOCALAPPDATA%\Packages\<PackageFamilyName>\LocalCache\` 아래로 간다. 그래서 포터블 exe판과 설정이 갈라지고, Store판을 제거하면 그 설정도 함께 지워진다. 가상화를 끄려면 `unvirtualizedResources` 제한 권한과 심사 사유가 필요하므로 켜 둔다.
+- 최소 버전은 Windows 10 1903(`10.0.18362.0`)이다. 위 가상화 동작의 기준 버전이다.
+
 ### 플랫폼별 동작
 
 - 완료 알림(`internal/notify`): 실행기는 `Options.Notify`로 알림 함수를 받는다(테스트는 가짜를 넣고, 기본은 알리지 않음). macOS는 `.app` 안에서 실행될 때만 `UNUserNotificationCenter`를 쓴다. 번들 식별자가 없으면 이 API가 예외를 던지므로 `build/nalmeok`·CLI는 osascript로 보낸다(스크립트 편집기 이름으로 뜸). 첫 알림 때 권한을 묻고, 사용자가 거부하면(또는 나중에 끄면) 알리지 않는다. 앱 안에서는 osascript로 대신하지 않는다 — macOS는 거부도 오류(`UNErrorDomain` 1)로 돌려주므로, 대신 보내면 거부한 사용자에게 스크립트 편집기 이름으로 알림이 간다. 알림을 누르면 앱을 활성화하고 창을 앞으로(두 번째 실행과 같은 `showWindow`). 해당 행 강조는 하지 않는다. 확인은 Finder나 `open build/Nalmeok.app`으로 연 앱에서 한다(터미널에서 실행 파일을 바로 띄우면 거부될 수 있다).
