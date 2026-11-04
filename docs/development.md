@@ -19,7 +19,7 @@ Go + Wails 데스크톱 앱이다.
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
 internal/config     설정 폴더, config.json(키·gui.mode)
 internal/store      items.json(처리 목록), 검색
-internal/media      입력 스캔, MP4 AAC→M4A 리먹스·분할, MP3·WAV 분할 (표준 라이브러리만)
+internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(130분), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
@@ -32,6 +32,23 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 ```
 
 전사 결과는 원본 옆 `.md`와 함께 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`). 화면은 원래 위치의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`)을 낸다. 보관본이 생기기 전 항목은 처음 읽을 때와 앱을 켤 때 옮겨 두고, 목록에서 지우면 보관본도 지운다.
+
+### 미디어 형식
+
+받는 확장자는 `internal/media`의 `formats` 표 하나가 정한다. 파일 선택 창 필터는 `media.Extensions()`로 만들고, `app.js`의 `AUDIO_EXT`는 손으로 맞추되 `internal/app/formats_test.go`가 어긋나면 실패한다. 조각은 다시 인코딩하지 않는다.
+
+| 입력 | 조각 |
+|---|---|
+| ISO-BMFF(`.m4a` `.mp4` `.mov` `.m4v` `.m4b` `.3gp`), 일반·조각난(moof) MP4 | AAC → 오디오만 담은 M4A로 리먹스. MP3 오디오 → MP3 프레임 그대로 |
+| `.aac`(ADTS) | M4A로 리먹스. Gemini가 ADTS 업로드를 막는 경우가 있어서다 |
+| `.mp3` | 프레임 경계에서 자름 |
+| `.wav`(RIFF·RF64), `.aif`·`.aiff`·`.aifc` | 샘플 경계에서 자르고 헤더를 새로 씀. RF64는 짧아도 RIFF로 다시 씀 |
+| `.flac` | 프레임 경계에서 자르고 STREAMINFO를 새로 씀 |
+| `.ogg`·`.opus`(Opus·Vorbis) | 페이지 경계에서 자르고 코덱 헤더 페이지를 조각마다 반복, granule·순번·CRC를 다시 씀 |
+
+130분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
+
+`go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
 
 ### 빌드
 
