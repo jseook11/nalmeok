@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"sync"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -386,6 +387,43 @@ func TestStatusCachesForAMinute(t *testing.T) {
 	}
 	if n := calls.Load(); n != 2 {
 		t.Fatalf("calls after 61 s = %d, want 2", n)
+	}
+}
+
+func TestStatusSendsDayIDOnlyWhenEnabled(t *testing.T) {
+	clearSignalEnv(t)
+	var gotQuery atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery.Store(r.URL.RawQuery)
+		fmt.Fprint(w, `{"free":{"level":"poor","events":9,"installs":3,"window_minutes":60,"others_failing":2},"batch":{"level":"unknown"}}`)
+	}))
+	defer srv.Close()
+
+	c := New(Options{
+		Endpoint: srv.URL, App: "0.9.3", Dir: t.TempDir(), HTTP: srv.Client(),
+		Enabled: func() bool { return true },
+	})
+	st, err := c.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	q, _ := gotQuery.Load().(string)
+	if !strings.HasPrefix(q, "install=") || !validID(strings.TrimPrefix(q, "install=")) {
+		t.Errorf("query with signals on = %q, want install=<day id>", q)
+	}
+	if st.Free.OthersFailing == nil || *st.Free.OthersFailing != 2 {
+		t.Errorf("others_failing = %v, want 2", st.Free.OthersFailing)
+	}
+
+	off := New(Options{
+		Endpoint: srv.URL, App: "0.9.3", Dir: t.TempDir(), HTTP: srv.Client(),
+		Enabled: func() bool { return false },
+	})
+	if _, err := off.Status(context.Background()); err != nil {
+		t.Fatalf("Status (off): %v", err)
+	}
+	if q, _ := gotQuery.Load().(string); q != "" {
+		t.Errorf("query with signals off = %q, want none", q)
 	}
 }
 

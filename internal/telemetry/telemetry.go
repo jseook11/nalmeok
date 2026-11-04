@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -111,6 +112,10 @@ type Health struct {
 	Events        int      `json:"events"`
 	Installs      int      `json:"installs"`
 	WindowMinutes int      `json:"window_minutes"`
+	// OthersFailing is how many other installs failed on free in the last
+	// hour. Only the free tier has it, and only when the request carried this
+	// app's day id (signals on); nil otherwise.
+	OthersFailing *int `json:"others_failing,omitempty"`
 }
 
 // Status is the server's public health snapshot.
@@ -474,7 +479,14 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, statusTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/api/status", nil)
+	// With signals on, the day id lets the server leave this app's own
+	// failures out of others_failing ("is it only me?"). With signals off the
+	// app sends nothing identifying, not even here.
+	target := c.endpoint + "/api/status"
+	if c.on() {
+		target += "?install=" + url.QueryEscape(c.install())
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return Status{}, err
 	}
