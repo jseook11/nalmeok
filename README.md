@@ -21,9 +21,9 @@
 
 [내려받기](https://nalmeok.seook.dev/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
 
-**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
+**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요.
 
-**Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 경고 없이 설치되고, 업데이트도 Store가 해요.
+**Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 업데이트는 Store가 해요.
 
 **Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://nalmeok.seook.dev/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
 
