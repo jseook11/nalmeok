@@ -324,9 +324,12 @@
   }
 
   // With no key at all the empty area asks for one; once a key is added it
-  // goes back to the usual drop hint.
+  // goes back to the usual drop hint. It follows the listed keys, so a key
+  // deleted with undo pending already counts as gone.
+  const emptyAsksForKey = () => visibleKeys().length === 0;
+
   function renderEmpty() {
-    if (hasKeys()) {
+    if (!emptyAsksForKey()) {
       emptyText.textContent = t("empty.text");
       empty.setAttribute("aria-label", t("empty.label"));
     } else {
@@ -1501,6 +1504,7 @@
     if (state.openKey === id) state.openKey = "";
     renderKeys();
     renderPicker();
+    renderEmpty();
     pendingKeyDelete = { id, timer: setTimeout(commitKeyDelete, UNDO_MS) };
     showToast(t("toast.keyDeleted"), {
       action: t("toast.undo"),
@@ -1512,6 +1516,7 @@
         hiddenKeys.delete(id);
         renderKeys();
         renderPicker();
+        renderEmpty();
       },
     });
   }
@@ -2085,8 +2090,8 @@
 
     addButton.addEventListener("click", pickFiles);
     empty.addEventListener("click", () => {
-      if (hasKeys()) pickFiles();
-      else openKeys("free");
+      if (emptyAsksForKey()) openKeys("free");
+      else pickFiles();
     });
 
     modeToggle.addEventListener("click", (event) => {
