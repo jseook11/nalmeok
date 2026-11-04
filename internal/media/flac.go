@@ -20,8 +20,10 @@ type flacInfo struct {
 	rate       int
 	channels   int
 	bps        int
+	maxFrame   int64 // bytes; bounds a cut-off last frame
 	total      int64 // samples per channel; 0 = unknown
-	audioOff   int64
+	audioOff   int64 // frames run from audioOff to end
+	end        int64
 	size       int64
 }
 
@@ -71,8 +73,19 @@ func parseFLAC(f *os.File) (*flacInfo, error) {
 	fi.channels = int(si[12]>>1&7) + 1
 	fi.bps = int(si[12]&1)<<4 | int(si[13]>>4) + 1
 	fi.total = int64(si[13]&0x0F)<<32 | int64(binary.BigEndian.Uint32(si[14:]))
-	fi.audioOff = pos
-	if fi.rate == 0 || fi.maxBlock == 0 || pos >= fi.size {
+	fi.maxFrame = int64(si[7])<<16 | int64(si[8])<<8 | int64(si[9])
+	if fi.maxFrame == 0 { // unknown: 1 MiB is far above any real frame
+		fi.maxFrame = 1 << 20
+	}
+	fi.audioOff, fi.end = pos, fi.size
+	// some taggers append an ID3v1 tag: exactly 128 bytes starting "TAG"
+	var tag [3]byte
+	if fi.end-128 > pos {
+		if _, err := f.ReadAt(tag[:], fi.end-128); err == nil && string(tag[:]) == "TAG" {
+			fi.end -= 128
+		}
+	}
+	if fi.rate == 0 || fi.maxBlock == 0 || pos >= fi.end {
 		return nil, errFLAC
 	}
 	return fi, nil
@@ -225,42 +238,53 @@ func crc8(b []byte) byte {
 type flacFrame struct{ off, size, samples int64 }
 
 // walkFLAC calls fn for every frame in order. Frames carry no length, so a
-// frame ends where its CRC-16 footer checks out (the CRC over the frame with
-// its footer is 0) and a valid next header, or the end of the file, follows.
-// Anything else in the frame region is an error.
+// frame ends where a valid header continuing it starts, and its CRC-16
+// footer must check out there (the CRC over the frame with its footer is 0);
+// a valid next header after a bad footer means damaged audio. The last frame
+// ends at the end of the frame region. If a recorder stopped mid-frame, the
+// cut-off tail (shorter than any frame) is dropped; anything else is an error.
 func walkFLAC(f *os.File, fi *flacInfo, fn func(flacFrame) error) error {
-	br := bufio.NewReaderSize(io.NewSectionReader(f, fi.audioOff, fi.size-fi.audioOff), 1<<16)
+	br := bufio.NewReaderSize(io.NewSectionReader(f, fi.audioOff, fi.end-fi.audioOff), 1<<16)
 	b, _ := br.Peek(16)
 	h, ok := fi.header(b, nil)
 	if !ok {
 		return errFLAC
 	}
 	frame := flacFrame{off: fi.audioOff, samples: h.samples}
+	frames := 0
 	var crc uint16
+	var buf [16]byte
 	for {
 		c, err := br.ReadByte()
 		if err != nil {
-			return errFLAC // the last frame is cut short
+			break
+		}
+		if c == 0xFF && frame.size >= int64(h.length)+3 {
+			rest, _ := br.Peek(15)
+			buf[0] = c
+			n := copy(buf[1:], rest)
+			if next, ok := fi.header(buf[:1+n], &h); ok {
+				if crc != 0 {
+					return errFLAC
+				}
+				if err := fn(frame); err != nil {
+					return err
+				}
+				frames++
+				h, crc = next, 0
+				frame = flacFrame{off: frame.off + frame.size, samples: h.samples}
+			}
 		}
 		crc = crc<<8 ^ crc16Table[byte(crc>>8)^c]
 		frame.size++
-		if crc != 0 || frame.size < int64(h.length)+3 {
-			continue
-		}
-		b, _ := br.Peek(16)
-		if len(b) == 0 {
-			return fn(frame)
-		}
-		next, ok := fi.header(b, &h)
-		if !ok {
-			continue // a zero CRC inside the frame, not its end
-		}
-		if err := fn(frame); err != nil {
-			return err
-		}
-		h, crc = next, 0
-		frame = flacFrame{off: frame.off + frame.size, samples: h.samples}
 	}
+	switch {
+	case crc == 0 && frame.size >= int64(h.length)+3:
+		return fn(frame)
+	case frames > 0 && frame.size < fi.maxFrame:
+		return nil // the cut-off tail
+	}
+	return errFLAC
 }
 
 func flacDuration(path string) (float64, error) {

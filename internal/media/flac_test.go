@@ -113,6 +113,15 @@ func TestPrepareFLAC(t *testing.T) {
 			if !bytes.Equal(joined, frames) {
 				t.Errorf("pieces' frames (%d bytes) differ from the source's (%d bytes)", len(joined), len(frames))
 			}
+			// later pieces start at a frame number other than 0
+			t.Run("ffmpeg", func(t *testing.T) {
+				needTools(t, "ffmpeg", "ffprobe")
+				for i, p := range pieces {
+					if out, err := exec.Command("ffmpeg", "-v", "error", "-xerror", "-i", p.Path, "-f", "null", "-").CombinedOutput(); err != nil {
+						t.Errorf("piece %d: ffmpeg: %v\n%s", i, err, out)
+					}
+				}
+			})
 		})
 	}
 
@@ -124,6 +133,81 @@ func TestPrepareFLAC(t *testing.T) {
 		if b, _ := os.ReadFile(pieces[0].Path); !bytes.Equal(b, data) {
 			t.Errorf("max %v: whole piece differs from the source", maxSeconds)
 		}
+	}
+}
+
+// flacFrames lists the frames of a FLAC file.
+func flacFrames(t *testing.T, path string) []flacFrame {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	fi, err := parseFLAC(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frames []flacFrame
+	if err := walkFLAC(f, fi, func(fr flacFrame) error { frames = append(frames, fr); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return frames
+}
+
+// Real files may end in an ID3v1 tag or, when the recorder died, in a
+// cut-off frame. Both are left out; the frames before them are kept.
+func TestFLACTail(t *testing.T) {
+	src := withUnknownTotal(t, flacFixture(t))
+	data, _ := os.ReadFile(src)
+	frames := flacFrames(t, src)
+	last := frames[len(frames)-1]
+	if last.size <= 100 {
+		t.Fatalf("last frame only %d bytes", last.size)
+	}
+	var total int64
+	for _, fr := range frames {
+		total += fr.samples
+	}
+	whole, err := Duration(src)
+	if err != nil {
+		t.Fatalf("Duration %.3f, %v", whole, err)
+	}
+	rate := float64(total) / whole
+	tag := append([]byte("TAG"), bytes.Repeat([]byte{' '}, 125)...)
+	cases := []struct {
+		name    string
+		data    []byte
+		samples int64 // kept
+		frames  []byte
+	}{
+		{"ID3v1", append(bytes.Clone(data), tag...), total, data[frames[0].off:]},
+		{"cut off", data[:len(data)-100], total - last.samples, data[frames[0].off:last.off]},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "x.flac")
+			os.WriteFile(path, c.data, 0o644)
+			want := float64(c.samples) / rate
+			if got, err := Duration(path); err != nil || !near(got, want, 1e-9) {
+				t.Errorf("Duration %.3f, %v; want %.3f", got, err, want)
+			}
+			pieces, err := prepareFLAC(path, dir, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var joined []byte
+			sum := 0.0
+			for _, p := range pieces {
+				b, _ := os.ReadFile(p.Path)
+				joined = append(joined, b[flacAudioOff(t, p.Path):]...)
+				sum += p.Seconds
+			}
+			if !bytes.Equal(joined, c.frames) || !near(sum, want, 1e-9) {
+				t.Errorf("pieces hold %d bytes, %.3fs; want %d bytes, %.3fs", len(joined), sum, len(c.frames), want)
+			}
+		})
 	}
 }
 
@@ -150,9 +234,9 @@ func TestFLACCorrupt(t *testing.T) {
 		"not flac":        []byte("RIFF....WAVEfmt "),
 		"no frames":       data[:off],
 		"cut in metadata": data[:20],
-		"cut in a frame":  data[:len(data)-100],
 		"flipped audio":   flipped,
-		"junk after":      append(bytes.Clone(data), "junkjunk"...),
+		// longer than any frame: not a cut-off last frame
+		"junk after": append(bytes.Clone(data), bytes.Repeat([]byte("junk"), 1<<18)...),
 	}
 	for name, b := range bad {
 		p := write(b)
