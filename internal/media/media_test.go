@@ -29,7 +29,35 @@ var (
 	fixtureErr  error
 )
 
-const sayText = "안녕하세요 테스트입니다. 오늘은 날먹 앱의 미디어 패키지를 시험합니다. 이 문장은 충분히 길어야 여러 조각으로 나눌 수 있습니다."
+// fixtureSeconds is the length of the generated source audio: long enough
+// to cut into several 2-second pieces.
+const fixtureSeconds = 12
+
+// sourceWAV is fixtureSeconds of 16-bit mono 22.05 kHz audio: a tone that
+// glides and pulses so the AAC encoder has real work to do. It is generated
+// here instead of with `say`, whose output length depends on the installed
+// voices.
+func sourceWAV() []byte {
+	const rate = 22050
+	n := fixtureSeconds * rate
+	b := make([]byte, 44, 44+2*n)
+	copy(b, "RIFF\x00\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00")
+	binary.LittleEndian.PutUint32(b[24:], rate)
+	binary.LittleEndian.PutUint32(b[28:], rate*2)
+	binary.LittleEndian.PutUint16(b[32:], 2)
+	binary.LittleEndian.PutUint16(b[34:], 16)
+	copy(b[36:], "data")
+	binary.LittleEndian.PutUint32(b[40:], uint32(2*n))
+	binary.LittleEndian.PutUint32(b[4:], uint32(36+2*n))
+	phase := 0.0
+	for i := range n {
+		sec := float64(i) / rate
+		phase += 2 * math.Pi * (300 + 200*math.Sin(sec)) / rate
+		amp := 0.4 * (0.6 + 0.4*math.Sin(2*math.Pi*3*sec))
+		b = binary.LittleEndian.AppendUint16(b, uint16(int16(amp*32767*math.Sin(phase))))
+	}
+	return b
+}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -51,7 +79,7 @@ func needTools(t *testing.T, names ...string) {
 // fixtures returns a shared directory with x.m4a, x.mp4, x.wav, x-alac.m4a.
 func fixtures(t *testing.T) string {
 	t.Helper()
-	needTools(t, "say", "afconvert", "afinfo")
+	needTools(t, "afconvert", "afinfo")
 	fixtureOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "nalmeok-media-")
 		if err != nil {
@@ -60,8 +88,12 @@ func fixtures(t *testing.T) string {
 		}
 		fixtureDir = dir
 		aiff := filepath.Join(dir, "x.aiff")
+		src := filepath.Join(dir, "source.wav")
+		if fixtureErr = os.WriteFile(src, sourceWAV(), 0o644); fixtureErr != nil {
+			return
+		}
 		cmds := [][]string{
-			{"say", "-o", aiff, strings.Repeat(sayText, 3)},
+			{"afconvert", "-f", "AIFF", "-d", "BEI16", src, aiff},
 			{"afconvert", "-f", "m4af", "-d", "aac", aiff, filepath.Join(dir, "x.m4a")},
 			{"afconvert", "-f", "mp4f", "-d", "aac", aiff, filepath.Join(dir, "x.mp4")},
 			{"afconvert", "-f", "WAVE", "-d", "LEI16", aiff, filepath.Join(dir, "x.wav")},
@@ -76,12 +108,6 @@ func fixtures(t *testing.T) string {
 	})
 	if fixtureErr != nil {
 		t.Skipf("fixture 생성 실패: %v", fixtureErr)
-	}
-	// say may read Korean much faster on some machines (CI runners without a
-	// Korean voice), leaving too little audio to split. Skip instead of failing
-	// a test that only checks splitting.
-	if total, err := Duration(filepath.Join(fixtureDir, "x.wav")); err == nil && total < 5 {
-		t.Skipf("fixture 오디오가 너무 짧습니다(%.1fs): say가 충분히 길게 읽지 못했습니다", total)
 	}
 	return fixtureDir
 }
@@ -619,6 +645,16 @@ func TestMoovAtEnd(t *testing.T) {
 	if got, want := afinfoDuration(t, src), afinfoDuration(t, orig); !near(got, want, 0.01) {
 		t.Errorf("rewritten file plays %v, want %v", got, want)
 	}
+}
+
+// writeTemp writes data to a new file name in a test temp dir.
+func writeTemp(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func mustRead(t *testing.T, path string) []byte {

@@ -31,12 +31,15 @@ type mp4Track struct {
 	edited    float64 // presentation length from the edit list (0 if none)
 	// sampleEntry is the source mp4a box (with esds), copied verbatim into pieces.
 	sampleEntry []byte
-	profile     int // ADTS profile = AAC object type - 1
-	srIndex     int
-	channels    int
-	sizes       []uint32
-	offsets     []int64
-	deltas      []uint32
+	// mp3 marks MPEG audio (layer III) samples: they are whole MP3 frames,
+	// so pieces are written as plain MP3 instead of M4A.
+	mp3      bool
+	profile  int // ADTS profile = AAC object type - 1
+	srIndex  int
+	channels int
+	sizes    []uint32
+	offsets  []int64
+	deltas   []uint32
 }
 
 func (t *mp4Track) ticks() uint64 {
@@ -117,18 +120,19 @@ func findBox(b []byte, path ...string) ([]byte, bool) {
 
 // readMoov walks top-level boxes with seeks and returns the moov body.
 // moov may be at the start or at the end of the file.
-func readMoov(f *os.File) ([]byte, error) {
+func readMoov(f *os.File) ([]byte, []moofBox, error) {
 	st, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	fileSize := st.Size()
 	var head [16]byte
 	var moov []byte
-	fragmented := false
+	var moofs []moofBox
+	moofBytes := 0
 	for pos := int64(0); pos+8 <= fileSize; {
 		if _, err := f.ReadAt(head[:8], pos); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		size := int64(binary.BigEndian.Uint32(head[:4]))
 		typ := string(head[4:8])
@@ -138,7 +142,7 @@ func readMoov(f *os.File) ([]byte, error) {
 			size = fileSize - pos
 		case 1:
 			if _, err := f.ReadAt(head[8:16], pos+8); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			size = int64(binary.BigEndian.Uint64(head[8:16]))
 			hlen = 16
@@ -147,32 +151,34 @@ func readMoov(f *os.File) ([]byte, error) {
 			if moov != nil {
 				break // trailing garbage after a complete moov
 			}
-			return nil, errMP4(i18n.T("mp4.boxSizeOf", "box", strconv.Quote(typ)))
+			return nil, nil, errMP4(i18n.T("mp4.boxSizeOf", "box", strconv.Quote(typ)))
 		}
 		switch typ {
 		case "moov":
 			if size-hlen > maxMoovSize {
-				return nil, errMP4(i18n.T("mp4.moovTooBig"))
+				return nil, nil, errMP4(i18n.T("mp4.moovTooBig"))
 			}
 			moov = make([]byte, size-hlen)
 			if _, err := f.ReadAt(moov, pos+hlen); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		case "moof":
-			fragmented = true
+			moofBytes += int(size)
+			if moofBytes > maxMoovSize {
+				return nil, nil, errMP4(i18n.T("mp4.moovTooBig"))
+			}
+			body := make([]byte, size-hlen)
+			if _, err := f.ReadAt(body, pos+hlen); err != nil {
+				return nil, nil, err
+			}
+			moofs = append(moofs, moofBox{pos: pos, body: body})
 		}
 		pos += size
 	}
 	if moov == nil {
-		return nil, errMP4(i18n.T("mp4.missing", "box", "moov"))
+		return nil, nil, errMP4(i18n.T("mp4.missing", "box", "moov"))
 	}
-	if _, ok := findBox(moov, "mvex"); ok {
-		fragmented = true
-	}
-	if fragmented {
-		return nil, errMP4(i18n.T("mp4.fragmented"))
-	}
-	return moov, nil
+	return moov, moofs, nil
 }
 
 func parseMP4(path string) (*mp4Track, error) {
@@ -181,9 +187,12 @@ func parseMP4(path string) (*mp4Track, error) {
 		return nil, err
 	}
 	defer f.Close()
-	moov, err := readMoov(f)
+	moov, moofs, err := readMoov(f)
 	if err != nil {
 		return nil, err
+	}
+	if _, ok := findBox(moov, "mvex"); !ok {
+		moofs = nil // moof only extends a moov that declares mvex (OBS hybrid MP4 keeps both)
 	}
 	traks, err := childBoxes(moov)
 	if err != nil {
@@ -197,8 +206,11 @@ func parseMP4(path string) (*mp4Track, error) {
 		if !ok || len(hdlr) < 12 || string(hdlr[8:12]) != "soun" {
 			continue
 		}
-		tr, err := parseAudioTrak(trak.body)
+		tr, err := parseAudioTrak(trak.body, len(moofs) > 0)
 		if err != nil {
+			return nil, err
+		}
+		if err := tr.addFragments(moov, trak.body, moofs); err != nil {
 			return nil, err
 		}
 		tr.edited = editedSeconds(moov, trak.body)
@@ -286,7 +298,7 @@ func editedSeconds(moov, trak []byte) float64 {
 	return float64(total) / float64(movieScale)
 }
 
-func parseAudioTrak(trak []byte) (*mp4Track, error) {
+func parseAudioTrak(trak []byte, fragmented bool) (*mp4Track, error) {
 	t := &mp4Track{}
 	mdhd, ok := findBox(trak, "mdia", "mdhd")
 	if !ok || len(mdhd) < 4 {
@@ -318,14 +330,18 @@ func parseAudioTrak(trak []byte) (*mp4Track, error) {
 	if err != nil || len(entries) == 0 {
 		return nil, errMP4(i18n.T("mp4.bad", "box", "stsd"))
 	}
-	if entries[0].typ != "mp4a" {
+	switch entries[0].typ {
+	case "mp4a":
+		if err := t.parseMP4A(entries[0].body); err != nil {
+			return nil, err
+		}
+	case ".mp3": // QuickTime's MP3 sample entry
+		t.mp3 = true
+	default:
 		return nil, fmt.Errorf("%w (%s)", ErrNotAAC, entries[0].typ)
 	}
-	if err := t.parseMP4A(entries[0].body); err != nil {
-		return nil, err
-	}
 	t.sampleEntry = mp4Box("mp4a", entries[0].body)
-	if err := t.parseSampleTable(stbl); err != nil {
+	if err := t.parseSampleTable(stbl, fragmented); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -350,9 +366,13 @@ func (t *mp4Track) parseMP4A(b []byte) error {
 	if esds == nil {
 		return errMP4(i18n.T("mp4.missing", "box", "esds"))
 	}
-	asc, err := decoderSpecificInfo(esds)
+	objectType, asc, err := decoderSpecificInfo(esds)
 	if err != nil {
 		return err
+	}
+	if objectType == 0x69 || objectType == 0x6B { // MPEG-2 / MPEG-1 audio
+		t.mp3 = true
+		return nil
 	}
 	return t.parseASC(asc)
 }
@@ -396,68 +416,72 @@ func readDescriptor(b []byte) (byte, []byte, []byte, error) {
 	return tag, b[i : i+n], b[i+n:], nil
 }
 
-func decoderSpecificInfo(esds []byte) ([]byte, error) {
+// decoderSpecificInfo returns the DecoderConfig object type and, for AAC,
+// its AudioSpecificConfig.
+func decoderSpecificInfo(esds []byte) (byte, []byte, error) {
 	if len(esds) < 4 {
-		return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+		return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 	}
 	tag, es, _, err := readDescriptor(esds[4:])
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if tag != 0x03 || len(es) < 3 {
-		return nil, errMP4(i18n.T("mp4.missing", "box", "ES_Descriptor"))
+		return 0, nil, errMP4(i18n.T("mp4.missing", "box", "ES_Descriptor"))
 	}
 	flags := es[2]
 	es = es[3:]
 	if flags&0x80 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
 	if flags&0x40 != 0 {
 		if len(es) < 1 || len(es) < 1+int(es[0]) {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[1+int(es[0]):]
 	}
 	if flags&0x20 != 0 {
 		if len(es) < 2 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "esds"))
 		}
 		es = es[2:]
 	}
 	for len(es) > 0 {
 		tag, body, rest, err := readDescriptor(es)
 		if err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 		es = rest
 		if tag != 0x04 {
 			continue
 		}
 		if len(body) < 13 {
-			return nil, errMP4(i18n.T("mp4.bad", "box", "DecoderConfig"))
+			return 0, nil, errMP4(i18n.T("mp4.bad", "box", "DecoderConfig"))
 		}
 		switch body[0] {
 		case 0x40, 0x66, 0x67, 0x68: // MPEG-4 audio, MPEG-2 AAC main/LC/SSR
+		case 0x69, 0x6B: // MPEG-2 / MPEG-1 audio: no AudioSpecificConfig
+			return body[0], nil, nil
 		default:
-			return nil, fmt.Errorf("%w (objectType 0x%02x)", ErrNotAAC, body[0])
+			return 0, nil, fmt.Errorf("%w (objectType 0x%02x)", ErrNotAAC, body[0])
 		}
 		sub := body[13:]
 		for len(sub) > 0 {
 			tag, dsi, rest, err := readDescriptor(sub)
 			if err != nil {
-				return nil, err
+				return 0, nil, err
 			}
 			if tag == 0x05 {
-				return dsi, nil
+				return body[0], dsi, nil
 			}
 			sub = rest
 		}
-		return nil, errMP4(i18n.T("mp4.missing", "box", "AudioSpecificConfig"))
+		return 0, nil, errMP4(i18n.T("mp4.missing", "box", "AudioSpecificConfig"))
 	}
-	return nil, errMP4(i18n.T("mp4.missing", "box", "DecoderConfig"))
+	return 0, nil, errMP4(i18n.T("mp4.missing", "box", "DecoderConfig"))
 }
 
 type bitReader struct {
@@ -540,7 +564,7 @@ func u32s(b []byte, off, count int, out func(i int, v uint32)) bool {
 	return true
 }
 
-func (t *mp4Track) parseSampleTable(stbl []byte) error {
+func (t *mp4Track) parseSampleTable(stbl []byte, fragmented bool) error {
 	// stsz
 	stsz, ok := findBox(stbl, "stsz")
 	if !ok || len(stsz) < 12 {
@@ -548,6 +572,9 @@ func (t *mp4Track) parseSampleTable(stbl []byte) error {
 	}
 	fixed := binary.BigEndian.Uint32(stsz[4:])
 	n := int(binary.BigEndian.Uint32(stsz[8:]))
+	if n == 0 && fragmented {
+		return nil // samples come from moof boxes
+	}
 	if n <= 0 {
 		return errMP4(i18n.T("mp4.noSamples"))
 	}
