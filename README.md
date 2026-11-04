@@ -2,7 +2,7 @@
 
 # Nalmeok (nalmeok)
 
-> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
+> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
 
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
@@ -21,9 +21,18 @@
 
 [내려받기](https://nalmeok.seook.dev/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
 
-**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
+**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요.
 
-**Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. 경고는 두 번 나올 수 있어요.
+**Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 업데이트는 Store가 해요.
+
+<a href="https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://get.microsoft.com/images/ko%20light.svg">
+    <img src="https://get.microsoft.com/images/ko%20dark.svg" alt="Microsoft Store에서 받기" width="200">
+  </picture>
+</a>
+
+**Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://nalmeok.seook.dev/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
 
 - **브라우저가 다운로드를 막을 때** — Edge·Chrome이 "자주 다운로드되지 않는 파일"이라며 멈추면 아직 저장되지 않은 상태예요. 다운로드 목록에서 Nalmeok 항목의 **…** → **유지**(Keep)를 누르고, 확인 창이 뜨면 **삭제** 옆 **⌄**를 펼쳐 **계속 유지**(Keep anyway)를 눌러요. Chrome은 목록에서 **계속**(Keep)을 눌러요. [사진 안내](https://nalmeok.seook.dev/download/)
 - **SmartScreen이 실행을 막을 때** — **Windows의 PC 보호** 창에서 **추가 정보 → 실행**을 눌러요.
