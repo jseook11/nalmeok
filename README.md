@@ -25,6 +25,13 @@
 
 **Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 업데이트는 Store가 해요.
 
+<a href="https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://get.microsoft.com/images/ko%20light.svg">
+    <img src="https://get.microsoft.com/images/ko%20dark.svg" alt="Microsoft Store에서 받기" width="200">
+  </picture>
+</a>
+
 **Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://nalmeok.seook.dev/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
 
 - **브라우저가 다운로드를 막을 때** — Edge·Chrome이 "자주 다운로드되지 않는 파일"이라며 멈추면 아직 저장되지 않은 상태예요. 다운로드 목록에서 Nalmeok 항목의 **…** → **유지**(Keep)를 누르고, 확인 창이 뜨면 **삭제** 옆 **⌄**를 펼쳐 **계속 유지**(Keep anyway)를 눌러요. Chrome은 목록에서 **계속**(Keep)을 눌러요. [사진 안내](https://nalmeok.seook.dev/download/)
