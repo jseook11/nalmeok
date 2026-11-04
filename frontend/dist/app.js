@@ -112,6 +112,9 @@
   const pdfList = $("pdf-list");
   const pdfNone = $("pdf-none");
   const pdfCancel = $("pdf-cancel");
+  const quitSheet = $("quit-sheet");
+  const quitForm = $("quit-form");
+  const quitConfirm = $("quit-confirm");
 
   const menu = $("menu");
   const toast = $("toast");
@@ -1859,6 +1862,13 @@
     openSurface(helpSheet);
   }
 
+  // The backend asks through "quit:confirm" before a close would stop a free
+  // transcription. The card offers to quit or to keep going.
+  function openQuit() {
+    closeMenu();
+    openSurface(quitSheet, { focus: quitForm });
+  }
+
   function closeSheets() {
     closeSurface(keysSheet);
     closeSurface(helpSheet);
@@ -1983,16 +1993,19 @@
 
   // Keyboard scopes, each called from the one keydown listener in bindEvents.
 
-  // A sheet or the PDF card. The card is modal: Escape cancels this folder,
-  // other shortcuts wait.
+  // A sheet, the PDF card or the quit card. The cards are modal: Escape
+  // closes them (keep transcribing / no PDF), other shortcuts wait.
   function modalKeys(event) {
-    if (!pdfSheet.hidden) {
+    if (!pdfSheet.hidden || !quitSheet.hidden) {
+      const quit = !quitSheet.hidden;
       if (event.key === "Escape") {
         event.preventDefault();
-        answerPDF(null);
-      } else if (event.key === "Enter" && !event.isComposing && event.target === pdfForm) {
+        if (quit) closeSurface(quitSheet);
+        else answerPDF(null);
+      } else if (event.key === "Enter" && !event.isComposing && event.target === (quit ? quitForm : pdfForm)) {
         event.preventDefault();
-        answerPDF(checkedPDFs());
+        if (quit) closeSurface(quitSheet);
+        else answerPDF(checkedPDFs());
       }
       return;
     }
@@ -2210,6 +2223,14 @@
     pdfCancel.addEventListener("click", () => answerPDF(null));
     trackHover(pdfList, ".pdf-row");
 
+    quitForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      closeSurface(quitSheet);
+    });
+    quitConfirm.addEventListener("click", () => {
+      call("ConfirmQuit").catch((error) => showToast(errorText(error)));
+    });
+
     // The only document keydown listener. Each scope takes the keys while it
     // is the innermost one: a modal surface, then the menu, then the focused
     // list, then the window.
@@ -2311,19 +2332,21 @@
       window.runtime.EventsOn("items:choosePDF", queuePDFChoice);
       window.runtime.EventsOn("items:changed", refreshItems);
       window.runtime.EventsOn("keys:changed", reloadKeys);
+      // The backend holds a window close until the user answers this card.
+      window.runtime.EventsOn("quit:confirm", openQuit);
       // A drop the backend could not take, e.g. before any key exists.
       window.runtime.EventsOn("items:addFailed", (message, noKeys) => {
         if (noKeys) explainMissingKey();
         else showToast(errorText(message));
       });
       // The macOS menu bar (internal/app/menu.go) does what ⚙ and ? do. Its
-      // shortcuts skip the keydown handler, so the PDF card's "other
-      // shortcuts wait" rule is applied here too.
+      // shortcuts skip the keydown handler, so the PDF and quit cards'
+      // "other shortcuts wait" rule is applied here too.
       window.runtime.EventsOn("menu:settings", () => {
-        if (pdfSheet.hidden) openKeys();
+        if (pdfSheet.hidden && quitSheet.hidden) openKeys();
       });
       window.runtime.EventsOn("menu:help", () => {
-        if (pdfSheet.hidden) openHelp();
+        if (pdfSheet.hidden && quitSheet.hidden) openHelp();
       });
     }
 
