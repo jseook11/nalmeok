@@ -162,7 +162,7 @@
   "list.label": "File list",
   "list.noResults": "No results",
 
-  "media.adtsBad": "No AAC (ADTS) frames found",
+  "media.adtsBad": "Could not read AAC (ADTS) format",
   "media.aiffBad": "Could not read AIFF format",
   "media.flacBad": "Could not read FLAC format",
   "media.mp3NoFrame": "No MP3 frames",

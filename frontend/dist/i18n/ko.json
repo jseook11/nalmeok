@@ -162,7 +162,7 @@
   "list.label": "파일 목록",
   "list.noResults": "결과 없음",
 
-  "media.adtsBad": "AAC(ADTS) 프레임 없음",
+  "media.adtsBad": "AAC(ADTS) 형식 읽기 실패",
   "media.aiffBad": "AIFF 형식 읽기 실패",
   "media.flacBad": "FLAC 형식 읽기 실패",
   "media.mp3NoFrame": "MP3 프레임 없음",
