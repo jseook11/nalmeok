@@ -8,8 +8,17 @@ import (
 	"github.com/jseook11/nalmeok/internal/media"
 )
 
-// UnitMaxSeconds is the longest audio one request may carry (130 minutes).
-const UnitMaxSeconds = 130 * 60
+// UnitMaxSeconds is the longest audio one request may carry (65 minutes).
+// The answer and the model's thinking share one 65,536-token output cap, and
+// a 110-minute lecture in one request ran past it (2026-11-05), so a request
+// stays near an hour.
+const UnitMaxSeconds = 65 * 60
+
+// unitSlack is how far past maxSeconds a unit may run. EvenSeconds pads each
+// piece by a second so frame rounding never leaves a few seconds over; the
+// slack lets Units fold such a remainder into the last unit instead of
+// sending it as a request of its own.
+const unitSlack = 60
 
 // Pricing for gemini-3.8-flash, USD per 1M tokens (the old Python app's MODELS).
 const (
@@ -43,13 +52,15 @@ type UnitPlan struct {
 // different files are never put in the same request: Gemini blocked a folder
 // whose two lectures shared one request (2026-11-02 measurement), while each
 // file alone passed.
+//
+// A unit may run up to unitSlack past maxSeconds.
 func Units(tracks [][]media.Piece, maxSeconds float64) []UnitPlan {
 	var units []UnitPlan
 	for _, pieces := range tracks {
 		first := len(units) // first unit of this file
 		for _, p := range pieces {
 			n := len(units)
-			if n == first || units[n-1].Seconds+p.Seconds > maxSeconds+1e-6 {
+			if n == first || units[n-1].Seconds+p.Seconds > maxSeconds+unitSlack {
 				units = append(units, UnitPlan{Index: n})
 				n++
 			}
@@ -59,6 +70,18 @@ func Units(tracks [][]media.Piece, maxSeconds float64) []UnitPlan {
 		}
 	}
 	return units
+}
+
+// EvenSeconds is the piece length media.Prepare should cut seconds of audio
+// at: the fewest requests of at most maxSeconds, all about the same length.
+// 110 minutes at 65 becomes two pieces of 55, not 65 and 45. Audio that fits
+// in one request is not cut (maxSeconds is returned).
+func EvenSeconds(seconds, maxSeconds float64) float64 {
+	if maxSeconds <= 0 || seconds <= maxSeconds {
+		return maxSeconds
+	}
+	n := math.Ceil(seconds / maxSeconds)
+	return seconds/n + 1
 }
 
 // RequestCount is how many requests seconds of audio needs at UnitMaxSeconds.

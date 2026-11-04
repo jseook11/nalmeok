@@ -118,6 +118,7 @@
   "error.saveFailed": "결과 파일 저장 실패: {error}",
   "error.stopped": "전사 중단됨 ({reason})",
   "error.truncated": "결과가 길어 잘림",
+  "transcript.truncated": "[출력 한도에 걸려 이 부분의 뒤쪽은 전사되지 않았어요]",
   "error.unknownMode": "알 수 없는 처리 방식: {mode}",
 
   "field.name": "이름",

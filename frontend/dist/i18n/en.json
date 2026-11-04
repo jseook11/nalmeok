@@ -118,6 +118,7 @@
   "error.saveFailed": "Could not save the result file: {error}",
   "error.stopped": "Transcription stopped ({reason})",
   "error.truncated": "Result truncated (too long)",
+  "transcript.truncated": "[The rest of this part was not transcribed: the answer hit the output limit]",
   "error.unknownMode": "Unknown processing mode: {mode}",
 
   "field.name": "Name",

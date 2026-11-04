@@ -20,7 +20,7 @@ cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
 internal/config     설정 폴더, config.json(키·gui.mode·signals)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
-internal/plan       조각 계획(130분), 예상 비용
+internal/plan       조각 계획(요청당 최대 65분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
@@ -47,7 +47,9 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 | `.flac` | 프레임 경계에서 자르고 STREAMINFO를 새로 씀 |
 | `.ogg`·`.opus`(Opus·Vorbis) | 페이지 경계에서 자르고 코덱 헤더 페이지를 조각마다 반복, granule·순번·CRC를 다시 씀 |
 
-130분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
+요청 하나는 오디오 최대 65분이다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담았더니 넘쳤다(2026-11-05). 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
+
+65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
 `go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
 

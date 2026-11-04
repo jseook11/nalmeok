@@ -29,9 +29,11 @@ func TestUnits(t *testing.T) {
 		{"none", nil, nil, nil},
 		{"one", [][]float64{{60}}, [][]string{{"a"}}, []float64{60}},
 		{"fits exactly", [][]float64{{m / 2, m / 2}}, [][]string{{"a", "b"}}, []float64{m}},
-		{"overflow", [][]float64{{m / 2, m / 2, 1}}, [][]string{{"a", "b"}, {"c"}}, []float64{m, 1}},
-		{"greedy in order", [][]float64{{100 * 60, 40 * 60, 20 * 60, 130 * 60, 10}}, [][]string{{"a"}, {"b", "c"}, {"d"}, {"e"}}, []float64{6000, 3600, 7800, 10}},
-		{"long piece alone", [][]float64{{10, m + 50, 10}}, [][]string{{"a"}, {"b"}, {"c"}}, []float64{10, m + 50, 10}},
+		{"overflow", [][]float64{{m / 2, m / 2, 61}}, [][]string{{"a", "b"}, {"c"}}, []float64{m, 61}},
+		// A cut's last few seconds ride along instead of costing a request.
+		{"remainder folds in", [][]float64{{m / 2, m / 2, 30}}, [][]string{{"a", "b", "c"}}, []float64{m + 30}},
+		{"greedy in order", [][]float64{{3000, 1200, 600, m, 100}}, [][]string{{"a"}, {"b", "c"}, {"d"}, {"e"}}, []float64{3000, 1800, m, 100}},
+		{"long piece alone", [][]float64{{10, m + 100, 10}}, [][]string{{"a"}, {"b"}, {"c"}}, []float64{10, m + 100, 10}},
 		{"split file pieces", [][]float64{{m, m, 1800}}, [][]string{{"a"}, {"b"}, {"c"}}, []float64{m, m, 1800}},
 		// Two source files never share a request, even when they would fit.
 		{"two short files", [][]float64{{60}, {60}}, [][]string{{"a"}, {"a"}}, []float64{60, 60}},
@@ -66,7 +68,7 @@ func TestUnitsOneFilePerRequest(t *testing.T) {
 	tracks := [][]media.Piece{
 		file(10 * 60),
 		file(5 * 60),
-		file(UnitMaxSeconds, 1), // a long file already split by media.Prepare
+		file(UnitMaxSeconds, 600), // a long file already split by media.Prepare
 	}
 	units := Units(tracks, UnitMaxSeconds)
 	if len(units) != 4 {
@@ -75,6 +77,46 @@ func TestUnitsOneFilePerRequest(t *testing.T) {
 	for _, u := range units {
 		if len(u.Pieces) != 1 {
 			t.Fatalf("unit %d has %d pieces, want 1", u.Index, len(u.Pieces))
+		}
+	}
+}
+
+func TestEvenSeconds(t *testing.T) {
+	const m = UnitMaxSeconds
+	cases := []struct {
+		seconds, want float64
+	}{
+		{0, m},
+		{30 * 60, m},
+		{m, m},                     // fits: not cut
+		{110 * 60, 55*60 + 1},      // two halves, not 65 + 45
+		{130 * 60, 65*60 + 1},      // exactly two requests
+		{140 * 60, 140*20 + 1},     // three of 46m40s
+		{3*m + 1, (3*m+1)/4.0 + 1}, // just over three: four even pieces
+	}
+	for _, c := range cases {
+		if got := EvenSeconds(c.seconds, m); got != c.want {
+			t.Errorf("EvenSeconds(%v) = %v, want %v", c.seconds, got, c.want)
+		}
+	}
+	if got := EvenSeconds(5000, 0); got != 0 {
+		t.Errorf("no limit = %v, want 0", got)
+	}
+}
+
+// TestEvenPiecesMakeEvenUnits cuts like media.Prepare (pieces of at most the
+// even length, the last one short by frame rounding) and checks the units
+// come out the requested count.
+func TestEvenPiecesMakeEvenUnits(t *testing.T) {
+	for _, total := range []float64{110 * 60, 130 * 60, 140 * 60, 200 * 60} {
+		cut := EvenSeconds(total, UnitMaxSeconds) - 0.05 // a frame short
+		var secs []float64
+		for left := total; left > 0; left -= cut {
+			secs = append(secs, min(cut, left))
+		}
+		units := Units([][]media.Piece{file(secs...)}, UnitMaxSeconds)
+		if want := RequestCount(total); len(units) != want {
+			t.Errorf("%v min: %d units, want %d", total/60, len(units), want)
 		}
 	}
 }
@@ -100,7 +142,7 @@ func TestEstimateKRW(t *testing.T) {
 		{3600, true, 71, 76},    // spec: 약 74원/시간
 		{3600, false, 142, 152}, // live (paid) price
 		{5400, true, 107, 114},
-		{10 * 3600, true, 710, 757},
+		{10 * 3600, true, 711, 759}, // 10 requests of an hour
 	}
 	for _, c := range cases {
 		low, high := EstimateKRW(c.seconds, c.batch)

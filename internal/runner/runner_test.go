@@ -669,10 +669,26 @@ func TestResumeBatchWaitingPollsOnStart(t *testing.T) {
 	}
 }
 
-func TestMaxTokensFailsUnit(t *testing.T) {
+func TestMaxTokensKeepsText(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
 		return "잘린 텍스트", gemini.FinishMaxTokens, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	done := h.wait(item.ID, StateDone)
+	// The fake media makes two units; each keeps its text and its mark.
+	part := "잘린 텍스트\n\n" + i18n.T("transcript.truncated")
+	want := part + "\n\n" + part + "\n"
+	if got := readFile(t, done.Output); got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+func TestMaxTokensWithoutTextFailsUnit(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
+		return "", gemini.FinishMaxTokens, nil
 	}
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
