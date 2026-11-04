@@ -23,7 +23,10 @@
 
 **macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
-**Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러요.
+**Windows** — Windows용 실행 파일을 내려받아 더블클릭해요. 경고는 두 번 나올 수 있어요.
+
+- **브라우저가 다운로드를 막을 때** — Edge·Chrome이 "자주 다운로드되지 않는 파일"이라며 멈추면 아직 저장되지 않은 상태예요. 다운로드 목록에서 Nalmeok 항목의 **…** → **유지**(Keep)를 누르고, 확인 창이 뜨면 **삭제** 옆 **⌄**를 펼쳐 **계속 유지**(Keep anyway)를 눌러요. Chrome은 목록에서 **계속**(Keep)을 눌러요. [사진 안내](https://nalmeok.seook.dev/download/)
+- **SmartScreen이 실행을 막을 때** — **Windows의 PC 보호** 창에서 **추가 정보 → 실행**을 눌러요.
 
 **Windows (Scoop)** — [Scoop](https://scoop.sh)을 쓰면 명령으로 설치하고, 시작 메뉴에도 들어가요. 업데이트는 `scoop update nalmeok`이에요. 버킷을 추가하려면 git이 필요해서, 처음이면 첫 줄부터 실행해요.
 
