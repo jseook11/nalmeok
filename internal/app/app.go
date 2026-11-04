@@ -13,6 +13,7 @@ import (
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/media"
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -415,7 +416,7 @@ func (a *App) PickFilesWithKey(keyID string) error {
 	paths, err := wailsruntime.OpenMultipleFilesDialog(ctx, wailsruntime.OpenDialogOptions{
 		Title: i18n.T("dialog.pickTitle"),
 		Filters: []wailsruntime.FileFilter{
-			{DisplayName: i18n.T("dialog.audioFiles"), Pattern: "*.m4a;*.mp4;*.mp3;*.wav"},
+			{DisplayName: i18n.T("dialog.audioFiles"), Pattern: "*." + strings.Join(media.Extensions(), ";*.")},
 		},
 	})
 	if err != nil {

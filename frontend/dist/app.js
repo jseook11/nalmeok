@@ -421,7 +421,7 @@
 
   // ── Rows ──────────────────────────────────────────────────
 
-  const AUDIO_EXT = /\.(m4a|mp4|mp3|wav)$/i;
+  const AUDIO_EXT = /\.(3gp|aac|aif|aiff|flac|m4a|m4b|m4v|mov|mp3|mp4|ogg|opus|wav)$/i; // media.Extensions()
 
   // Display names drop the audio extension; folder names stay as they are.
   function displayName(item) {

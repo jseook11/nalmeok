@@ -178,6 +178,12 @@ func prepareMP4(path, dir string, maxSeconds float64) ([]Piece, error) {
 	if err != nil {
 		return nil, err
 	}
+	return remuxPieces(t, path, dir, maxSeconds)
+}
+
+// remuxPieces writes t's samples, read from path, as M4A pieces of at most
+// maxSeconds each.
+func remuxPieces(t *mp4Track, path, dir string, maxSeconds float64) ([]Piece, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

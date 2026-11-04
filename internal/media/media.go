@@ -1,10 +1,16 @@
 // Package media scans dropped inputs, reads audio durations, and prepares
 // upload-ready audio pieces without re-encoding.
 //
-//   - .m4a/.mp4 (AAC): raw AAC access units are pulled out of the ISO-BMFF
-//     container and written as ADTS (.aac, audio/aac).
+//   - .m4a/.mp4/.mov/.m4b/.m4v/.3gp (AAC, plain or fragmented): the audio
+//     track is remuxed into a minimal audio-only M4A (see m4a.go). MP3 audio
+//     inside such a container is written out as plain MP3 frames.
+//   - .aac (ADTS): the frames are remuxed into M4A the same way.
 //   - .mp3: uploaded as-is, split at MP3 frame boundaries.
-//   - .wav: uploaded as-is, split at sample boundaries with a fresh RIFF header.
+//   - .wav (RIFF/RF64), .aif/.aiff: uploaded as-is, split at sample
+//     boundaries with a fresh header.
+//   - .flac: uploaded as-is, split at FLAC frame boundaries.
+//   - .ogg/.opus (Opus or Vorbis): uploaded as-is, split at Ogg page
+//     boundaries with the codec headers repeated in every piece.
 package media
 
 import (
@@ -18,12 +24,39 @@ import (
 	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
-// Track formats.
+// Track formats. FormatAACMP4 covers every ISO-BMFF container; its value is
+// kept for saved items.
 const (
 	FormatAACMP4 = "aac-mp4"
+	FormatADTS   = "adts"
 	FormatMP3    = "mp3"
 	FormatWAV    = "wav"
+	FormatAIFF   = "aiff"
+	FormatFLAC   = "flac"
+	FormatOgg    = "ogg"
 )
+
+// formats maps lower-case file extensions to track formats.
+var formats = map[string]string{
+	".m4a": FormatAACMP4, ".mp4": FormatAACMP4, ".mov": FormatAACMP4,
+	".m4b": FormatAACMP4, ".m4v": FormatAACMP4, ".3gp": FormatAACMP4,
+	".aac": FormatADTS,
+	".mp3": FormatMP3,
+	".wav": FormatWAV,
+	".aif": FormatAIFF, ".aiff": FormatAIFF,
+	".flac": FormatFLAC,
+	".ogg":  FormatOgg, ".opus": FormatOgg,
+}
+
+// Extensions lists the accepted audio file extensions ("m4a", ...), sorted.
+func Extensions() []string {
+	out := make([]string, 0, len(formats))
+	for ext := range formats {
+		out = append(out, ext[1:])
+	}
+	sort.Strings(out)
+	return out
+}
 
 // MaxFiles is the largest number of audio files a folder may hold.
 const MaxFiles = 10
@@ -31,7 +64,7 @@ const MaxFiles = 10
 // Track is one audio file of an input.
 type Track struct {
 	Path    string
-	Format  string // "aac-mp4", "mp3", "wav"
+	Format  string // one of the Format constants
 	Seconds float64
 }
 
@@ -68,15 +101,7 @@ var ErrUnsupported = i18n.Error("media.unsupported")
 
 // FormatOf returns the track format for a file name, or "" if unsupported.
 func FormatOf(name string) string {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".m4a", ".mp4":
-		return FormatAACMP4
-	case ".mp3":
-		return FormatMP3
-	case ".wav":
-		return FormatWAV
-	}
-	return ""
+	return formats[strings.ToLower(filepath.Ext(name))]
 }
 
 // Scan reads a dropped file or folder (spec §3-1).
@@ -174,10 +199,13 @@ func FolderPDFs(dir string) []string {
 	return pdfs
 }
 
-// dropConvertedMP4 removes an .mp4 when an .m4a with the same name sits next
-// to it: the .m4a is the audio already taken out of that video, and sending
-// both would transcribe (and bill) the lecture twice. The Python app did the
-// same. Names compare case-insensitively, as on macOS and Windows disks.
+// dropConvertedMP4 removes a video (.mp4, .mov, .m4v, .3gp) when an .m4a
+// with the same name sits next to it: the .m4a is the audio already taken
+// out of that video, and sending both would transcribe (and bill) the
+// lecture twice. The Python app did the same for .mp4. Names compare
+// case-insensitively, as on macOS and Windows disks.
+var videoExt = map[string]bool{".mp4": true, ".mov": true, ".m4v": true, ".3gp": true}
+
 func dropConvertedMP4(paths []string) []string {
 	m4a := make(map[string]bool)
 	for _, p := range paths {
@@ -188,7 +216,7 @@ func dropConvertedMP4(paths []string) []string {
 	out := paths[:0:0]
 	for _, p := range paths {
 		ext := filepath.Ext(p)
-		if strings.EqualFold(ext, ".mp4") && m4a[strings.ToLower(strings.TrimSuffix(p, ext))] {
+		if videoExt[strings.ToLower(ext)] && m4a[strings.ToLower(strings.TrimSuffix(p, ext))] {
 			continue
 		}
 		out = append(out, p)
@@ -213,6 +241,12 @@ func Duration(path string) (float64, error) {
 			return 0, err
 		}
 		return t.playSeconds(), nil
+	case FormatADTS:
+		t, err := parseADTS(path)
+		if err != nil {
+			return 0, err
+		}
+		return t.seconds(), nil
 	case FormatMP3:
 		return mp3Duration(path)
 	case FormatWAV:
@@ -221,6 +255,12 @@ func Duration(path string) (float64, error) {
 			return 0, err
 		}
 		return w.seconds(), nil
+	case FormatAIFF:
+		return aiffDuration(path)
+	case FormatFLAC:
+		return flacDuration(path)
+	case FormatOgg:
+		return oggDuration(path)
 	}
 	return 0, fmt.Errorf("%w: %s", ErrUnsupported, filepath.Base(path))
 }
@@ -239,10 +279,18 @@ func Prepare(t Track, dir string, maxSeconds float64) ([]Piece, error) {
 	switch format {
 	case FormatAACMP4:
 		return prepareMP4(t.Path, dir, maxSeconds)
+	case FormatADTS:
+		return prepareADTS(t.Path, dir, maxSeconds)
 	case FormatMP3:
 		return prepareMP3(t.Path, dir, maxSeconds)
 	case FormatWAV:
 		return prepareWAV(t.Path, dir, maxSeconds)
+	case FormatAIFF:
+		return prepareAIFF(t.Path, dir, maxSeconds)
+	case FormatFLAC:
+		return prepareFLAC(t.Path, dir, maxSeconds)
+	case FormatOgg:
+		return prepareOgg(t.Path, dir, maxSeconds)
 	}
 	return nil, fmt.Errorf("%w: %s", ErrUnsupported, filepath.Base(t.Path))
 }
