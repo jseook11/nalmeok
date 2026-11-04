@@ -2,7 +2,7 @@
 
 # Nalmeok (nalmeok)
 
-> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?hl=ko-KR&gl=KR) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
+> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
 
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
@@ -23,7 +23,7 @@
 
 **macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요. 서명·공증된 앱이라 경고 없이 열려요.
 
-**Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?hl=ko-KR&gl=KR)에서 **받기**를 눌러 설치해요. 경고 없이 설치되고, 업데이트도 Store가 해요.
+**Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 경고 없이 설치되고, 업데이트도 Store가 해요.
 
 **Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://nalmeok.seook.dev/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
 
