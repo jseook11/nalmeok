@@ -22,7 +22,7 @@
 
 [내려받기](https://nalmeok.seook.dev/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
 
-**macOS** — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요.
+**macOS** (13 Ventura 이상) — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요.
 
 **Windows** — [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github)에서 **받기**를 눌러 설치해요. 업데이트는 Store가 해요.
 

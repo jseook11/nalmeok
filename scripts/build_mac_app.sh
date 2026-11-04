@@ -37,13 +37,18 @@ go build -tags desktop,production -ldflags "$LDFLAGS" -o "$BIN" ./cmd/nalmeok
 
 # Wails' macOS backend uses cgo, so cross-building needs clang's -arch both for
 # compiling and linking. Each slice is built on its own and joined with lipo.
+# Without a deployment target clang stamps the build Mac's own macOS version
+# into the binary (minos), and older Macs refuse to open the app and ask for a
+# software update. 13.0 is the oldest macOS Go itself supports.
+MIN_MACOS=13.0
 for arch in arm64 amd64; do
 	carch=$arch
 	[ "$arch" = amd64 ] && carch=x86_64   # clang names it x86_64
 	env CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
-		CC="clang -arch $carch" \
-		CGO_CFLAGS="-arch $carch" \
-		CGO_LDFLAGS="-arch $carch" \
+		MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" \
+		CC="clang -arch $carch -mmacosx-version-min=$MIN_MACOS" \
+		CGO_CFLAGS="-arch $carch -mmacosx-version-min=$MIN_MACOS" \
+		CGO_LDFLAGS="-arch $carch -mmacosx-version-min=$MIN_MACOS" \
 		go build -tags desktop,production -ldflags "$LDFLAGS" \
 		-o "build/nalmeok-$arch" ./cmd/nalmeok
 done
@@ -78,7 +83,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<key>CFBundleVersion</key>
 	<string>$VERSION</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>11.0</string>
+	<string>$MIN_MACOS</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>
