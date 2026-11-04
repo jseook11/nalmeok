@@ -928,9 +928,10 @@ button {
   height: 6px;
 }
 
+/* The others-failing line is the longest; it wraps rather than cut off the
+   "try again later" that matters. */
 .pane-health span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 
 .pane-actions {

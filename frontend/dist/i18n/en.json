@@ -136,6 +136,7 @@
   "health.bad": "Very unstable",
   "health.fake429": "Refused with quota left: {percent}%",
   "health.good": "Normal",
+  "health.othersFailing": "Other users failed in the last hour too ({count}) · Gemini free-tier capacity · try again later",
   "health.pane": "Free tier {level} · {percent}% success",
   "health.poor": "Unstable",
   "health.row": "Free tier {level}",

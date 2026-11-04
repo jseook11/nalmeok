@@ -473,20 +473,40 @@
   const asRate = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
   const percentOf = (rate) => Math.round(rate * 100);
 
-  // The binding's JSON uses the snake_case tags of telemetry.Status.
+  // The binding's JSON uses the snake_case tags of telemetry.Status. Two
+  // things are read apart: the level (with its rates), which needs enough
+  // data, and others_failing (other installs whose free requests failed in
+  // the last hour), which counts even when the level is unknown. level is
+  // null when unknown; others is 0 when absent (signals off).
   function readHealth(status) {
     const free = status && (status.free || status.Free);
-    if (!free || !HEALTH_LEVELS.includes(free.level)) return null;
-    const success = asRate(free.success_rate);
-    const minutes = Number(free.window_minutes) || 0;
-    if (success === null || minutes <= 0) return null;
+    if (!free) return null;
     const updated = Date.parse((status.updated || status.Updated || ""));
     if (!Number.isNaN(updated) && Date.now() - updated > HEALTH_STALE_MS) return null;
-    return { level: free.level, success, fake: asRate(free.fake_429_rate), minutes, at: Date.now() };
+    const success = asRate(free.success_rate);
+    const minutes = Number(free.window_minutes) || 0;
+    const known = HEALTH_LEVELS.includes(free.level) && success !== null && minutes > 0;
+    const others = Math.max(0, Math.floor(Number(free.others_failing) || 0));
+    if (!known && !others) return null;
+    return {
+      level: known ? free.level : null,
+      success,
+      fake: asRate(free.fake_429_rate),
+      minutes,
+      others,
+      at: Date.now(),
+    };
   }
 
+  // The latest answer while fresh, else null.
   function currentHealth() {
     return health && Date.now() - health.at < HEALTH_STALE_MS ? health : null;
+  }
+
+  // The same, only with a known level: the dot, the row and the popover.
+  function currentLevel() {
+    const h = currentHealth();
+    return h && h.level ? h : null;
   }
 
   // A failed or missing call hides everything: the old numbers are not shown
@@ -547,7 +567,7 @@
   }
 
   function renderHealth() {
-    const h = currentHealth();
+    const h = currentLevel();
     const label = h ? levelLabel(h.level) : "";
 
     const showDot = Boolean(h) && !modeToggle.hidden;
@@ -609,7 +629,7 @@
 
   function openHealthPop(anchor, pinned) {
     clearTimeout(healthHoverTimer);
-    const h = currentHealth();
+    const h = currentLevel();
     if (!h) return;
     if (healthAnchor && healthAnchor !== anchor) closeHealthPop();
     if (!healthPop.hidden && (healthPinned || !pinned)) return;
@@ -1137,21 +1157,38 @@
     return parts.filter(Boolean).map(esc).join(" · ");
   }
 
-  // A free item that stopped while the free tier is struggling for everyone
-  // (and a paid key is there to move to): the health it stopped under, else
-  // null. The pane then says so in one line and leads with paid.
-  function paidHint(item) {
-    if (isPaid(item) || !state.available.paid) return null;
+  // A free item that stopped, said in one line: when others' free requests
+  // fail too, it is not the user's doing (Gemini is short of free capacity);
+  // otherwise a struggling level says the same less directly. Null when
+  // neither applies. Shown for everyone; paid only leads (paidHint) when a
+  // paid key is there to move to.
+  function freeTrouble(item) {
+    if (isPaid(item)) return null;
     if (item.State !== "failed" && item.State !== "free_exhausted") return null;
     const h = currentHealth();
-    return h && h.level !== "good" ? h : null;
+    if (!h) return null;
+    if (h.others >= 1) return { text: t("health.othersFailing", { count: h.others }), level: "" };
+    if (h.level && h.level !== "good") {
+      return {
+        text: t("health.pane", { level: inlineLevel(h.level), percent: percentOf(h.success) }),
+        level: h.level,
+      };
+    }
+    return null;
   }
 
+  function paidHint(item) {
+    return state.available.paid ? freeTrouble(item) : null;
+  }
+
+  // The level line carries the level's dot; the others line is about other
+  // people, not the tier's level, so it has none.
   function paneHealthHTML(item) {
-    const h = paidHint(item);
-    if (!h) return "";
-    const text = t("health.pane", { level: inlineLevel(h.level), percent: percentOf(h.success) });
-    return `<p class="pane-meta pane-health" data-level="${h.level}"><i class="dot"></i><span>${esc(text)}</span></p>`;
+    const trouble = freeTrouble(item);
+    if (!trouble) return "";
+    const dot = trouble.level ? `<i class="dot"></i>` : "";
+    const level = trouble.level ? ` data-level="${trouble.level}"` : "";
+    return `<p class="pane-meta pane-health"${level}>${dot}<span>${esc(trouble.text)}</span></p>`;
   }
 
   // The pane offers the item's lead actions. Copying a finished transcript

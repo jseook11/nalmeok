@@ -136,6 +136,7 @@
   "health.bad": "매우 불안정",
   "health.fake429": "쿼터 남은 상태 거절 {percent}%",
   "health.good": "원활",
+  "health.othersFailing": "다른 사용자 {count}명도 최근 1시간 실패 · Gemini 무료 할당 문제 · 잠시 뒤 재시도",
   "health.pane": "무료 등급 {level} · 성공률 {percent}%",
   "health.poor": "불안정",
   "health.row": "무료 등급 {level}",
