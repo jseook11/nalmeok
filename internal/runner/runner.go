@@ -46,7 +46,7 @@ const (
 
 // Defaults that mirror the Python app.
 const (
-	DefaultUnitMaxSeconds = 130 * 60
+	DefaultUnitMaxSeconds = plan.UnitMaxSeconds
 	DefaultKeyGap         = 12 * time.Second
 	DefaultPollInterval   = 30 * time.Second
 	uploadMaxAge          = 47 * time.Hour
@@ -885,7 +885,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		if err := ctx.Err(); err != nil {
 			return item, err
 		}
-		ps, err := r.opts.Media.Prepare(track, dir, r.opts.UnitMaxSeconds)
+		ps, err := r.opts.Media.Prepare(track, dir, plan.EvenSeconds(track.Seconds, r.opts.UnitMaxSeconds))
 		if err != nil {
 			return item, userError{err}
 		}
@@ -1162,7 +1162,7 @@ func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, e
 
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
 // outcome tells the caller whether to rotate to the next key.
-// The result's Text is trimmed.
+// The result's Text is what the unit keeps (see keepText).
 func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, unit store.Unit, pdfs []string) (gemini.Result, keyOutcome, error) {
 	client, err := r.client(key)
 	if err != nil {
@@ -1214,7 +1214,10 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	if err := checkText(res.Text, res.Finish); err != nil {
 		return gemini.Result{}, keyOK, err
 	}
-	res.Text = strings.TrimSpace(res.Text)
+	if res.Finish == gemini.FinishMaxTokens {
+		r.logf("item %s unit %d: cut off at the output cap (%s)", id, unit.Index, usageLog(res.Usage))
+	}
+	res.Text = keepText(res.Text, res.Finish)
 	return res, keyOK, nil
 }
 
@@ -1302,6 +1305,14 @@ func (r *Runner) freeUnderQuota(keyID string, count bool) *bool {
 	return &under
 }
 
+// usageLog summarizes a unit's token counts for the log.
+func usageLog(u store.Usage) string {
+	if u.Empty() {
+		return "no usage"
+	}
+	return fmt.Sprintf("output %d, thoughts %d, audio %d", u.Output, u.Thoughts, u.Audio)
+}
+
 // retryDetail is the item detail while a busy server is retried.
 func retryDetail() string { return i18n.T("status.retrying") }
 
@@ -1319,12 +1330,28 @@ func (e blockedError) Error() string {
 	return blockedMessage() + " (" + e.reason + ")"
 }
 
+// keepText is what a unit stores from an answer checkText accepted. An
+// answer cut off at the output cap keeps what came back plus a line saying
+// the rest of that part is missing: the head of a lecture beats nothing, and
+// the line keeps the gap visible to the reader and to any tool fed the notes.
+func keepText(text, finish string) string {
+	text = strings.TrimSpace(text)
+	if finish == gemini.FinishMaxTokens {
+		text += "\n\n" + i18n.T("transcript.truncated")
+	}
+	return text
+}
+
 func checkText(text, finish string) error {
 	if strings.HasPrefix(finish, gemini.FinishBlocked) {
 		return blockedError{reason: strings.TrimPrefix(finish, gemini.FinishBlocked)}
 	}
 	if finish == gemini.FinishMaxTokens {
-		return userError{i18n.Error("error.truncated")}
+		// Cut off at the output cap: what came back is kept (see keepText).
+		if strings.TrimSpace(text) == "" {
+			return userError{i18n.Error("error.truncated")}
+		}
+		return nil
 	}
 	if strings.TrimSpace(text) == "" {
 		if finish != "" && finish != gemini.FinishStop {
@@ -1837,7 +1864,10 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 				}
 				continue
 			}
-			it.Units[i].Text = strings.TrimSpace(res.Text)
+			if res.Finish == gemini.FinishMaxTokens {
+				r.logf("item %s unit %d: cut off at the output cap (%s)", id, it.Units[i].Index, usageLog(res.Usage))
+			}
+			it.Units[i].Text = keepText(res.Text, res.Finish)
 			if !res.Usage.Empty() {
 				u := res.Usage
 				u.Batch = true
