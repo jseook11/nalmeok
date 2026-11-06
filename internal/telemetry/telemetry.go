@@ -39,7 +39,7 @@ const (
 )
 
 const (
-	defaultEndpoint = "https://nalmeok.seook.dev"
+	defaultEndpoint = "https://seook.dev/nalmeok"
 	defaultFlush    = 30 * time.Second
 	httpTimeout     = 10 * time.Second
 	statusTimeout   = 5 * time.Second
@@ -62,7 +62,7 @@ type Event struct {
 
 // Options configures a Client.
 type Options struct {
-	Endpoint   string           // base URL, default "https://nalmeok.seook.dev"; env NALMEOK_SIGNAL_URL overrides
+	Endpoint   string           // base URL, default "https://seook.dev/nalmeok"; env NALMEOK_SIGNAL_URL overrides
 	App        string           // app version, e.g. "0.9.3"
 	Dir        string           // config dir; the daily install id lives in <Dir>/signal-id.json
 	Enabled    func() bool      // read on every Record and flush; nil = always on

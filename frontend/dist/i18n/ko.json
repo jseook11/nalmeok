@@ -143,7 +143,7 @@
   "health.row": "무료 등급 {level}",
   "health.shaky": "다소 불안정",
   "health.statusPage": "상태 페이지",
-  "health.statusUrl": "https://nalmeok.seook.dev/status/",
+  "health.statusUrl": "https://seook.dev/nalmeok/status/",
   "health.success": "최근 {minutes}분 성공률 {percent}%",
   "health.title": "무료 등급 · {level}",
 
