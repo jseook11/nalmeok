@@ -2,7 +2,7 @@
 
 # Nalmeok (nalmeok)
 
-> **시작하기** — [내려받기](https://nalmeok.seook.dev/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
+> **시작하기** — [내려받기](https://seook.dev/nalmeok/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
 
 음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
@@ -20,7 +20,7 @@
 
 ## 설치
 
-[내려받기](https://nalmeok.seook.dev/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
+[내려받기](https://seook.dev/nalmeok/#downloads)에서 운영체제에 맞는 파일을 받아요. 이전 버전은 [Releases](https://github.com/jseook11/nalmeok/releases)에 있어요.
 
 **macOS** (13 Ventura 이상) — 내려받은 ZIP을 풀고 `Nalmeok.app`을 Applications 폴더로 옮긴 뒤 열어요.
 
@@ -33,9 +33,9 @@
   </picture>
 </a>
 
-**Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://nalmeok.seook.dev/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
+**Windows (실행 파일)** — Store를 쓰지 않으려면 [내려받기](https://seook.dev/nalmeok/#downloads)에서 x64나 ARM64 실행 파일을 받아 더블클릭해요. 설치 과정은 없고, 경고가 두 번 나올 수 있어요.
 
-- **브라우저가 다운로드를 막을 때** — Edge·Chrome이 "자주 다운로드되지 않는 파일"이라며 멈추면 아직 저장되지 않은 상태예요. 다운로드 목록에서 Nalmeok 항목의 **…** → **유지**(Keep)를 누르고, 확인 창이 뜨면 **삭제** 옆 **⌄**를 펼쳐 **계속 유지**(Keep anyway)를 눌러요. Chrome은 목록에서 **계속**(Keep)을 눌러요. [사진 안내](https://nalmeok.seook.dev/download/)
+- **브라우저가 다운로드를 막을 때** — Edge·Chrome이 "자주 다운로드되지 않는 파일"이라며 멈추면 아직 저장되지 않은 상태예요. 다운로드 목록에서 Nalmeok 항목의 **…** → **유지**(Keep)를 누르고, 확인 창이 뜨면 **삭제** 옆 **⌄**를 펼쳐 **계속 유지**(Keep anyway)를 눌러요. Chrome은 목록에서 **계속**(Keep)을 눌러요. [사진 안내](https://seook.dev/nalmeok/download/)
 - **SmartScreen이 실행을 막을 때** — **Windows의 PC 보호** 창에서 **추가 정보 → 실행**을 눌러요.
 
 **Windows (Scoop)** — [Scoop](https://scoop.sh)을 쓰면 명령으로 설치하고, 시작 메뉴에도 들어가요. 업데이트는 `scoop update nalmeok`이에요. 버킷을 추가하려면 git이 필요해서, 처음이면 첫 줄부터 실행해요.

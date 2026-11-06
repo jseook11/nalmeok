@@ -143,7 +143,7 @@
   "health.row": "Free tier {level}",
   "health.shaky": "Slightly unstable",
   "health.statusPage": "Status page",
-  "health.statusUrl": "https://nalmeok.seook.dev/en/status/",
+  "health.statusUrl": "https://seook.dev/nalmeok/en/status/",
   "health.success": "{percent}% success · last {minutes} min",
   "health.title": "Free tier · {level}",
 
