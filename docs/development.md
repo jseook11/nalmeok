@@ -147,7 +147,9 @@ Codex를 고르면 상단 무료 세그먼트 라벨이 `Codex`로 바뀐다.
   Codex 러너에서 아예 돌지 않는다. `Retry`도 다른 백엔드 항목을 거절한다.
 - Codex 로그인 상태는 `App.CodexStatus`/`CheckCodex`가
   `codexasr.Find`로 읽는다. 없거나 만료면 설정에 상태와 안내를 보여 주고,
-  상단 무료 세그먼트를 비활성한다. Gemini 무료 키로 자동 폴백하지 않는다.
+  상단 무료 세그먼트를 비활성한다. Gemini 무료 키로 자동 폴백하지 않고, 유료
+  키가 있어도 Batch로 넘기지 않는다(`App.freeLaneSet`). 저장된 모드를 그대로
+  두고, 추가할 때 Codex 로그인 안내로 멈춘다.
 - Codex를 쓰는 동안 무료 Gemini 키는 지우지 않고 보관한다. 설정의 키 목록에는
   "Codex를 쓰는 동안 무료 키는 사용되지 않아요" 캡션만 붙인다.
 - `NALMEOK_BACKEND`가 있으면 그 값이 이기고 설정의 선택은 잠긴다.

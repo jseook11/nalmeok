@@ -702,14 +702,12 @@ func effectiveMode(stored string, free, paid bool) string {
 	return "free"
 }
 
-// freeLaneAvailable reports whether the free lane can run. Codex needs a
-// usable login; Gemini needs a free API key.
-func (a *App) freeLaneAvailable(freeKeys bool) bool {
-	if a.backend() == config.BackendCodex {
-		state, _ := a.codexState()
-		return state == "ok"
-	}
-	return freeKeys
+// freeLaneSet reports whether the free lane counts when picking the mode.
+// Gemini needs a free API key. Codex always counts: a missing or expired
+// login is fixed by logging in again, so the stored mode stays and the add
+// stops with the login note instead of moving new files to paid Batch.
+func (a *App) freeLaneSet(freeKeys bool) bool {
+	return freeKeys || a.backend() == config.BackendCodex
 }
 
 // GetMode returns the mode the next drop will use.
@@ -720,7 +718,7 @@ func (a *App) GetMode() string {
 		return "free"
 	}
 	free, paid := a.cfg.Tiers()
-	return effectiveMode(a.cfg.Mode(), a.freeLaneAvailable(free), paid)
+	return effectiveMode(a.cfg.Mode(), a.freeLaneSet(free), paid)
 }
 
 // ModeState reports the effective mode, which tiers are usable, and which
@@ -747,10 +745,10 @@ func (a *App) ModeState() ModeState {
 	if experiment || backend == config.BackendCodex || a.BackendForced {
 		state.Codex, state.CodexPath = a.codexState()
 	}
+	state.Mode = effectiveMode(a.cfg.Mode(), a.freeLaneSet(freeKeys), paid)
 	if backend == config.BackendCodex {
 		state.Free = state.Codex == "ok"
 	}
-	state.Mode = effectiveMode(a.cfg.Mode(), state.Free, paid)
 	return state
 }
 

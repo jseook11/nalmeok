@@ -143,3 +143,23 @@ func TestSetBackendHonorsForced(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestCodexLoginLossKeepsFreeMode(t *testing.T) {
+	ta := newTestApp(t)
+	ta.app.CodexAuth = expiredCodexAuth
+	ta.app.Experiment = true
+	if _, err := ta.app.cfg.AddKey("Paid 1", "paid", "AIza-paid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.cfg.SetBackend(config.BackendCodex); err != nil {
+		t.Fatal(err)
+	}
+	// No usable login and a paid key: new files must not move to Batch.
+	state := ta.app.ModeState()
+	if state.Free || !state.Paid || state.Mode != "free" {
+		t.Fatalf("ModeState = %+v", state)
+	}
+	if got := ta.app.GetMode(); got != "free" {
+		t.Fatalf("GetMode = %q, want free", got)
+	}
+}
