@@ -49,9 +49,13 @@ type Config struct {
 }
 
 // Dir returns the application's config directory:
-// $XDG_CONFIG_HOME/nalmeok, %APPDATA%\nalmeok on Windows, or
-// ~/.config/nalmeok everywhere else.
+// $NALMEOK_CONFIG_DIR when set, $XDG_CONFIG_HOME/nalmeok, %APPDATA%\nalmeok
+// on Windows, or ~/.config/nalmeok everywhere else. The override keeps an
+// experiment (or a test) away from the real history.
 func Dir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("NALMEOK_CONFIG_DIR")); dir != "" {
+		return dir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

@@ -25,6 +25,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/jseook11/nalmeok/internal/codexasr"
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
@@ -148,6 +149,16 @@ type Options struct {
 	// Signal receives the anonymous outcome of every Gemini request
 	// (telemetry.Client.Record). nil records nothing.
 	Signal func(telemetry.Event)
+	// Backend selects the transcription backend: "" or "gemini" uses API
+	// keys, "codex" (experimental) reuses a local Codex login and needs no
+	// key. Batch is not available on the codex backend.
+	Backend string
+	// CodexAuth returns the local Codex login. nil reads $CODEX_HOME or
+	// ~/.codex/auth.json.
+	CodexAuth func() (codexasr.Auth, error)
+	// NewCodexClient builds the codex backend's client from a login. nil
+	// calls the real endpoint; tests inject a fake.
+	NewCodexClient func(codexasr.Auth) gemini.Client
 }
 
 // Runner implements app.Runner.
@@ -200,6 +211,15 @@ func New(opts Options) *Runner {
 	}
 	if opts.NewClient == nil {
 		opts.NewClient = gemini.New
+	}
+	if opts.CodexAuth == nil {
+		opts.CodexAuth = codexasr.Find
+	}
+	if opts.Backend == BackendCodex {
+		// Codex has no documented rate limit, and the free lane's Gemini
+		// pacing only slows it down.
+		opts.KeyGap = -1
+		opts.EarlyEstimate = false
 	}
 	if opts.Notify == nil {
 		opts.Notify = func(title, message string) {}
@@ -332,6 +352,13 @@ func (r *Runner) AddWithPDFs(path string, pdfs []string, mode, keyID string) err
 func (r *Runner) resolveMode(mode, keyID string) (string, error) {
 	if r.opts.Store == nil {
 		return "", i18n.Error("error.notReady")
+	}
+	if r.codexEnabled() {
+		// Batch is a Gemini feature; the codex backend always runs live.
+		if _, err := r.codexAuth(); err != nil {
+			return "", err
+		}
+		return "free", nil
 	}
 	keys := r.opts.Keys()
 	free, paid := splitKeys(keys)
@@ -571,6 +598,9 @@ func (r *Runner) Retry(id string) error {
 // SendToBatch moves the unfinished units of a free item to Batch: one that
 // ran out of free use, failed, was canceled, or is still running.
 func (r *Runner) SendToBatch(id string) error {
+	if r.codexEnabled() {
+		return errCodexNoBatch
+	}
 	item, ok := r.opts.Store.Get(id)
 	if !ok {
 		return store.ErrNotFound
@@ -1133,6 +1163,9 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 // sit idle; keys whose gap has already passed therefore go first, each group
 // still in priority order. Every key is still tried before giving up.
 func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, error) {
+	if r.codexEnabled() {
+		return []config.Key{codexKey()}, nil
+	}
 	keys := r.opts.Keys()
 	if pinned != "" {
 		key, ok := findKey(keys, pinned)
@@ -1235,6 +1268,10 @@ func keyFailure(err error) (keyOutcome, bool) {
 // nothing about the service and is left out. Only the outcome, HTTP status
 // and attempt leave the app; never keys, paths, text or error messages.
 func (r *Runner) signal(ctx context.Context, mode string, attempt int, err error, underQuota *bool) {
+	if r.codexEnabled() {
+		// Signals describe Gemini requests; this backend is not Gemini.
+		return
+	}
 	if r.opts.Signal == nil || ctx.Err() != nil {
 		return
 	}
@@ -2022,6 +2059,9 @@ func (r *Runner) setDetail(id, detail string) {
 }
 
 func (r *Runner) client(key config.Key) (gemini.Client, error) {
+	if r.codexEnabled() {
+		return r.codexClientFor()
+	}
 	r.mu.Lock()
 	c, ok := r.clients[key.APIKey]
 	r.mu.Unlock()
@@ -2141,6 +2181,14 @@ func userMessage(err error) string {
 	case errors.As(err, &be):
 		return blockedMessage()
 	case gemini.IsEmptyResponse(err):
+		return i18n.T("error.emptyResult")
+	case errors.Is(err, codexasr.ErrExpired):
+		return i18n.T("error.codexAuthExpired")
+	case errors.Is(err, codexasr.ErrNotFound), errors.Is(err, codexasr.ErrNoChatGPT):
+		return i18n.T("error.codexAuthMissing")
+	case errors.Is(err, codexasr.ErrUnsupported):
+		return i18n.T("error.codexFormat")
+	case errors.Is(err, codexasr.ErrNoText):
 		return i18n.T("error.emptyResult")
 	case errors.As(err, &ue):
 		return clip(ue.Error())

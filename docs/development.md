@@ -113,7 +113,16 @@ build/nalmeok doctor                                  # 버전·OS·설정 폴�
 build/nalmeok --version
 ```
 
-실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다.
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다. `NALMEOK_CONFIG_DIR`을 주면 `config.Dir`이 가장 먼저 그 폴더를 쓴다(실험·테스트를 실제 기록과 섞지 않을 때).
+
+### 실험: Codex 백엔드
+
+`--backend codex`(GUI는 `NALMEOK_BACKEND=codex`)는 Gemini API 키 대신 이 컴퓨터에 로그인된 Codex의 ChatGPT 토큰(`$CODEX_HOME/auth.json` 또는 `~/.codex/auth.json`)으로 `https://chatgpt.com/backend-api/transcribe`를 부른다. Codex를 설치하거나 로그인시키지 않는다. 파일이 없거나 토큰이 만료됐으면 항목을 추가하지 않고 안내만 한다.
+
+- 프로토콜은 codex-asr(MIT)이 문서화한 것을 따른다(`internal/codexasr`). Batch·PDF 참고문서·전사 프롬프트는 지원하지 않으므로 결과는 끝점이 준 평문이다.
+- 한 요청은 5분까지만 보낸다(`codexasr.UnitMaxSeconds`). 이 Mac에서 10.5분짜리 한국어 강의가 중간 70초를 잃었고, 같은 오디오를 5분 조각으로 나누면 거의 다 남았다(2026-11-07).
+- AIFF 조각은 끝점이 거부한다(HTTP 500). `.aac`은 조각낼 때 m4a로 다시 담기므로 지나간다.
+- 상태 신호(telemetry)와 Batch는 보내지 않는다. 이 백엔드는 실험용이라 README와 `usage.md`에 싣지 않는다.
 
 ### 상태 신호
 
