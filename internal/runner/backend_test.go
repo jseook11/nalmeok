@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -99,5 +101,47 @@ func TestPollOnceDoesNothingOnCodex(t *testing.T) {
 	}
 	if item.State != StateBatchWaiting {
 		t.Fatalf("codex runner changed a gemini batch item: state=%q detail=%q", item.State, item.Detail)
+	}
+}
+
+func TestCodexAddSkipsAIFF(t *testing.T) {
+	h := newCodexHarness(t, func() (codexasr.Auth, error) {
+		return codexasr.Auth{AccessToken: "token"}, nil
+	})
+	m4a := h.source("a.m4a")
+	aiff := h.source("b.aiff")
+	folder := filepath.Dir(h.source("mixed/c.aif"))
+	h.source("mixed/d.m4a")
+
+	err := h.r.Add([]string{m4a, aiff, folder}, "free", "")
+	var skipped *SkippedError
+	if !errors.As(err, &skipped) {
+		t.Fatalf("Add err = %v, want SkippedError", err)
+	}
+	if skipped.Added != 1 || len(skipped.Paths) != 2 {
+		t.Fatalf("skipped = %+v", skipped)
+	}
+	items := h.st.List("")
+	if len(items) != 1 || items[0].Source != m4a {
+		t.Fatalf("items = %+v", items)
+	}
+
+	// Nothing left to add: still the same error, and no item.
+	err = h.r.Add([]string{aiff}, "free", "")
+	if !errors.As(err, &skipped) || skipped.Added != 0 {
+		t.Fatalf("Add err = %v", err)
+	}
+	if n := len(h.st.List("")); n != 1 {
+		t.Fatalf("items = %d, want 1", n)
+	}
+}
+
+func TestGeminiAddKeepsAIFF(t *testing.T) {
+	h := newHarness(t, freeKey("k1"))
+	if err := h.r.Add([]string{h.source("b.aiff")}, "free", ""); err != nil {
+		t.Fatalf("Add err = %v", err)
+	}
+	if n := len(h.st.List("")); n != 1 {
+		t.Fatalf("items = %d, want 1", n)
 	}
 }

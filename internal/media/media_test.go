@@ -775,3 +775,37 @@ func TestInterleavedRemuxReadsAudioOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestHasFormat(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	aiff := write("a.AIF")
+	m4a := write("b.m4a")
+	write("mixed/c.aifc")
+	write("mixed/d.m4a")
+	write("plain/e.m4a")
+	write("plain/.f.aiff") // hidden: Scan skips it too
+	write("plain/sub/g.aiff")
+
+	cases := map[string]bool{
+		aiff:                         true,
+		m4a:                          false,
+		filepath.Join(dir, "mixed"):  true,
+		filepath.Join(dir, "plain"):  false,
+		filepath.Join(dir, "absent"): false,
+	}
+	for path, want := range cases {
+		if got := HasFormat(path, FormatAIFF); got != want {
+			t.Errorf("HasFormat(%s) = %v, want %v", filepath.Base(path), got, want)
+		}
+	}
+}

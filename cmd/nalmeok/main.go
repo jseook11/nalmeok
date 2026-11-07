@@ -530,7 +530,11 @@ func runCLI(args []string) int {
 
 	if err := engine.Add(paths, mode, strings.TrimSpace(*keyID)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		return 1
+		// Paths the backend cannot send were left out; run the rest.
+		var skipped *runner.SkippedError
+		if !errors.As(err, &skipped) || skipped.Added == 0 {
+			return 1
+		}
 	}
 
 	ids := make([]string, 0, len(paths))

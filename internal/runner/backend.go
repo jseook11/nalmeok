@@ -39,6 +39,9 @@ type backend interface {
 	// message maps one of this backend's errors to a user sentence. It returns
 	// false when the error is not its own, leaving the generic mapping.
 	message(err error) (string, bool)
+	// skips reports whether a dropped path holds audio this backend cannot
+	// send. Add leaves such paths out instead of letting them fail later.
+	skips(path string) bool
 }
 
 // newBackend returns the backend named by Backend. An empty or unknown name
@@ -82,6 +85,8 @@ func (geminiBackend) resolveMode(r *Runner, mode, keyID string) (string, error) 
 }
 
 func (geminiBackend) usesKeys() bool { return true }
+
+func (geminiBackend) skips(string) bool { return false }
 
 // candidates returns the free keys to try for one unit, in order.
 //

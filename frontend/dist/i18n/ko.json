@@ -83,6 +83,7 @@
   "error.codexAuthExpired": "Codex 로그인 만료 · Codex를 실행해 다시 로그인",
   "error.codexAuthMissing": "Codex 로그인 없음 · Codex CLI에서 먼저 로그인",
   "error.codexFormat": "Codex 백엔드는 AIFF 오디오를 받지 않음",
+  "error.codexAIFFSkipped": "AIFF가 든 항목 {count}개 건너뜀 · Codex는 AIFF를 받지 않음",
   "error.codexNoBatch": "Codex 백엔드에서는 Batch를 쓸 수 없음",
   "error.codexLoginRequired": "Codex 로그인이 필요해요",
   "error.codexRejected": "Codex가 요청을 거부함 · Codex에 다시 로그인",

@@ -12,6 +12,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/media"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -84,6 +85,12 @@ func (codexBackend) resolveMode(r *Runner, _, _ string) (string, error) {
 }
 
 func (codexBackend) usesKeys() bool { return false }
+
+// skips leaves out AIFF files and folders holding one: the endpoint rejects
+// AIFF, and a folder is one recording, so it is not sent with a gap.
+func (codexBackend) skips(path string) bool {
+	return media.HasFormat(path, media.FormatAIFF)
+}
 
 func (codexBackend) candidates(*Runner, string, float64) ([]config.Key, error) {
 	return []config.Key{codexKey()}, nil

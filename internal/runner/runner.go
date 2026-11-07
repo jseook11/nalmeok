@@ -337,16 +337,37 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 		keyID = "" // a pin would make a later Retry follow a Gemini tier
 	}
 	items := make([]store.Item, 0, len(paths))
+	var skipped []string
 	for _, path := range paths {
+		if r.back.skips(path) {
+			skipped = append(skipped, path)
+			continue
+		}
 		items = append(items, r.newItem(path, mode, keyID, nil, false))
 	}
-	if err := r.opts.Store.AddMany(items); err != nil {
-		return err
+	if len(items) > 0 {
+		if err := r.opts.Store.AddMany(items); err != nil {
+			return err
+		}
 	}
 	for _, item := range items {
 		r.afterAdd(item)
 	}
+	if len(skipped) > 0 {
+		return &SkippedError{Paths: skipped, Added: len(items)}
+	}
 	return nil
+}
+
+// SkippedError is what Add returns when it left out paths the backend cannot
+// send (Codex and AIFF). The other paths were added; Added counts them.
+type SkippedError struct {
+	Paths []string
+	Added int
+}
+
+func (e *SkippedError) Error() string {
+	return i18n.T("error.codexAIFFSkipped", "count", len(e.Paths))
 }
 
 // AddWithPDFs adds one folder with the reference PDFs the user picked. An

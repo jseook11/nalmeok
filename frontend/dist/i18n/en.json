@@ -83,6 +83,7 @@
   "error.codexAuthExpired": "Codex login expired · run Codex to sign in again",
   "error.codexAuthMissing": "Codex login not found · sign in with Codex CLI first",
   "error.codexFormat": "The Codex backend does not accept AIFF audio",
+  "error.codexAIFFSkipped": "Skipped AIFF items: {count} · Codex does not accept AIFF",
   "error.codexNoBatch": "Batch is not available with the Codex backend",
   "error.codexLoginRequired": "Codex login required",
   "error.codexRejected": "The Codex backend rejected the request · sign in to Codex again",
