@@ -22,7 +22,8 @@ internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 65분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
-internal/runner     실행기: 무료 키 순환, Batch, 한도 소진 전환, 재개
+internal/codexasr   Codex 로그인 파일을 읽어 transcribe 끝점을 부르는 클라이언트 (표준 라이브러리만, 아래 "실험: Codex 백엔드")
+internal/runner     실행기: 백엔드 선택(Gemini 무료 키 순환·Batch, Codex live), 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
 internal/app        Wails 바인딩
 internal/telemetry  무료 키 상태 신호: 요청 결과를 모아 사이트로 보내고, 전체 상태를 읽는다 (아래 "상태 신호")
@@ -113,7 +114,20 @@ build/nalmeok doctor                                  # 버전·OS·설정 폴�
 build/nalmeok --version
 ```
 
-실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다.
+실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다. `NALMEOK_CONFIG_DIR`을 주면 `config.Dir`이 가장 먼저 그 폴더를 쓴다(실험·테스트를 실제 기록과 섞지 않을 때).
+
+### 실험: Codex 백엔드
+
+`--backend codex`(GUI는 `NALMEOK_BACKEND=codex`)는 Gemini API 키 대신 이 컴퓨터에 로그인된 Codex의 ChatGPT 토큰(`$CODEX_HOME/auth.json` 또는 `~/.codex/auth.json`)으로 `https://chatgpt.com/backend-api/transcribe`를 부른다. Codex를 설치하거나 로그인시키지 않고, CLI 바이너리를 실행하지도 않는다. 파일이 없거나 토큰이 만료됐으면 항목을 추가하지 않고 안내만 한다.
+
+- 구현은 두 층이다. `internal/codexasr`는 러너를 모르는 프로토콜 클라이언트라(표준 라이브러리만) 다른 프로그램에서도 그대로 쓴다: `codexasr.New(auth).Transcribe(ctx, 경로, MIME)`. 러너 쪽은 `internal/runner/codex.go`의 `codexBackend`가 `backend` 인터페이스(`internal/runner/backend.go`)를 구현한 것이다.
+- `backend`가 서비스별 차이를 모두 진다: 모드 결정, 시도할 키, 요청 조각 만들기(업로드 여부), 무료 레인 실행, Batch 지원 여부, 텔레메트리 여부, 오류 문구, 기본값(조각 길이·동시성·지터·키 간격). 레인 코드에는 서비스별 분기가 없고, 새 백엔드는 구현 하나를 더하면 된다. `Codex` 항목은 `runner.CodexOptions`로 묶여 있다.
+
+- 프로토콜은 codex-asr(MIT)이 문서화한 것을 따른다(`internal/codexasr`). Batch·PDF 참고문서·전사 프롬프트는 지원하지 않으므로 결과는 끝점이 준 평문이다.
+- 한 요청은 8분까지만 보낸다(`codexasr.UnitMaxSeconds`). 실제 25분 강의를 8.3·10·10.5·12.5분 조각으로 잘라 5분 조각과 비교했을 때 글자 수 차이가 2% 안이었다. 다만 같은 문단을 그대로 반복한 합성 오디오는 10.5분에서 중간 70초를 잃었으므로 여유를 두고 8분으로 정했다(2026-11-07). `NALMEOK_CODEX_UNIT_SECONDS`로 실험할 수 있다.
+- 조각은 `NALMEOK_CODEX_CONCURRENCY`(기본 8)만큼 동시에 보내되, 요청마다 최대 1초의 무작위 지연을 먼저 둬서 한꺼번에 몰리지 않게 한다. 결과는 조각 순서대로 합쳐진다. 429는 3·6·12·24초 간격으로 최대 5번 다시 보낸다(네트워크·5xx는 `freeAttempt`가 이미 재시도한다). 401·403은 로그인이 하나뿐이라 항목을 실패로 끝낸다.
+- AIFF 조각은 끝점이 거부한다(HTTP 500). `.aac`은 조각낼 때 m4a로 다시 담기므로 지나간다.
+- 상태 신호(telemetry)와 Batch는 보내지 않는다. 이 백엔드는 실험용이라 README와 `usage.md`에 싣지 않는다.
 
 ### 상태 신호
 

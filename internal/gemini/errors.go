@@ -21,6 +21,10 @@ import (
 // back from the message.
 var codeRe = regexp.MustCompile(`Error (\d{3}), Message:`)
 
+// statusCoder is implemented by errors that carry an HTTP status without
+// being a genai.APIError (the codex backend's HTTPError, for example).
+type statusCoder interface{ StatusCode() int }
+
 // StatusCode returns the HTTP status carried by err, or 0.
 func StatusCode(err error) int {
 	if err == nil {
@@ -33,6 +37,10 @@ func StatusCode(err error) int {
 	var apiErrPtr *genai.APIError
 	if errors.As(err, &apiErrPtr) && apiErrPtr != nil {
 		return apiErrPtr.Code
+	}
+	var sc statusCoder
+	if errors.As(err, &sc) {
+		return sc.StatusCode()
 	}
 	if m := codeRe.FindStringSubmatch(err.Error()); m != nil {
 		code, _ := strconv.Atoi(m[1])

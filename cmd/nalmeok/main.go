@@ -14,18 +14,19 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jseook11/nalmeok/frontend"
 	"github.com/jseook11/nalmeok/internal/app"
+	"github.com/jseook11/nalmeok/internal/codexasr"
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/macdrop"
 	"github.com/jseook11/nalmeok/internal/notify"
-	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
 	"github.com/jseook11/nalmeok/internal/telemetry"
@@ -101,8 +102,14 @@ func filterPSNArgs(args []string) []string {
 }
 
 // newRuntime wires the config, history, runner and health signals shared by
-// the GUI and CLI. The signals client is already started; callers Close it.
-func newRuntime() (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
+// the GUI and CLI. backend is "" or "gemini" for API keys, or "codex" for the
+// experimental local-login backend. The signals client is already started;
+// callers Close it.
+func newRuntime(backend string) (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
+	backend, err := normalizeBackend(backend)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -138,19 +145,50 @@ func newRuntime() (*config.Config, *store.Store, *runner.Runner, *telemetry.Clie
 		Enabled: signalsEnabled,
 	})
 	signals.Start()
+	// Each backend knows its own piece length and pacing; these two knobs only
+	// override them for an experiment run. 0 means "backend default".
 	engine := runner.New(runner.Options{
-		Store:          history,
-		Media:          runner.DefaultMedia{},
-		NewClient:      gemini.New,
+		Store:     history,
+		Media:     runner.DefaultMedia{},
+		NewClient: gemini.New,
+		Backend:   backend,
+		Codex: runner.CodexOptions{
+			Concurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
+		},
 		WorkDir:        workDir,
 		TranscriptsDir: transcriptsDir,
 		LogPath:        logPath,
-		UnitMaxSeconds: plan.UnitMaxSeconds,
-		EarlyEstimate:  true,
+		UnitMaxSeconds: float64(envInt("NALMEOK_CODEX_UNIT_SECONDS")),
 		Notify:         notify.Send,
 		Signal:         signals.Record,
 	})
 	return cfg, history, engine, signals, nil
+}
+
+// backendEnv is the environment variable the GUI reads, since a window
+// launched from Finder gets no command line.
+const backendEnv = "NALMEOK_BACKEND"
+
+// normalizeBackend validates a backend name and maps the default spellings to
+// the empty string.
+func normalizeBackend(backend string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "", "gemini":
+		return "", nil
+	case runner.BackendCodex:
+		return runner.BackendCodex, nil
+	}
+	return "", fmt.Errorf("unknown backend %q: use gemini or codex", backend)
+}
+
+// envInt reads a positive integer experiment knob. An absent or invalid
+// value is 0, which means "use the default".
+func envInt(name string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
 }
 
 // signalsEnabled re-reads config.json, so turning signals off in settings
@@ -183,7 +221,7 @@ func runGUI() {
 		defer folderLock.Close()
 	}
 
-	cfg, history, engine, signals, err := newRuntime()
+	cfg, history, engine, signals, err := newRuntime(os.Getenv(backendEnv))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -347,27 +385,13 @@ func showWindow(ctx context.Context) {
 // line whenever an item's visible state changes and exits once every added
 // item is finished.
 func runCLI(args []string) int {
-	folderLock, err := config.Lock()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, lockMessage(err))
-		return 1
-	}
-	defer folderLock.Close()
-
-	cfg, history, engine, signals, err := newRuntime()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer engine.Close()
-	defer signals.Close()
-
 	flags := flag.NewFlagSet("nalmeok", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.Usage = func() { printUsage(flags.Output()) }
 	batch := flags.Bool("batch", false, i18n.T("cli.flagBatch"))
 	free := flags.Bool("free", false, i18n.T("cli.flagFree"))
 	keyID := flags.String("key", "", i18n.T("cli.flagKey"))
+	backendFlag := flags.String("backend", "", i18n.T("cli.flagBackend"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -383,6 +407,29 @@ func runCLI(args []string) int {
 		printUsage(os.Stderr)
 		return 2
 	}
+	backend := strings.TrimSpace(*backendFlag)
+	if backend == "" {
+		backend = os.Getenv(backendEnv)
+	}
+	if _, err := normalizeBackend(backend); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+
+	folderLock, err := config.Lock()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, lockMessage(err))
+		return 1
+	}
+	defer folderLock.Close()
+
+	cfg, history, engine, signals, err := newRuntime(backend)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer engine.Close()
+	defer signals.Close()
 
 	mode := cfg.EffectiveMode()
 	if *batch {
@@ -581,7 +628,20 @@ func runDoctor() int {
 	fmt.Println(i18n.T("cli.doctorDir", "dir", dir))
 	fmt.Println(i18n.T("cli.doctorKeys", "free", free, "paid", paid))
 	fmt.Println(i18n.T("cli.doctorItems", "count", items))
+	fmt.Println(i18n.T("cli.doctorCodex", "state", codexState()))
 	return 0
+}
+
+// codexState describes the local Codex login for doctor.
+func codexState() string {
+	auth, err := codexasr.Find()
+	if err != nil {
+		return i18n.T("cli.codexMissing")
+	}
+	if auth.Expired(time.Now()) {
+		return i18n.T("cli.codexExpired", "path", auth.Path)
+	}
+	return i18n.T("cli.codexFound", "path", auth.Path)
 }
 
 func printUsage(w io.Writer) {
@@ -589,6 +649,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, i18n.T("cli.usage"))
 	fmt.Fprintln(w, i18n.T("cli.usageRun"))
+	fmt.Fprintln(w, i18n.T("cli.usageBackend"))
 	fmt.Fprintln(w, "  nalmeok --version")
 	fmt.Fprintln(w, "  nalmeok doctor")
 }

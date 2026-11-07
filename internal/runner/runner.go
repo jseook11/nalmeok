@@ -148,11 +148,19 @@ type Options struct {
 	// Signal receives the anonymous outcome of every Gemini request
 	// (telemetry.Client.Record). nil records nothing.
 	Signal func(telemetry.Event)
+	// Backend selects the transcription backend: "" or "gemini" uses API
+	// keys, "codex" (experimental) reuses a local Codex login and needs no
+	// key. Batch is not available on the codex backend.
+	Backend string
+	// Codex configures the experimental codex backend; other backends ignore
+	// it.
+	Codex CodexOptions
 }
 
 // Runner implements app.Runner.
 type Runner struct {
 	opts    Options
+	back    backend
 	log     *log.Logger
 	logFile *logFile
 
@@ -171,6 +179,10 @@ type Runner struct {
 
 // New returns a runner. Start must be called to begin work.
 func New(opts Options) *Runner {
+	// The backend fills its own defaults before the generic ones: codex, for
+	// example, turns off key pacing that only applies to Gemini.
+	back := newBackend(opts.Backend)
+	back.defaults(&opts)
 	if opts.UnitMaxSeconds <= 0 {
 		opts.UnitMaxSeconds = DefaultUnitMaxSeconds
 	}
@@ -206,6 +218,7 @@ func New(opts Options) *Runner {
 	}
 	r := &Runner{
 		opts:      opts,
+		back:      back,
 		lanes:     map[string]*lane{"free": newLane("free"), "batch": newLane("batch")},
 		pollNow:   make(chan struct{}, 1),
 		clients:   make(map[string]gemini.Client),
@@ -297,6 +310,9 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 	if err != nil {
 		return err
 	}
+	if !r.back.usesKeys() {
+		keyID = "" // a pin would make a later Retry follow a Gemini tier
+	}
 	items := make([]store.Item, 0, len(paths))
 	for _, path := range paths {
 		items = append(items, r.newItem(path, mode, keyID, nil, false))
@@ -318,6 +334,9 @@ func (r *Runner) AddWithPDFs(path string, pdfs []string, mode, keyID string) err
 	if err != nil {
 		return err
 	}
+	if !r.back.usesKeys() {
+		keyID = ""
+	}
 	item := r.newItem(path, mode, keyID, append([]string{}, pdfs...), true)
 	if err := r.opts.Store.Add(item); err != nil {
 		return err
@@ -333,27 +352,7 @@ func (r *Runner) resolveMode(mode, keyID string) (string, error) {
 	if r.opts.Store == nil {
 		return "", i18n.Error("error.notReady")
 	}
-	keys := r.opts.Keys()
-	free, paid := splitKeys(keys)
-	if len(free) == 0 && len(paid) == 0 {
-		return "", i18n.Error("error.keyRequired")
-	}
-	if mode != "batch" {
-		mode = "free"
-	}
-	if mode == "free" && len(free) == 0 {
-		mode = "batch"
-	} else if mode == "batch" && len(paid) == 0 {
-		mode = "free"
-	}
-	if keyID != "" {
-		key, ok := findKey(keys, keyID)
-		if !ok {
-			return "", errPinnedMissing
-		}
-		mode = modeForTier(key.Tier)
-	}
-	return mode, nil
+	return r.back.resolveMode(r, mode, keyID)
 }
 
 // newItem builds the record for one dropped path. It does not save it; the
@@ -571,6 +570,10 @@ func (r *Runner) Retry(id string) error {
 // SendToBatch moves the unfinished units of a free item to Batch: one that
 // ran out of free use, failed, was canceled, or is still running.
 func (r *Runner) SendToBatch(id string) error {
+	if !r.back.batches() {
+		// Batch is a Gemini feature; the codex backend runs live only.
+		return errCodexNoBatch
+	}
 	item, ok := r.opts.Store.Get(id)
 	if !ok {
 		return store.ErrNotFound
@@ -805,7 +808,7 @@ func (r *Runner) runItem(parent context.Context, l *lane, id string) {
 		return
 	}
 	r.logf("item %s failed: %v", id, err)
-	r.fail(id, userMessage(err))
+	r.fail(id, r.userMessage(err))
 }
 
 func (r *Runner) process(ctx context.Context, id string) error {
@@ -817,7 +820,7 @@ func (r *Runner) process(ctx context.Context, id string) error {
 	if item.Mode == "batch" {
 		return r.submitBatch(ctx, item)
 	}
-	return r.runFree(ctx, item)
+	return r.back.free(r, ctx, item)
 }
 
 // ---- preparation -------------------------------------------------------------
@@ -1043,7 +1046,9 @@ const (
 	keyRejected
 )
 
-func (r *Runner) runFree(ctx context.Context, item store.Item) error {
+// runFreeGemini transcribes an item's unfinished units one at a time, rotating
+// through the free keys. runFreeCodex is the codex equivalent.
+func (r *Runner) runFreeGemini(ctx context.Context, item store.Item) error {
 	id := item.ID
 	pdfs := r.pdfPaths(id)
 	for i := range item.Units {
@@ -1056,7 +1061,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		unit := item.Units[i]
 		r.setDetail(id, i18n.T("status.transcribing"))
 
-		candidates, err := r.freeCandidates(item.KeyID, unit.Seconds)
+		candidates, err := r.back.candidates(r, item.KeyID, unit.Seconds)
 		if err != nil {
 			return err
 		}
@@ -1105,16 +1110,7 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 		}
 
 		item.Units[i].Text = text
-		if err := r.update(id, func(it *store.Item) {
-			if i < len(it.Units) {
-				it.Units[i].Text = text
-				if !usage.Empty() {
-					u := usage
-					it.Units[i].Usage = &u
-				}
-			}
-			it.Progress = doneRatio(it.Units)
-		}); err != nil {
+		if err := r.saveUnitText(id, i, gemini.Result{Text: text, Usage: usage}); err != nil {
 			return err
 		}
 	}
@@ -1124,40 +1120,20 @@ func (r *Runner) runFree(ctx context.Context, item store.Item) error {
 	return r.finish(id)
 }
 
-// freeCandidates returns the free keys to try for one unit, in order.
-//
-// A pinned item gets only its key, so a 429 ends in free_exhausted instead of
-// moving to another key. Otherwise keys follow the priority order (config
-// order, environment key first). Free items run one at a time, so strict priority
-// would make every unit wait out the 12 s+ gap on the first key while others
-// sit idle; keys whose gap has already passed therefore go first, each group
-// still in priority order. Every key is still tried before giving up.
-func (r *Runner) freeCandidates(pinned string, seconds float64) ([]config.Key, error) {
-	keys := r.opts.Keys()
-	if pinned != "" {
-		key, ok := findKey(keys, pinned)
-		if !ok {
-			return nil, errPinnedMissing
+// saveUnitText stores one finished unit and moves the item's progress. i is the
+// unit's slice index, which is where the unit layout put it; results may
+// arrive out of order, so text is saved by index, never by arrival order.
+func (r *Runner) saveUnitText(id string, i int, res gemini.Result) error {
+	return r.update(id, func(it *store.Item) {
+		if i < len(it.Units) {
+			it.Units[i].Text = res.Text
+			if !res.Usage.Empty() {
+				u := res.Usage
+				it.Units[i].Usage = &u
+			}
 		}
-		if key.Tier != "free" {
-			return nil, userError{i18n.Error("error.notFreeKey")}
-		}
-		return []config.Key{key}, nil
-	}
-	free, _ := splitKeys(keys)
-	if len(free) == 0 {
-		return nil, userError{i18n.Error("error.noFreeKey")}
-	}
-	ready := make([]config.Key, 0, len(free))
-	waiting := make([]config.Key, 0, len(free))
-	for _, key := range free {
-		if r.gapLeft(key.ID, seconds) > 0 {
-			waiting = append(waiting, key)
-		} else {
-			ready = append(ready, key)
-		}
-	}
-	return append(ready, waiting...), nil
+		it.Progress = doneRatio(it.Units)
+	})
 }
 
 // freeAttempt runs one unit on one key. A non-nil error ends the item; the
@@ -1168,7 +1144,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	if err != nil {
 		return gemini.Result{}, keyRejected, nil
 	}
-	req, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
+	req, err := r.back.parts(r, ctx, client, id, key.ID, unit, pdfs)
 	if err != nil {
 		// The upload retries on its own; its failure is one event.
 		r.signal(ctx, "free", 1, err, r.freeUnderQuota(key.ID, false))
@@ -1235,6 +1211,10 @@ func keyFailure(err error) (keyOutcome, bool) {
 // nothing about the service and is left out. Only the outcome, HTTP status
 // and attempt leave the app; never keys, paths, text or error messages.
 func (r *Runner) signal(ctx context.Context, mode string, attempt int, err error, underQuota *bool) {
+	if !r.back.signals() {
+		// Signals describe Gemini requests; other backends say nothing.
+		return
+	}
 	if r.opts.Signal == nil || ctx.Err() != nil {
 		return
 	}
@@ -1901,7 +1881,7 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 	}
 	if err := r.finish(id); err != nil {
 		r.logf("item %s finish: %v", id, err)
-		r.fail(id, userMessage(err))
+		r.fail(id, r.userMessage(err))
 	}
 }
 
@@ -2022,25 +2002,7 @@ func (r *Runner) setDetail(id, detail string) {
 }
 
 func (r *Runner) client(key config.Key) (gemini.Client, error) {
-	r.mu.Lock()
-	c, ok := r.clients[key.APIKey]
-	r.mu.Unlock()
-	if ok {
-		return c, nil
-	}
-	c, err := r.opts.NewClient(key.APIKey)
-	if err != nil {
-		r.logf("client for key %s: %v", key.ID, r.redact(err))
-		return nil, err
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	// Both lanes may create a client for the same key at once; keep the first.
-	if existing, ok := r.clients[key.APIKey]; ok {
-		return existing, nil
-	}
-	r.clients[key.APIKey] = c
-	return c, nil
+	return r.back.client(r, key)
 }
 
 func (r *Runner) clientForKeyID(keyID string) (gemini.Client, error) {
@@ -2132,6 +2094,14 @@ type userError struct{ err error }
 
 func (e userError) Error() string { return e.err.Error() }
 func (e userError) Unwrap() error { return e.err }
+
+// userMessage is userMessage with the backend's own errors mapped first.
+func (r *Runner) userMessage(err error) string {
+	if msg, ok := r.back.message(err); ok {
+		return msg
+	}
+	return userMessage(err)
+}
 
 // userMessage turns an error into one short Korean sentence for Item.Detail.
 func userMessage(err error) string {

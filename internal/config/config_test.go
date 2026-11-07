@@ -11,6 +11,17 @@ import (
 	"github.com/jseook11/nalmeok/internal/i18n"
 )
 
+func TestDirEnvOverride(t *testing.T) {
+	t.Setenv("NALMEOK_CONFIG_DIR", "/tmp/nalmeok-experiment")
+	got, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/tmp/nalmeok-experiment" {
+		t.Fatalf("Dir = %q", got)
+	}
+}
+
 func TestConfigDir(t *testing.T) {
 	tests := []struct {
 		name    string

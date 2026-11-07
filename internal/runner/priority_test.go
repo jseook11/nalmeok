@@ -78,7 +78,7 @@ func TestFreeCandidatesPreferKeysOffTheirGap(t *testing.T) {
 	h.r.opts.Now = func() time.Time { return now }
 	h.r.lastStart["f1"] = now.Add(-5 * time.Second)  // still waiting
 	h.r.lastStart["f2"] = now.Add(-30 * time.Second) // ready
-	got, err := h.r.freeCandidates("", 60)
+	got, err := h.r.back.candidates(h.r, "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
