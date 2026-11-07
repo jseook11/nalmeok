@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -152,19 +153,25 @@ func newRuntime(backend string) (*config.Config, *store.Store, *runner.Runner, *
 		// item (no paid estimate) is all this backend has.
 		unitMax = float64(codexasr.UnitMaxSeconds)
 		early = false
+		// Experiment knobs: measured loss starts around 10 minutes, so the
+		// piece length and the request concurrency stay tunable per run.
+		if secs := envInt("NALMEOK_CODEX_UNIT_SECONDS"); secs > 0 {
+			unitMax = float64(secs)
+		}
 	}
 	engine := runner.New(runner.Options{
-		Store:          history,
-		Media:          runner.DefaultMedia{},
-		NewClient:      gemini.New,
-		Backend:        backend,
-		WorkDir:        workDir,
-		TranscriptsDir: transcriptsDir,
-		LogPath:        logPath,
-		UnitMaxSeconds: unitMax,
-		EarlyEstimate:  early,
-		Notify:         notify.Send,
-		Signal:         signals.Record,
+		Store:            history,
+		Media:            runner.DefaultMedia{},
+		NewClient:        gemini.New,
+		Backend:          backend,
+		CodexConcurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
+		WorkDir:          workDir,
+		TranscriptsDir:   transcriptsDir,
+		LogPath:          logPath,
+		UnitMaxSeconds:   unitMax,
+		EarlyEstimate:    early,
+		Notify:           notify.Send,
+		Signal:           signals.Record,
 	})
 	return cfg, history, engine, signals, nil
 }
@@ -183,6 +190,16 @@ func normalizeBackend(backend string) (string, error) {
 		return runner.BackendCodex, nil
 	}
 	return "", fmt.Errorf("unknown backend %q: use gemini or codex", backend)
+}
+
+// envInt reads a positive integer experiment knob. An absent or invalid
+// value is 0, which means "use the default".
+func envInt(name string) int {
+	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
 }
 
 // signalsEnabled re-reads config.json, so turning signals off in settings

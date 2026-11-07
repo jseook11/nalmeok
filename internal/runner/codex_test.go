@@ -2,9 +2,11 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,8 +18,12 @@ import (
 // fakeCodex stands in for the HTTP client and records what it was asked to
 // transcribe.
 type fakeCodex struct {
-	got   []string
-	mimes []string
+	mu       sync.Mutex
+	got      []string
+	mimes    []string
+	inFlight int
+	peak     int
+	delay    time.Duration
 }
 
 func (c *fakeCodex) Upload(_ context.Context, path, mime string) (store.Upload, error) {
@@ -25,13 +31,31 @@ func (c *fakeCodex) Upload(_ context.Context, path, mime string) (store.Upload, 
 }
 
 func (c *fakeCodex) Generate(_ context.Context, req gemini.Request) (gemini.Result, error) {
+	c.mu.Lock()
+	c.inFlight++
+	if c.inFlight > c.peak {
+		c.peak = c.inFlight
+	}
+	delay := c.delay
+	c.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	defer func() {
+		c.mu.Lock()
+		c.inFlight--
+		c.mu.Unlock()
+	}()
+
 	var texts []string
 	for _, p := range req.Parts {
 		if !strings.HasPrefix(p.MIME, "audio/") {
 			continue
 		}
+		c.mu.Lock()
 		c.got = append(c.got, filepath.Base(p.FileURI))
 		c.mimes = append(c.mimes, p.MIME)
+		c.mu.Unlock()
 		texts = append(texts, "T("+filepath.Base(p.FileURI)+")")
 	}
 	return gemini.Result{Text: strings.Join(texts, "\n\n"), Finish: gemini.FinishStop}, nil
@@ -151,6 +175,43 @@ func TestCodexBackendRunsWithoutKeys(t *testing.T) {
 		if m != "audio/m4a" {
 			t.Fatalf("mime = %q, want audio/m4a", m)
 		}
+	}
+}
+
+func TestCodexRunsUnitsConcurrentlyInOrder(t *testing.T) {
+	h := newCodexHarness(t, validCodexAuth())
+	h.media.pieces = 4
+	h.fake.delay = 40 * time.Millisecond
+	h.r.Start(h.ctx)
+
+	if err := h.r.Add([]string{h.source("lecture.m4a")}, "free", ""); err != nil {
+		t.Fatal(err)
+	}
+	item := h.st.List("")[0]
+	h.wait(item.ID, StateDone)
+
+	h.fake.mu.Lock()
+	peak := h.fake.peak
+	h.fake.mu.Unlock()
+	if peak < 2 {
+		t.Fatalf("peak in-flight = %d, want at least 2", peak)
+	}
+
+	data, err := os.ReadFile(filepath.Join(h.dir, "src", "lecture.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := -1
+	for i := 1; i <= 4; i++ {
+		marker := "T(lecture.m4a." + fmt.Sprintf("%03d", i) + ".m4a)"
+		at := strings.Index(string(data), marker)
+		if at < 0 {
+			t.Fatalf("%s missing from transcript", marker)
+		}
+		if at < last {
+			t.Fatalf("%s out of order", marker)
+		}
+		last = at
 	}
 }
 

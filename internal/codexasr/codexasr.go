@@ -36,12 +36,13 @@ const (
 	// under /Applications.
 	DefaultVersion = "26.429.30905"
 
-	// UnitMaxSeconds is the longest recording one request may carry. codex-asr
-	// reports 11 minutes as reliable, but a 10.5-minute Korean lecture lost a
-	// contiguous ~70 s in this machine's test while the same audio cut into
-	// 5-minute pieces lost almost nothing (2026-11-07), so the runner cuts
-	// shorter.
-	UnitMaxSeconds = 5 * 60
+	// UnitMaxSeconds is the longest recording one request may carry. On this
+	// machine a 25-minute Korean lecture split into 12.5-minute pieces kept the
+	// same amount of text as 5-minute pieces, and 8.3-, 10- and 10.5-minute
+	// pieces stayed within 2% (2026-11-07). A synthetic test that repeated the
+	// same paragraphs verbatim did lose a contiguous 70 s at 10.5 minutes, so
+	// the default keeps margin and stops at 10 minutes.
+	UnitMaxSeconds = 10 * 60
 
 	// KeyID is the synthetic key id the runner uses for this backend.
 	KeyID = "codex"

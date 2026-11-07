@@ -80,6 +80,7 @@
   "error.codexAuthMissing": "Codex login not found · sign in with Codex CLI first",
   "error.codexFormat": "The Codex backend does not accept AIFF audio",
   "error.codexNoBatch": "Batch is not available with the Codex backend",
+  "error.codexRejected": "The Codex backend rejected the request · sign in to Codex again",
   "error.copyFailed": "Copy failed: {error}",
   "error.emptyKey": "No API key",
   "error.emptyResult": "Empty result",

@@ -159,7 +159,15 @@ type Options struct {
 	// NewCodexClient builds the codex backend's client from a login. nil
 	// calls the real endpoint; tests inject a fake.
 	NewCodexClient func(codexasr.Auth) gemini.Client
+	// CodexConcurrency is how many codex units run at once. 0 uses
+	// DefaultCodexConcurrency.
+	CodexConcurrency int
 }
+
+// DefaultCodexConcurrency is how many codex requests run side by side. The
+// endpoint took 96 concurrent short requests in codex-asr's test, but long
+// lecture pieces are heavier, so this stays modest.
+const DefaultCodexConcurrency = 4
 
 // Runner implements app.Runner.
 type Runner struct {
@@ -220,6 +228,9 @@ func New(opts Options) *Runner {
 		// pacing only slows it down.
 		opts.KeyGap = -1
 		opts.EarlyEstimate = false
+		if opts.CodexConcurrency <= 0 {
+			opts.CodexConcurrency = DefaultCodexConcurrency
+		}
 	}
 	if opts.Notify == nil {
 		opts.Notify = func(title, message string) {}
@@ -1074,6 +1085,9 @@ const (
 )
 
 func (r *Runner) runFree(ctx context.Context, item store.Item) error {
+	if r.codexEnabled() {
+		return r.runFreeCodex(ctx, item)
+	}
 	id := item.ID
 	pdfs := r.pdfPaths(id)
 	for i := range item.Units {

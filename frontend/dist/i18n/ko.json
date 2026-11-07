@@ -80,6 +80,7 @@
   "error.codexAuthMissing": "Codex 로그인 없음 · Codex CLI에서 먼저 로그인",
   "error.codexFormat": "Codex 백엔드는 AIFF 오디오를 받지 않음",
   "error.codexNoBatch": "Codex 백엔드에서는 Batch를 쓸 수 없음",
+  "error.codexRejected": "Codex가 요청을 거부함 · Codex에 다시 로그인",
   "error.copyFailed": "복사 실패: {error}",
   "error.emptyKey": "API 키 없음",
   "error.emptyResult": "빈 결과",

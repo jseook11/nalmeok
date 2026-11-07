@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jseook11/nalmeok/internal/codexasr"
@@ -64,6 +65,99 @@ func (r *Runner) codexClientFor() (gemini.Client, error) {
 // codexKey is the synthetic key the free lane iterates over.
 func codexKey() config.Key {
 	return config.Key{ID: codexasr.KeyID, Label: "Codex", Tier: "free"}
+}
+
+// runFreeCodex transcribes every pending unit concurrently and stops at the
+// first failure. Unlike the Gemini lane there is one key and no rate pacing,
+// so units do not depend on each other. Each unit's text is saved as it
+// arrives, so progress moves and a restart resumes with what is left.
+func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
+	id := item.ID
+	pdfs := r.pdfPaths(id)
+	var pending []int
+	for i := range item.Units {
+		if item.Units[i].Text == "" {
+			pending = append(pending, i)
+		}
+	}
+	if len(pending) == 0 {
+		return r.finish(id)
+	}
+
+	workers := r.opts.CodexConcurrency
+	if workers <= 0 {
+		workers = DefaultCodexConcurrency
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg       sync.WaitGroup
+		once     sync.Once
+		firstErr error
+	)
+	fail := func(err error) {
+		once.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+	sem := make(chan struct{}, workers)
+
+	for _, i := range pending {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-runCtx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			if runCtx.Err() != nil {
+				return
+			}
+			res, outcome, err := r.freeAttempt(runCtx, id, codexKey(), item.Units[i], pdfs)
+			if err != nil {
+				fail(err)
+				return
+			}
+			if outcome != keyOK {
+				fail(codexAttemptError(outcome))
+				return
+			}
+			if err := r.update(id, func(it *store.Item) {
+				if i < len(it.Units) {
+					it.Units[i].Text = res.Text
+					if !res.Usage.Empty() {
+						u := res.Usage
+						it.Units[i].Usage = &u
+					}
+				}
+				it.Progress = doneRatio(it.Units)
+			}); err != nil {
+				fail(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.finish(id)
+}
+
+// codexAttemptError turns a key outcome into a message; the codex backend has
+// one login, so a rejection ends the item instead of rotating keys.
+func codexAttemptError(outcome keyOutcome) error {
+	if outcome == keyLimited {
+		return userError{i18n.Error("error.rateLimited")}
+	}
+	return userError{i18n.Error("error.codexRejected")}
 }
 
 // codexAuthError maps a login failure to something a user can act on.
