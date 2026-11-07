@@ -97,11 +97,32 @@
     <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
   </header>
   <div class="sheet-body">
+    <div class="setting" id="provider-setting" hidden>
+      <div class="setting-row">
+        <span class="setting-label" data-i18n="provider.label"></span>
+        <span class="setting-tag" id="provider-experiment" data-i18n="provider.experiment" hidden></span>
+      </div>
+      <div class="segmented segmented-wide" id="provider-toggle" role="radiogroup"
+           data-i18n-aria-label="provider.label">
+        <button type="button" role="radio" data-backend="gemini" aria-checked="true"
+                data-i18n="provider.gemini"></button>
+        <button type="button" role="radio" data-backend="codex" aria-checked="false"
+                data-i18n="provider.codex"></button>
+      </div>
+      <p class="codex-state" id="codex-state" hidden>
+        <i class="dot" id="codex-dot"></i>
+        <span id="codex-state-label"></span>
+        <button class="text-button" id="codex-recheck" type="button" data-i18n="provider.recheck"></button>
+      </p>
+      <p class="setting-note" id="provider-note" hidden></p>
+    </div>
+    <h3 class="sheet-section-title" data-i18n="keys.section"></h3>
     <p class="sheet-intro" id="keys-intro" hidden>
       <span data-i18n="keys.intro"></span>
       <button class="text-button" id="key-source" type="button" data-i18n="keys.source"></button>
     </p>
     <p class="key-caption" id="key-caption" data-i18n="keys.caption" hidden></p>
+    <p class="key-caption" id="keys-codex-note" data-i18n="keys.codexNote" hidden></p>
     <div class="key-list" id="key-list"></div>
     <form class="key-form" id="key-form" novalidate>
       <div class="segmented segmented-small" id="key-tier" role="tablist" data-i18n-aria-label="keys.tier">
@@ -141,12 +162,12 @@
     <dl class="help">
       <dt data-i18n="help.result"></dt>
       <dd data-i18n="help.resultBody"></dd>
-      <dt data-i18n="tier.free"></dt>
-      <dd data-i18n="help.freeBody"></dd>
+      <dt id="help-free-title" data-i18n="tier.free"></dt>
+      <dd id="help-free-body" data-i18n="help.freeBody"></dd>
       <dt data-i18n="tier.paid"></dt>
       <dd data-i18n="help.paidBody"></dd>
       <dt data-i18n="help.formats"></dt>
-      <dd data-i18n="help.formatsBody"></dd>
+      <dd id="help-formats-body" data-i18n="help.formatsBody"></dd>
       <dt data-i18n="help.next"></dt>
       <dd>
         <span data-i18n="help.nextBody"></span>

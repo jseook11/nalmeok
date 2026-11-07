@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/media"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -47,6 +48,11 @@ type pdfChoices struct {
 // ("items:choosePDF"). It returns the paths that can start right away. With
 // no key at all nothing is held, so the add fails with the usual note.
 func (a *App) holdPDFChoices(paths []string, mode, keyID string) []string {
+	// The Codex endpoint takes audio only, so a folder's PDFs are not a
+	// choice there. Adding the folder directly keeps the flow the same.
+	if a.backend() == config.BackendCodex {
+		return paths
+	}
 	if !a.hasKeys() {
 		return paths
 	}

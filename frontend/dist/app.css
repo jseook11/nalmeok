@@ -398,7 +398,8 @@ button {
   80% { transform: translateX(2px); }
 }
 
-.segmented button[aria-selected="true"] {
+.segmented button[aria-selected="true"],
+.segmented button[aria-checked="true"] {
   background: var(--control);
   box-shadow: var(--control-shadow);
 }
@@ -1470,6 +1471,52 @@ button {
 .setting-note {
   margin: 4px 0 0;
   color: var(--secondary);
+  font-size: 12px;
+}
+
+/* The provider section sits at the top of the settings sheet, so it drops
+   the separator the settings at the bottom use. */
+#provider-setting {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+#provider-toggle {
+  margin-top: 10px;
+}
+
+.setting-tag {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--fill);
+  color: var(--secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sheet-section-title {
+  margin: 22px 0 6px;
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.codex-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 9px 0 0;
+  color: var(--secondary);
+  font-size: 12px;
+}
+
+.codex-state .dot[data-state="ok"] { color: var(--level-good); }
+.codex-state .dot[data-state="expired"] { color: var(--amber); }
+.codex-state .dot[data-state="missing"] { color: var(--red); }
+
+.codex-state .text-button {
+  margin-left: auto;
   font-size: 12px;
 }
 

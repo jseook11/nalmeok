@@ -58,6 +58,8 @@
   "dialog.restoreTitle": "Save transcript",
 
   "empty.label": "Choose audio files or a folder",
+  "empty.noCodex": "Sign in to Codex first",
+  "empty.noCodexLabel": "Sign in to Codex",
   "empty.noKey": "Add an API key first",
   "empty.noKeyLabel": "Add an API key",
   "empty.text": "Drop audio files or a folder here",
@@ -65,6 +67,8 @@
   "error.apiKeyInvalid": "API key rejected · check key settings",
   "error.badKey": "Bad key format",
   "error.badMode": "Bad processing mode",
+  "error.backendForced": "The transcription backend is fixed by NALMEOK_BACKEND",
+  "error.codexNoKeys": "Keys do not apply to the Codex backend",
   "error.badTier": "Bad tier",
   "error.batchCanceled": "Canceled on the server",
   "error.batchExpired": "Server processing deadline passed",
@@ -80,6 +84,7 @@
   "error.codexAuthMissing": "Codex login not found · sign in with Codex CLI first",
   "error.codexFormat": "The Codex backend does not accept AIFF audio",
   "error.codexNoBatch": "Batch is not available with the Codex backend",
+  "error.codexLoginRequired": "Codex login required",
   "error.codexRejected": "The Codex backend rejected the request · sign in to Codex again",
   "error.copyFailed": "Copy failed: {error}",
   "error.emptyKey": "No API key",
@@ -131,6 +136,8 @@
   "error.truncated": "Result truncated (too long)",
   "transcript.truncated": "[The rest of this part was not transcribed: the answer hit the output limit]",
   "error.unknownMode": "Unknown processing mode: {mode}",
+  "error.unknownBackend": "Unknown transcription backend: {backend}",
+  "error.wrongBackend": "This item was added with the other transcription backend",
 
   "field.name": "Name",
 
@@ -158,6 +165,8 @@
   "health.success": "{percent}% success · last {minutes} min",
   "health.title": "Free tier · {level}",
 
+  "help.codexBody": "ChatGPT login · 8-minute pieces · no PDF references · plain text · unofficial · audio goes to OpenAI",
+  "help.codexFormats": "m4a, mp4, mov, mp3, wav, flac, ogg, opus, aac · no AIFF",
   "help.formats": "Formats",
   "help.formatsBody": "m4a, mp4, mov, mp3, wav, aiff, flac, ogg, opus, aac · PDFs in the folder are used for terminology",
   "help.freeBody": "Transcribes right away · daily quota",
@@ -174,15 +183,17 @@
   "key.envLabel": "Environment",
 
   "keys.caption": "Keys are used from the top",
+  "keys.codexNote": "Free keys are not used while Codex is on",
   "keys.checking": "Checking",
   "keys.delete": "Delete key",
   "keys.dragHandle": "Drag to reorder",
   "keys.intro": "A Gemini API key is required",
   "keys.placeholder": "Paste an API key",
   "keys.save": "Save",
+  "keys.section": "Gemini API keys",
   "keys.source": "Get a key",
   "keys.tier": "Tier",
-  "keys.title": "API keys",
+  "keys.title": "Settings",
 
   "list.label": "File list",
   "list.noResults": "No results",
@@ -256,6 +267,21 @@
   "picker.autoByPriority": "Auto (by priority)",
   "picker.title": "Key for new files",
 
+  "provider.codex": "Codex (ChatGPT login)",
+  "provider.codexState.expired": "Codex login expired",
+  "provider.codexState.missing": "Codex login not found",
+  "provider.codexState.ok": "Codex login found",
+  "provider.experiment": "Experiment",
+  "provider.forced": "Fixed by NALMEOK_BACKEND",
+  "provider.gemini": "Gemini API key",
+  "provider.label": "Transcription",
+  "provider.loginHint": "Sign in with Codex CLI or the Codex app first.",
+  "provider.loginRequired": "Codex login required",
+  "provider.recheck": "Check again",
+  "provider.rechecked": "Checked again",
+  "provider.switchedCodex": "Codex is now the free option",
+  "provider.switchedGemini": "Gemini is now the free option",
+
   "quit.confirm": "Quit",
   "quit.keep": "Keep transcribing",
   "quit.message": "Quitting now pauses the transcription. It picks up where it left off when you reopen the app.",
@@ -291,6 +317,7 @@
 
   "store.notFound": "Item not found",
 
+  "tier.codex": "Codex",
   "tier.free": "Free",
   "tier.paid": "Paid",
 
@@ -299,6 +326,7 @@
   "toast.keyDeleted": "Key deleted",
   "toast.keySaved": "Key saved",
   "toast.located": "File reconnected",
+  "toast.openSettings": "Open settings",
   "toast.removed": "Removed from list",
   "toast.restored": "Saved again",
   "toast.undo": "Undo"

@@ -9,6 +9,7 @@
 | `README.md` | 설치, 처음 사용, 다운로드 |
 | `docs/usage.md` | 화면 사용법, 비용, API 키 발급, FAQ |
 | `docs/prompts.md` | 전사본을 AI에 올려 물어볼 질문 예시(한·영). 도움말 **?**의 링크 대상(`help.promptsUrl`) |
+| `docs/codex-gui-plan.md` | Codex 백엔드를 GUI 설정으로 노출하는 설계와 결정 |
 | 로컬 `CLAUDE.md` (저장소 밖) | 작업 지침, 폐기된 제약, macOS 자격 |
 
 ## Go 앱
@@ -16,14 +17,14 @@
 Go + Wails 데스크톱 앱이다.
 
 ```text
-cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode·signals)
-internal/store      items.json(처리 목록), 검색
+cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI. GUI는 백엔드별 러너를 라우터로 묶는다
+internal/config     설정 폴더, config.json(키·gui.mode·signals·backend·experiments)
+internal/store      items.json(처리 목록, 항목별 Backend), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 65분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/codexasr   Codex 로그인 파일을 읽어 transcribe 끝점을 부르는 클라이언트 (표준 라이브러리만, 아래 "실험: Codex 백엔드")
-internal/runner     실행기: 백엔드 선택(Gemini 무료 키 순환·Batch, Codex live), 한도 소진 전환, 재개
+internal/runner     실행기: 백엔드별 러너(Gemini 무료 키 순환·Batch, Codex live), 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
 internal/app        Wails 바인딩
 internal/telemetry  무료 키 상태 신호: 요청 결과를 모아 사이트로 보내고, 전체 상태를 읽는다 (아래 "상태 신호")
@@ -109,10 +110,12 @@ scripts/package_windows_msix.ps1 [-Version x.y.z] [-Register]
 CLI는 **사용자용 기능이 아니다.** 실제 API 회귀 테스트, AI 에이전트의 자동화, 문제 보고(`doctor`)에만 쓴다. README와 `usage.md`에는 싣지 않는다. 전사 로직은 GUI와 같은 실행기·저장소를 쓴다.
 
 ```bash
-build/nalmeok [--free|--batch] <파일 또는 폴더>...   # 끝날 때까지 상태를 한 줄씩 출력. 모두 완료면 0, 아니면 1
-build/nalmeok doctor                                  # 버전·OS·설정 폴더·등급별 키 개수 (키 값은 출력하지 않음)
+build/nalmeok [--free|--batch] [--backend codex] <파일 또는 폴더>...   # 끝날 때까지 상태를 한 줄씩 출력. 모두 완료면 0, 아니면 1
+build/nalmeok doctor                                  # 버전·OS·설정 폴더·등급별 키 개수·Codex 로그인 상태 (키 값은 출력하지 않음)
 build/nalmeok --version
 ```
+
+백엔드는 `--backend` > `NALMEOK_BACKEND` > `config.json`의 `backend` > gemini 순으로 고른다. CLI와 GUI가 같은 설정을 본다.
 
 실제 API 테스트는 `XDG_CONFIG_HOME`을 임시 폴더로 바꾸고 `config.json`만 복사해서 돌린다. 설정 폴더마다 프로세스 하나만 돈다: 앱과 CLI는 `<설정 폴더>/nalmeok.lock`을 잡고, 이미 잡혀 있으면 CLI는 종료 코드 1로 끝나고 앱은 안내 후 닫힌다. 앱을 두 번 열면 Wails 단일 인스턴스 잠금으로 기존 창이 앞으로 온다. `config.json`은 바꾸기 직전에 다시 읽어, 다른 프로세스가 바꾼 내용을 지우지 않는다. `NALMEOK_CONFIG_DIR`을 주면 `config.Dir`이 가장 먼저 그 폴더를 쓴다(실험·테스트를 실제 기록과 섞지 않을 때).
 
@@ -128,6 +131,28 @@ build/nalmeok --version
 - 조각은 `NALMEOK_CODEX_CONCURRENCY`(기본 8)만큼 동시에 보내되, 요청마다 최대 1초의 무작위 지연을 먼저 둬서 한꺼번에 몰리지 않게 한다. 결과는 조각 순서대로 합쳐진다. 429는 3·6·12·24초 간격으로 최대 5번 다시 보낸다(네트워크·5xx는 `freeAttempt`가 이미 재시도한다). 401·403은 로그인이 하나뿐이라 항목을 실패로 끝낸다.
 - AIFF 조각은 끝점이 거부한다(HTTP 500). `.aac`은 조각낼 때 m4a로 다시 담기므로 지나간다.
 - 상태 신호(telemetry)와 Batch는 보내지 않는다. 이 백엔드는 실험용이라 README와 `usage.md`에 싣지 않는다.
+
+#### GUI 설정 (실험 플래그)
+
+GUI의 **설정**에는 `전사 방식`(Gemini API 키 / Codex) 섹션이 있다. 이 섹션은
+`config.json`의 `"experiments": {"codex": true}` 또는 `NALMEOK_EXPERIMENTS=codex`가
+있을 때만 보인다. 선택은 `config.json`의 `"backend": "gemini" | "codex"`에 저장되고,
+Codex를 고르면 상단 무료 세그먼트 라벨이 `Codex`로 바뀐다.
+
+- GUI는 시작할 때 러너를 **백엔드별로 두 개** 만든다(`cmd/nalmeok/router.go`).
+  새 항목은 현재 설정의 러너로 가고, 이미 추가된 항목은 `store.Item.Backend`가
+  가리키는 러너가 이어서 처리한다. 그래서 설정을 바꿔도 재시작이 필요 없고,
+  Gemini로 만든 65분 조각이 Codex로 넘어가는 일도 없다.
+- `Runner.Start`는 자기 백엔드 항목만 큐에 넣고, `PollOnce`는 Batch가 없는
+  Codex 러너에서 아예 돌지 않는다. `Retry`도 다른 백엔드 항목을 거절한다.
+- Codex 로그인 상태는 `App.CodexStatus`/`CheckCodex`가
+  `codexasr.Find`로 읽는다. 없거나 만료면 설정에 상태와 안내를 보여 주고,
+  상단 무료 세그먼트를 비활성한다. Gemini 무료 키로 자동 폴백하지 않는다.
+- Codex를 쓰는 동안 무료 Gemini 키는 지우지 않고 보관한다. 설정의 키 목록에는
+  "Codex를 쓰는 동안 무료 키는 사용되지 않아요" 캡션만 붙인다.
+- `NALMEOK_BACKEND`가 있으면 그 값이 이기고 설정의 선택은 잠긴다.
+- 조각 길이·PDF 없음·AIFF·평문 결과·비공식 고지는 설정이 아니라 **?** 도움말에
+  있다.
 
 ### 상태 신호
 
