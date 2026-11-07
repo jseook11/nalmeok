@@ -120,8 +120,8 @@ build/nalmeok --version
 `--backend codex`(GUI는 `NALMEOK_BACKEND=codex`)는 Gemini API 키 대신 이 컴퓨터에 로그인된 Codex의 ChatGPT 토큰(`$CODEX_HOME/auth.json` 또는 `~/.codex/auth.json`)으로 `https://chatgpt.com/backend-api/transcribe`를 부른다. Codex를 설치하거나 로그인시키지 않는다. 파일이 없거나 토큰이 만료됐으면 항목을 추가하지 않고 안내만 한다.
 
 - 프로토콜은 codex-asr(MIT)이 문서화한 것을 따른다(`internal/codexasr`). Batch·PDF 참고문서·전사 프롬프트는 지원하지 않으므로 결과는 끝점이 준 평문이다.
-- 한 요청은 10분까지만 보낸다(`codexasr.UnitMaxSeconds`). 실제 25분 강의를 8.3·10·10.5·12.5분 조각으로 잘라 5분 조각과 비교했을 때 글자 수 차이가 2% 안이었다. 다만 같은 문단을 그대로 반복한 합성 오디오는 10.5분에서 중간 70초를 잃었으므로 여유를 두고 10분으로 정했다(2026-11-07). `NALMEOK_CODEX_UNIT_SECONDS`로 실험할 수 있다.
-- 조각은 `NALMEOK_CODEX_CONCURRENCY`(기본 4)만큼 동시에 보낸다. 결과는 조각 순서대로 합쳐진다.
+- 한 요청은 8분까지만 보낸다(`codexasr.UnitMaxSeconds`). 실제 25분 강의를 8.3·10·10.5·12.5분 조각으로 잘라 5분 조각과 비교했을 때 글자 수 차이가 2% 안이었다. 다만 같은 문단을 그대로 반복한 합성 오디오는 10.5분에서 중간 70초를 잃었으므로 여유를 두고 8분으로 정했다(2026-11-07). `NALMEOK_CODEX_UNIT_SECONDS`로 실험할 수 있다.
+- 조각은 `NALMEOK_CODEX_CONCURRENCY`(기본 8)만큼 동시에 보내되, 요청마다 최대 1초의 무작위 지연을 먼저 둬서 한꺼번에 몰리지 않게 한다. 결과는 조각 순서대로 합쳐진다. 429는 3·6·12·24초 간격으로 최대 5번 다시 보낸다(네트워크·5xx는 `freeAttempt`가 이미 재시도한다). 401·403은 로그인이 하나뿐이라 항목을 실패로 끝낸다.
 - AIFF 조각은 끝점이 거부한다(HTTP 500). `.aac`은 조각낼 때 m4a로 다시 담기므로 지나간다.
 - 상태 신호(telemetry)와 Batch는 보내지 않는다. 이 백엔드는 실험용이라 README와 `usage.md`에 싣지 않는다.
 

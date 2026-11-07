@@ -16,6 +16,7 @@ import (
 	"log"
 	"maps"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,12 +163,18 @@ type Options struct {
 	// CodexConcurrency is how many codex units run at once. 0 uses
 	// DefaultCodexConcurrency.
 	CodexConcurrency int
+	// CodexJitter returns the delay before one codex request, spreading
+	// simultaneous starts. nil uses a random delay up to DefaultCodexJitter.
+	CodexJitter func() time.Duration
 }
 
 // DefaultCodexConcurrency is how many codex requests run side by side. The
 // endpoint took 96 concurrent short requests in codex-asr's test, but long
 // lecture pieces are heavier, so this stays modest.
-const DefaultCodexConcurrency = 4
+const DefaultCodexConcurrency = 8
+
+// DefaultCodexJitter is the longest random delay before a codex request.
+const DefaultCodexJitter = time.Second
 
 // Runner implements app.Runner.
 type Runner struct {
@@ -230,6 +237,11 @@ func New(opts Options) *Runner {
 		opts.EarlyEstimate = false
 		if opts.CodexConcurrency <= 0 {
 			opts.CodexConcurrency = DefaultCodexConcurrency
+		}
+		if opts.CodexJitter == nil {
+			opts.CodexJitter = func() time.Duration {
+				return rand.N(DefaultCodexJitter)
+			}
 		}
 	}
 	if opts.Notify == nil {

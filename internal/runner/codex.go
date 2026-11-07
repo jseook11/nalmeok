@@ -118,13 +118,18 @@ func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
 			if runCtx.Err() != nil {
 				return
 			}
-			res, outcome, err := r.freeAttempt(runCtx, id, codexKey(), item.Units[i], pdfs)
-			if err != nil {
-				fail(err)
-				return
+			if jitter := r.opts.CodexJitter; jitter != nil {
+				if d := jitter(); d > 0 {
+					if err := r.opts.Sleep(runCtx, d); err != nil {
+						return
+					}
+				}
 			}
-			if outcome != keyOK {
-				fail(codexAttemptError(outcome))
+			res, err := r.codexUnit(runCtx, id, item.Units[i], pdfs)
+			if err != nil {
+				if runCtx.Err() == nil {
+					fail(err)
+				}
 				return
 			}
 			if err := r.update(id, func(it *store.Item) {
@@ -151,13 +156,38 @@ func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
 	return r.finish(id)
 }
 
-// codexAttemptError turns a key outcome into a message; the codex backend has
-// one login, so a rejection ends the item instead of rotating keys.
-func codexAttemptError(outcome keyOutcome) error {
-	if outcome == keyLimited {
-		return userError{i18n.Error("error.rateLimited")}
+// codexUnit runs one unit and retries a rate-limited (429) answer with
+// exponential backoff. Network and 5xx failures are already retried inside
+// freeAttempt; an auth rejection ends the item, since there is one login.
+func (r *Runner) codexUnit(ctx context.Context, id string, unit store.Unit, pdfs []string) (gemini.Result, error) {
+	const attempts = 5
+	const base = 3 * time.Second
+	var last error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		res, outcome, err := r.freeAttempt(ctx, id, codexKey(), unit, pdfs)
+		if err != nil {
+			return gemini.Result{}, err
+		}
+		switch outcome {
+		case keyOK:
+			return res, nil
+		case keyLimited:
+			last = userError{i18n.Error("error.rateLimited")}
+			if attempt == attempts {
+				return gemini.Result{}, last
+			}
+			wait := base << (attempt - 1)
+			if jitter := r.opts.CodexJitter; jitter != nil {
+				wait += jitter()
+			}
+			if err := r.opts.Sleep(ctx, wait); err != nil {
+				return gemini.Result{}, err
+			}
+		default:
+			return gemini.Result{}, userError{i18n.Error("error.codexRejected")}
+		}
 	}
-	return userError{i18n.Error("error.codexRejected")}
+	return gemini.Result{}, last
 }
 
 // codexAuthError maps a login failure to something a user can act on.

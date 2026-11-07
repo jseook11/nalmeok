@@ -41,8 +41,8 @@ const (
 	// same amount of text as 5-minute pieces, and 8.3-, 10- and 10.5-minute
 	// pieces stayed within 2% (2026-11-07). A synthetic test that repeated the
 	// same paragraphs verbatim did lose a contiguous 70 s at 10.5 minutes, so
-	// the default keeps margin and stops at 10 minutes.
-	UnitMaxSeconds = 10 * 60
+	// the default keeps margin and stops at 8 minutes.
+	UnitMaxSeconds = 8 * 60
 
 	// KeyID is the synthetic key id the runner uses for this backend.
 	KeyID = "codex"

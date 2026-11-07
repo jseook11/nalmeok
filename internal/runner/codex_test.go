@@ -18,12 +18,14 @@ import (
 // fakeCodex stands in for the HTTP client and records what it was asked to
 // transcribe.
 type fakeCodex struct {
-	mu       sync.Mutex
-	got      []string
-	mimes    []string
-	inFlight int
-	peak     int
-	delay    time.Duration
+	mu        sync.Mutex
+	got       []string
+	mimes     []string
+	inFlight  int
+	peak      int
+	delay     time.Duration
+	rateLimit int  // remaining 429 answers
+	authFail  bool // answer 401
 }
 
 func (c *fakeCodex) Upload(_ context.Context, path, mime string) (store.Upload, error) {
@@ -37,6 +39,11 @@ func (c *fakeCodex) Generate(_ context.Context, req gemini.Request) (gemini.Resu
 		c.peak = c.inFlight
 	}
 	delay := c.delay
+	limited := c.rateLimit > 0
+	if limited {
+		c.rateLimit--
+	}
+	authFail := c.authFail
 	c.mu.Unlock()
 	if delay > 0 {
 		time.Sleep(delay)
@@ -46,6 +53,12 @@ func (c *fakeCodex) Generate(_ context.Context, req gemini.Request) (gemini.Resu
 		c.inFlight--
 		c.mu.Unlock()
 	}()
+	switch {
+	case authFail:
+		return gemini.Result{}, &codexasr.HTTPError{Status: 401, Body: "unauthorized"}
+	case limited:
+		return gemini.Result{}, &codexasr.HTTPError{Status: 429, Body: "rate limited"}
+	}
 
 	var texts []string
 	for _, p := range req.Parts {
@@ -75,14 +88,16 @@ func (c *fakeCodex) CancelBatch(context.Context, string) error { return errCodex
 func (c *fakeCodex) Validate(context.Context) error            { return nil }
 
 type codexHarness struct {
-	t     *testing.T
-	dir   string
-	st    *store.Store
-	fake  *fakeCodex
-	r     *Runner
-	ctx   context.Context
-	stop  context.CancelFunc
-	media *fakeMedia
+	t      *testing.T
+	dir    string
+	st     *store.Store
+	fake   *fakeCodex
+	r      *Runner
+	ctx    context.Context
+	stop   context.CancelFunc
+	media  *fakeMedia
+	mu     sync.Mutex
+	sleeps []time.Duration
 }
 
 func newCodexHarness(t *testing.T, auth func() (codexasr.Auth, error)) *codexHarness {
@@ -101,8 +116,15 @@ func newCodexHarness(t *testing.T, auth func() (codexasr.Auth, error)) *codexHar
 		Backend:        BackendCodex,
 		CodexAuth:      auth,
 		NewCodexClient: func(codexasr.Auth) gemini.Client { return h.fake },
+		CodexJitter:    func() time.Duration { return 0 },
 		WorkDir:        filepath.Join(dir, "work"),
 		PollInterval:   time.Hour,
+		Sleep: func(_ context.Context, d time.Duration) error {
+			h.mu.Lock()
+			h.sleeps = append(h.sleeps, d)
+			h.mu.Unlock()
+			return nil
+		},
 	})
 	t.Cleanup(func() { _ = h.r.Close() })
 	return h
@@ -239,6 +261,45 @@ func TestCodexBackendExpiredLogin(t *testing.T) {
 	err := h.r.Add([]string{h.source("lecture.m4a")}, "free", "")
 	if err == nil {
 		t.Fatal("Add succeeded with an expired login")
+	}
+}
+
+func TestCodexRetriesRateLimit(t *testing.T) {
+	h := newCodexHarness(t, validCodexAuth())
+	h.media.pieces = 1
+	h.fake.rateLimit = 2
+	h.r.Start(h.ctx)
+
+	if err := h.r.Add([]string{h.source("lecture.m4a")}, "free", ""); err != nil {
+		t.Fatal(err)
+	}
+	item := h.st.List("")[0]
+	h.wait(item.ID, StateDone)
+
+	h.mu.Lock()
+	sleeps := append([]time.Duration{}, h.sleeps...)
+	h.mu.Unlock()
+	if len(sleeps) < 2 {
+		t.Fatalf("sleeps = %v, want two backoffs", sleeps)
+	}
+	if sleeps[0] != 3*time.Second || sleeps[1] != 6*time.Second {
+		t.Fatalf("sleeps = %v, want 3s then 6s", sleeps)
+	}
+}
+
+func TestCodexAuthRejectionFailsItem(t *testing.T) {
+	h := newCodexHarness(t, validCodexAuth())
+	h.media.pieces = 1
+	h.fake.authFail = true
+	h.r.Start(h.ctx)
+
+	if err := h.r.Add([]string{h.source("lecture.m4a")}, "free", ""); err != nil {
+		t.Fatal(err)
+	}
+	item := h.st.List("")[0]
+	failed := h.wait(item.ID, StateFailed)
+	if !strings.Contains(failed.Detail, "Codex") {
+		t.Fatalf("detail = %q, want a Codex message", failed.Detail)
 	}
 }
 
