@@ -275,6 +275,25 @@ func (l *logFile) Close() error {
 	return err
 }
 
+// backendName is this runner's persisted backend name. The zero value of
+// Options.Backend means gemini.
+func (r *Runner) backendName() string {
+	if r.opts.Backend == BackendCodex {
+		return config.BackendCodex
+	}
+	return config.BackendGemini
+}
+
+// owns reports whether item was added with this runner's backend. An empty
+// Backend is a Gemini item written by an older version.
+func (r *Runner) owns(item store.Item) bool {
+	backend := item.Backend
+	if backend == "" {
+		backend = config.BackendGemini
+	}
+	return backend == r.backendName()
+}
+
 // Start resumes interrupted work and launches the lane workers and poller.
 func (r *Runner) Start(ctx context.Context) {
 	if ctx == nil {
@@ -291,14 +310,18 @@ func (r *Runner) Start(ctx context.Context) {
 	items := r.opts.Store.List("")
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	for _, item := range items {
-		if item.State == StateRunning {
+		if item.State == StateRunning && r.owns(item) {
 			r.enqueue(item.ID, item.Mode)
 		}
 	}
 	for _, l := range r.lanes {
 		go r.worker(ctx, l)
 	}
-	go r.poller(ctx)
+	// Batch is a Gemini feature. A codex runner must not poll batch_waiting
+	// items, or its BatchStatus stub would fail them.
+	if r.back.batches() {
+		go r.poller(ctx)
+	}
 }
 
 // Add creates one item per path and queues them. A non-empty keyID pins the
@@ -314,16 +337,37 @@ func (r *Runner) Add(paths []string, mode, keyID string) error {
 		keyID = "" // a pin would make a later Retry follow a Gemini tier
 	}
 	items := make([]store.Item, 0, len(paths))
+	var skipped []string
 	for _, path := range paths {
+		if r.back.skips(path) {
+			skipped = append(skipped, path)
+			continue
+		}
 		items = append(items, r.newItem(path, mode, keyID, nil, false))
 	}
-	if err := r.opts.Store.AddMany(items); err != nil {
-		return err
+	if len(items) > 0 {
+		if err := r.opts.Store.AddMany(items); err != nil {
+			return err
+		}
 	}
 	for _, item := range items {
 		r.afterAdd(item)
 	}
+	if len(skipped) > 0 {
+		return &SkippedError{Paths: skipped, Added: len(items)}
+	}
 	return nil
+}
+
+// SkippedError is what Add returns when it left out paths the backend cannot
+// send (Codex and AIFF). The other paths were added; Added counts them.
+type SkippedError struct {
+	Paths []string
+	Added int
+}
+
+func (e *SkippedError) Error() string {
+	return i18n.T("error.codexAIFFSkipped", "count", len(e.Paths))
 }
 
 // AddWithPDFs adds one folder with the reference PDFs the user picked. An
@@ -371,6 +415,7 @@ func (r *Runner) newItem(path, mode, keyID string, pdfs []string, pdfChosen bool
 		Kind:      kind,
 		Name:      filepath.Base(path),
 		Mode:      mode,
+		Backend:   r.backendName(),
 		State:     StateRunning,
 		Detail:    i18n.T("status.queued"),
 		KeyID:     keyID,
@@ -534,6 +579,9 @@ func (r *Runner) Retry(id string) error {
 	if !ok {
 		return store.ErrNotFound
 	}
+	if !r.owns(item) {
+		return userError{i18n.Error("error.wrongBackend")}
+	}
 	switch item.State {
 	case StateFailed, StateCanceled, StateFreeExhausted:
 	default:
@@ -613,6 +661,7 @@ func (r *Runner) SendToBatch(id string) error {
 			it.KeyID = ""
 		}
 		it.Mode = "batch"
+		it.Backend = r.backendName()
 		it.State = StateRunning
 		it.Detail = i18n.T("status.preparing")
 	}); err != nil {
@@ -1736,11 +1785,14 @@ func (r *Runner) poller(ctx context.Context) {
 
 // PollOnce checks every batch_waiting item once.
 func (r *Runner) PollOnce(ctx context.Context) {
+	if !r.back.batches() {
+		return
+	}
 	for _, item := range r.opts.Store.List("") {
 		if ctx.Err() != nil {
 			return
 		}
-		if item.State == StateBatchWaiting {
+		if item.State == StateBatchWaiting && r.owns(item) {
 			r.pollItem(ctx, item.ID)
 		}
 	}

@@ -28,11 +28,14 @@ var ErrNotFound = i18n.Error("store.notFound")
 // Item is one dropped file or folder. The JSON field names are the contract
 // shared with the frontend and the future runner.
 type Item struct {
-	ID        string    `json:"ID"`
-	Source    string    `json:"Source"`
-	Kind      string    `json:"Kind"`
-	Name      string    `json:"Name"`
-	Mode      string    `json:"Mode"`
+	ID     string `json:"ID"`
+	Source string `json:"Source"`
+	Kind   string `json:"Kind"`
+	Name   string `json:"Name"`
+	Mode   string `json:"Mode"`
+	// Backend is the transcription backend the item was added with. Empty
+	// means gemini, so items written by older versions keep working.
+	Backend   string    `json:"Backend,omitempty"`
 	State     string    `json:"State"`
 	Progress  float64   `json:"Progress"`
 	Detail    string    `json:"Detail"`

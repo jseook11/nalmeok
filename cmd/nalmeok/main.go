@@ -101,43 +101,47 @@ func filterPSNArgs(args []string) []string {
 	return out
 }
 
-// newRuntime wires the config, history, runner and health signals shared by
-// the GUI and CLI. backend is "" or "gemini" for API keys, or "codex" for the
-// experimental local-login backend. The signals client is already started;
-// callers Close it.
-func newRuntime(backend string) (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
-	backend, err := normalizeBackend(backend)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
+// sharedRuntime holds what the GUI and CLI load once: settings, history, and
+// the health-signal client. The GUI builds one runner per backend from it.
+type sharedRuntime struct {
+	cfg            *config.Config
+	store          *store.Store
+	signals        *telemetry.Client
+	workDir        string
+	transcriptsDir string
+	logPath        string
+}
+
+// newSharedRuntime loads the pieces both entry points share and starts the
+// signals client. Callers close signals.
+func newSharedRuntime() (*sharedRuntime, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	itemsPath, err := config.ItemsPath()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	history, err := store.Load(itemsPath)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
-
 	workDir, err := config.WorkDir()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	transcriptsDir, err := config.TranscriptsDir()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	logPath, err := config.LogPath()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	dir, err := config.Dir()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	signals := telemetry.New(telemetry.Options{
 		App:     version,
@@ -145,29 +149,65 @@ func newRuntime(backend string) (*config.Config, *store.Store, *runner.Runner, *
 		Enabled: signalsEnabled,
 	})
 	signals.Start()
-	// Each backend knows its own piece length and pacing; these two knobs only
-	// override them for an experiment run. 0 means "backend default".
-	engine := runner.New(runner.Options{
-		Store:     history,
-		Media:     runner.DefaultMedia{},
-		NewClient: gemini.New,
-		Backend:   backend,
-		Codex: runner.CodexOptions{
-			Concurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
-		},
-		WorkDir:        workDir,
-		TranscriptsDir: transcriptsDir,
-		LogPath:        logPath,
-		UnitMaxSeconds: float64(envInt("NALMEOK_CODEX_UNIT_SECONDS")),
+	return &sharedRuntime{
+		cfg:            cfg,
+		store:          history,
+		signals:        signals,
+		workDir:        workDir,
+		transcriptsDir: transcriptsDir,
+		logPath:        logPath,
+	}, nil
+}
+
+// newRunner builds one runner. Each backend knows its own piece length and
+// pacing; the two env knobs only override them for an experiment run. 0 means
+// "backend default".
+func (s *sharedRuntime) newRunner(backend string) *runner.Runner {
+	opts := runner.Options{
+		Store:          s.store,
+		Media:          runner.DefaultMedia{},
+		NewClient:      gemini.New,
+		Backend:        backend,
+		WorkDir:        s.workDir,
+		TranscriptsDir: s.transcriptsDir,
+		LogPath:        s.logPath,
 		Notify:         notify.Send,
-		Signal:         signals.Record,
-	})
-	return cfg, history, engine, signals, nil
+		Signal:         s.signals.Record,
+	}
+	if backend == runner.BackendCodex {
+		opts.Codex = runner.CodexOptions{
+			Concurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
+		}
+		opts.UnitMaxSeconds = float64(envInt("NALMEOK_CODEX_UNIT_SECONDS"))
+	}
+	return runner.New(opts)
+}
+
+// newRuntime wires one runner for the CLI. backend is the flag or environment
+// value; when it is empty and useConfig is true, config.json's choice applies.
+func newRuntime(backend string, useConfig bool) (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
+	s, err := newSharedRuntime()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if useConfig && strings.TrimSpace(backend) == "" {
+		backend = s.cfg.Backend()
+	}
+	backend, err = normalizeBackend(backend)
+	if err != nil {
+		s.signals.Close()
+		return nil, nil, nil, nil, err
+	}
+	return s.cfg, s.store, s.newRunner(backend), s.signals, nil
 }
 
 // backendEnv is the environment variable the GUI reads, since a window
 // launched from Finder gets no command line.
 const backendEnv = "NALMEOK_BACKEND"
+
+// experimentsEnv lists enabled experiments, comma separated, for a build that
+// should show the setting without editing config.json.
+const experimentsEnv = "NALMEOK_EXPERIMENTS"
 
 // normalizeBackend validates a backend name and maps the default spellings to
 // the empty string.
@@ -179,6 +219,20 @@ func normalizeBackend(backend string) (string, error) {
 		return runner.BackendCodex, nil
 	}
 	return "", fmt.Errorf("unknown backend %q: use gemini or codex", backend)
+}
+
+// codexExperiment reports whether the hidden Codex setting is enabled, from
+// config.json or the environment.
+func codexExperiment(cfg *config.Config) bool {
+	if cfg != nil && cfg.Experiment("codex") {
+		return true
+	}
+	for _, name := range strings.Split(os.Getenv(experimentsEnv), ",") {
+		if strings.EqualFold(strings.TrimSpace(name), "codex") {
+			return true
+		}
+	}
+	return false
 }
 
 // envInt reads a positive integer experiment knob. An absent or invalid
@@ -221,15 +275,32 @@ func runGUI() {
 		defer folderLock.Close()
 	}
 
-	cfg, history, engine, signals, err := newRuntime(os.Getenv(backendEnv))
+	forced := strings.TrimSpace(os.Getenv(backendEnv))
+	shared, err := newSharedRuntime()
 	if err != nil {
 		log.Fatal(err)
 	}
-	// The app closes the engine on shutdown; this also covers preview mode,
-	// where the engine is never handed to the app. Close is idempotent.
-	defer engine.Close()
 	// Sends what is still queued, waiting at most 2 s.
-	defer signals.Close()
+	defer shared.signals.Close()
+
+	startupBackend := forced
+	if startupBackend == "" {
+		startupBackend = shared.cfg.Backend()
+	}
+	startupBackend, err = normalizeBackend(startupBackend)
+	if err != nil {
+		log.Fatal(err)
+	}
+	forcedSet := forced != ""
+	currentBackend := func() string {
+		if forcedSet {
+			if startupBackend == runner.BackendCodex {
+				return config.BackendCodex
+			}
+			return config.BackendGemini
+		}
+		return shared.cfg.Backend()
+	}
 
 	var application *app.App
 	var onDomReady func(context.Context)
@@ -237,7 +308,7 @@ func runGUI() {
 	if os.Getenv("NALMEOK_UI_PREVIEW") == "1" {
 		// Screenshot mode: the saved items stay as they are and nothing
 		// touches the network. See docs/development.md.
-		application = app.New(cfg, history, app.NewStubRunner(history))
+		application = app.New(shared.cfg, shared.store, app.NewStubRunner(shared.store))
 		switch os.Getenv("NALMEOK_UI_APPEARANCE") {
 		case "light":
 			appearance = mac.NSAppearanceNameAqua
@@ -253,15 +324,23 @@ func runGUI() {
 			}
 		}
 	} else {
-		application = app.New(cfg, history, engine)
+		// Two runners, one per backend: changing the setting routes new items
+		// without a restart, while items already added keep their backend.
+		router := &backendRouter{
+			gemini:  shared.newRunner(""),
+			codex:   shared.newRunner(runner.BackendCodex),
+			store:   shared.store,
+			current: currentBackend,
+		}
+		defer router.Close()
+		application = app.New(shared.cfg, shared.store, router)
 		application.ValidateKey = gemini.ValidateKey
-		application.Telemetry = signals
+		application.Telemetry = shared.signals
 	}
-	transcriptsDir, err := config.TranscriptsDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	application.TranscriptsDir = transcriptsDir
+	application.BackendFunc = currentBackend
+	application.BackendForced = forcedSet
+	application.Experiment = codexExperiment(shared.cfg)
+	application.TranscriptsDir = shared.transcriptsDir
 
 	assets, err := fs.Sub(frontend.Assets, "dist")
 	if err != nil {
@@ -308,7 +387,7 @@ func runGUI() {
 
 	// The window opens as it was left: list only, or list and transcript.
 	width, minWidth := app.ListWidth, app.ListMinWidth
-	if cfg.Pane() {
+	if shared.cfg.Pane() {
 		width, minWidth = app.PaneWidth, app.PaneMinWidth
 	}
 	// macOS gets the standard menu bar (Edit shortcuts, ⌘, and ⌘W); Windows
@@ -423,7 +502,7 @@ func runCLI(args []string) int {
 	}
 	defer folderLock.Close()
 
-	cfg, history, engine, signals, err := newRuntime(backend)
+	cfg, history, engine, signals, err := newRuntime(backend, true)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -451,7 +530,11 @@ func runCLI(args []string) int {
 
 	if err := engine.Add(paths, mode, strings.TrimSpace(*keyID)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		return 1
+		// Paths the backend cannot send were left out; run the rest.
+		var skipped *runner.SkippedError
+		if !errors.As(err, &skipped) || skipped.Added == 0 {
+			return 1
+		}
 	}
 
 	ids := make([]string, 0, len(paths))

@@ -58,6 +58,8 @@
   "dialog.restoreTitle": "전사본 저장",
 
   "empty.label": "음성 파일이나 폴더 선택",
+  "empty.noCodex": "Codex에 먼저 로그인하세요",
+  "empty.noCodexLabel": "Codex에 로그인",
   "empty.noKey": "API 키를 먼저 넣어 주세요",
   "empty.noKeyLabel": "API 키 넣기",
   "empty.text": "음성 파일이나 폴더를 여기에 놓기",
@@ -65,6 +67,8 @@
   "error.apiKeyInvalid": "API 키 거부됨 · 키 설정 확인",
   "error.badKey": "키 형식 오류",
   "error.badMode": "처리 방식 오류",
+  "error.backendForced": "전사 방식이 환경 변수로 고정되어 있어요",
+  "error.codexNoKeys": "Codex 방식에서는 키를 고를 수 없어요",
   "error.badTier": "등급 오류",
   "error.batchCanceled": "서버에서 취소됨",
   "error.batchExpired": "서버 처리 기한 초과",
@@ -79,7 +83,9 @@
   "error.codexAuthExpired": "Codex 로그인 만료 · Codex를 실행해 다시 로그인",
   "error.codexAuthMissing": "Codex 로그인 없음 · Codex CLI에서 먼저 로그인",
   "error.codexFormat": "Codex 백엔드는 AIFF 오디오를 받지 않음",
+  "error.codexAIFFSkipped": "AIFF가 든 항목 {count}개 건너뜀 · Codex는 AIFF를 받지 않음",
   "error.codexNoBatch": "Codex 백엔드에서는 Batch를 쓸 수 없음",
+  "error.codexLoginRequired": "Codex 로그인이 필요해요",
   "error.codexRejected": "Codex가 요청을 거부함 · Codex에 다시 로그인",
   "error.copyFailed": "복사 실패: {error}",
   "error.emptyKey": "API 키 없음",
@@ -131,6 +137,8 @@
   "error.truncated": "결과가 길어 잘림",
   "transcript.truncated": "[출력 한도에 걸려 이 부분의 뒤쪽은 전사되지 않았어요]",
   "error.unknownMode": "알 수 없는 처리 방식: {mode}",
+  "error.unknownBackend": "알 수 없는 전사 방식: {backend}",
+  "error.wrongBackend": "다른 전사 방식으로 추가한 항목이에요",
 
   "field.name": "이름",
 
@@ -158,6 +166,8 @@
   "health.success": "최근 {minutes}분 성공률 {percent}%",
   "health.title": "무료 등급 · {level}",
 
+  "help.codexBody": "ChatGPT 로그인으로 전사 · 8분 조각 · PDF 참고 없음 · 평문 결과 · 비공식 기능 · 오디오는 OpenAI로 전송",
+  "help.codexFormats": "m4a, mp4, mov, mp3, wav, flac, ogg, opus, aac · AIFF 불가",
   "help.formats": "형식",
   "help.formatsBody": "m4a, mp4, mov, mp3, wav, aiff, flac, ogg, opus, aac · 폴더 안 PDF는 용어 표기 참고에 사용",
   "help.freeBody": "요청 즉시 전사 · 하루 사용량 제한",
@@ -174,15 +184,17 @@
   "key.envLabel": "환경변수",
 
   "keys.caption": "위에 있는 키부터 사용",
+  "keys.codexNote": "Codex를 쓰는 동안 무료 키는 사용되지 않아요",
   "keys.checking": "확인 중",
   "keys.delete": "키 삭제",
   "keys.dragHandle": "끌어서 순서 변경",
   "keys.intro": "Gemini API 키 필요",
   "keys.placeholder": "API 키 붙여넣기",
   "keys.save": "저장",
+  "keys.section": "Gemini API 키",
   "keys.source": "키 발급",
   "keys.tier": "등급",
-  "keys.title": "API 키",
+  "keys.title": "설정",
 
   "list.label": "파일 목록",
   "list.noResults": "결과 없음",
@@ -256,6 +268,21 @@
   "picker.autoByPriority": "자동 (우선순위대로)",
   "picker.title": "새 파일에 쓸 키",
 
+  "provider.codex": "Codex (ChatGPT 로그인)",
+  "provider.codexState.expired": "Codex 로그인이 만료됐어요",
+  "provider.codexState.missing": "Codex 로그인이 없어요",
+  "provider.codexState.ok": "Codex 로그인 있음",
+  "provider.experiment": "실험",
+  "provider.forced": "환경 변수로 고정됨",
+  "provider.gemini": "Gemini API 키",
+  "provider.label": "전사 방식",
+  "provider.loginHint": "Codex CLI 또는 Codex 앱에서 먼저 로그인해 주세요.",
+  "provider.loginRequired": "Codex 로그인이 필요해요",
+  "provider.recheck": "다시 확인",
+  "provider.rechecked": "다시 확인했어요",
+  "provider.switchedCodex": "이제 무료 전사는 Codex예요",
+  "provider.switchedGemini": "이제 무료 전사는 Gemini예요",
+
   "quit.confirm": "종료",
   "quit.keep": "계속 전사",
   "quit.message": "지금 끄면 전사가 멈춥니다. 다시 켜면 멈춘 곳부터 이어서 합니다.",
@@ -291,6 +318,7 @@
 
   "store.notFound": "항목 없음",
 
+  "tier.codex": "Codex",
   "tier.free": "무료",
   "tier.paid": "유료",
 
@@ -299,6 +327,7 @@
   "toast.keyDeleted": "키 삭제됨",
   "toast.keySaved": "키 저장됨",
   "toast.located": "파일 다시 연결됨",
+  "toast.openSettings": "설정 열기",
   "toast.removed": "목록에서 삭제됨",
   "toast.restored": "다시 저장됨",
   "toast.undo": "실행 취소"

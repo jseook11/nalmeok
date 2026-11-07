@@ -127,27 +127,9 @@ func Scan(path string) (Input, error) {
 		return Input{Source: abs, Kind: "file", Name: name, Tracks: []Track{track}}, nil
 	}
 
-	entries, err := os.ReadDir(abs)
+	audio, pdfs, err := listFolder(abs)
 	if err != nil {
 		return Input{}, i18n.Error("media.readDirFailed", "name", filepath.Base(abs))
-	}
-	var audio, pdfs []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
-			continue // hidden files, AppleDouble "._x.m4a"
-		}
-		full := filepath.Join(abs, name)
-		st, err := os.Stat(full) // follow symlinks
-		if err != nil || !st.Mode().IsRegular() {
-			continue
-		}
-		switch {
-		case FormatOf(name) != "":
-			audio = append(audio, full)
-		case IsPDF(name):
-			pdfs = append(pdfs, full)
-		}
 	}
 	audio = dropConvertedMP4(audio)
 	if len(audio) == 0 {
@@ -157,7 +139,6 @@ func Scan(path string) (Input, error) {
 		return Input{}, i18n.Error("media.tooMany", "count", len(audio), "max", MaxFiles)
 	}
 	SortNatural(audio)
-	SortNatural(pdfs)
 	in := Input{Source: abs, Kind: "folder", Name: filepath.Base(abs), PDFs: pdfs}
 	for _, p := range audio {
 		track, err := readTrack(p, FormatOf(p))
@@ -179,24 +160,57 @@ func IsPDF(name string) bool {
 // skipped, subfolders are not searched. A path that is not a readable folder
 // has none.
 func FolderPDFs(dir string) []string {
+	_, pdfs, _ := listFolder(dir)
+	return pdfs
+}
+
+// HasFormat reports whether path is an audio file of format, or a folder
+// with one directly inside it. It reads names only, not the files.
+func HasFormat(path, format string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return FormatOf(path) == format
+	}
+	audio, _, _ := listFolder(path)
+	for _, p := range audio {
+		if FormatOf(p) == format {
+			return true
+		}
+	}
+	return false
+}
+
+// listFolder returns the audio files and PDFs directly inside dir, as Scan
+// sees them: hidden files and anything that is not a regular file are
+// skipped, subfolders are not searched. PDFs come in natural order; audio in
+// directory order.
+func listFolder(dir string) (audio, pdfs []string, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return nil, nil, err
 	}
-	var pdfs []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || !IsPDF(name) {
-			continue
+		if strings.HasPrefix(name, ".") {
+			continue // hidden files, AppleDouble "._x.m4a"
 		}
 		full := filepath.Join(dir, name)
-		if st, err := os.Stat(full); err != nil || !st.Mode().IsRegular() {
+		st, err := os.Stat(full) // follow symlinks
+		if err != nil || !st.Mode().IsRegular() {
 			continue
 		}
-		pdfs = append(pdfs, full)
+		switch {
+		case FormatOf(name) != "":
+			audio = append(audio, full)
+		case IsPDF(name):
+			pdfs = append(pdfs, full)
+		}
 	}
 	SortNatural(pdfs)
-	return pdfs
+	return audio, pdfs, nil
 }
 
 // dropConvertedMP4 removes a video (.mp4, .mov, .m4v, .3gp) when an .m4a

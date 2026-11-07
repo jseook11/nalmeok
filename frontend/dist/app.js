@@ -98,6 +98,18 @@
   const helpPrompts = $("help-prompts");
   const keyList = $("key-list");
   const keyCaption = $("key-caption");
+  const keysCodexNote = $("keys-codex-note");
+  const providerSetting = $("provider-setting");
+  const providerToggle = $("provider-toggle");
+  const providerExperiment = $("provider-experiment");
+  const codexState = $("codex-state");
+  const codexDot = $("codex-dot");
+  const codexStateLabel = $("codex-state-label");
+  const codexRecheck = $("codex-recheck");
+  const providerNote = $("provider-note");
+  const helpFreeTitle = $("help-free-title");
+  const helpFreeBody = $("help-free-body");
+  const helpFormatsBody = $("help-formats-body");
   const keyPicker = $("key-picker");
   const keyPickerLabel = $("key-picker-label");
   const keyForm = $("key-form");
@@ -150,6 +162,11 @@
     keys: [],
     mode: "free",
     available: { free: false, paid: false },
+    backend: "gemini", // "gemini" or "codex"
+    codex: "", // "ok", "expired" or "missing"
+    codexPath: "",
+    codexForced: false,
+    experiment: false,
     query: "",
     keyTier: "free",
     newItemKey: "", // toolbar choice for new files; "" = automatic
@@ -329,44 +346,135 @@
   // clickable, so a click can explain why instead of doing nothing.
   function renderMode() {
     const { free, paid } = state.available;
-    modeToggle.hidden = !free && !paid;
+    modeToggle.hidden = !free && !paid && state.backend !== "codex";
     for (const button of modeToggle.querySelectorAll("button")) {
       const selected = button.dataset.mode === state.mode;
       button.setAttribute("aria-selected", String(selected));
       const missing = button.dataset.mode === "batch" ? !paid : !free;
       button.setAttribute("aria-disabled", String(missing));
+      if (button.dataset.mode === "free") {
+        button.textContent = state.backend === "codex" ? t("tier.codex") : t("tier.free");
+      }
     }
     renderPicker();
     renderEmpty();
     renderHealth(); // the dot follows the toggle, the row the free key
+    renderProvider();
   }
 
-  // With no key at all the empty area asks for one; once a key is added it
-  // goes back to the usual drop hint. It follows the listed keys, so a key
-  // deleted with undo pending already counts as gone.
-  const emptyAsksForKey = () => visibleKeys().length === 0;
+  function codexStateText() {
+    switch (state.codex) {
+      case "ok": return t("provider.codexState.ok");
+      case "expired": return t("provider.codexState.expired");
+      case "missing": return t("provider.codexState.missing");
+      default: return "";
+    }
+  }
+
+  // The Codex setting lives behind the experiments flag. Once it is visible,
+  // the login state and the two backends are the only controls; everything
+  // else about Codex belongs in the ? sheet.
+  function renderProvider() {
+    const visible = state.experiment || state.backend === "codex" || state.codexForced;
+    providerSetting.hidden = !visible;
+    if (!visible) {
+      keysCodexNote.hidden = true;
+      return;
+    }
+    providerExperiment.hidden = !state.experiment;
+
+    const codexSelected = state.backend === "codex";
+    for (const button of providerToggle.querySelectorAll("button")) {
+      const selected = button.dataset.backend === state.backend;
+      button.setAttribute("aria-checked", String(selected));
+      // The current choice always stays selectable. Codex is disabled while
+      // its login is unusable, unless it is already the chosen backend, so
+      // the user can still switch back to Gemini.
+      const unusable = button.dataset.backend === "codex" && state.codex !== "ok" && !codexSelected;
+      button.setAttribute("aria-disabled", String(state.codexForced || unusable));
+    }
+
+    const showState = state.codex !== "";
+    codexState.hidden = !showState;
+    if (showState) {
+      codexDot.dataset.state = state.codex;
+      codexStateLabel.textContent = codexStateText();
+      codexStateLabel.title = state.codexPath || "";
+    }
+    codexRecheck.hidden = !showState || state.codexForced;
+
+    let note = "";
+    if (state.codexForced) note = t("provider.forced");
+    else if (state.codex !== "ok") note = t("provider.loginHint");
+    providerNote.textContent = note;
+    providerNote.hidden = !note;
+
+    keysCodexNote.hidden = !(codexSelected && visibleKeys().some((key) => key.Tier === "free"));
+  }
+
+  async function setBackend(name) {
+    if (name === state.backend) return;
+    const previous = state.backend;
+    state.backend = name;
+    renderMode();
+    try {
+      await call("SetBackend", name);
+      showToast(name === "codex" ? t("provider.switchedCodex") : t("provider.switchedGemini"));
+    } catch (error) {
+      state.backend = previous;
+      renderMode();
+      showToast(errorText(error));
+      return;
+    }
+    await loadModeState();
+  }
+
+  async function checkCodex() {
+    try {
+      const status = await call("CheckCodex");
+      state.codex = status && typeof status.State === "string" ? status.State : "";
+      state.codexPath = status && typeof status.Path === "string" ? status.Path : "";
+      renderMode();
+      showToast(t("provider.rechecked"));
+    } catch (error) {
+      showToast(errorText(error));
+    }
+  }
+
+  // With no way to run the current mode the empty area asks for what is
+  // missing. Codex's free lane needs a login; Gemini needs a key.
+  const emptyAsksForCodex = () =>
+    state.mode === "free" && state.backend === "codex" && !state.available.free;
+  const emptyAsksForKey = () => !emptyAsksForCodex() && (
+    (state.mode === "batch" && !state.available.paid)
+    || (!state.available.free && !state.available.paid)
+  );
 
   function renderEmpty() {
-    if (!emptyAsksForKey()) {
-      emptyText.textContent = t("empty.text");
-      empty.setAttribute("aria-label", t("empty.label"));
-    } else {
+    if (emptyAsksForCodex()) {
+      emptyText.textContent = t("empty.noCodex");
+      empty.setAttribute("aria-label", t("empty.noCodexLabel"));
+    } else if (emptyAsksForKey()) {
       emptyText.textContent = t("empty.noKey");
       empty.setAttribute("aria-label", t("empty.noKeyLabel"));
+    } else {
+      emptyText.textContent = t("empty.text");
+      empty.setAttribute("aria-label", t("empty.label"));
     }
   }
 
   // First click on a tier without keys: nudge the control and say why, with
   // a way to add one. Clicking it again while that note is up opens the key
-  // sheet on that tier.
+  // sheet on that tier. With Codex, the free lane needs a login instead.
   let missingTierNote = null; // { mode, until }
 
   function explainMissingTier(mode) {
     const tier = mode === "batch" ? "paid" : "free";
+    const codex = tier === "free" && state.backend === "codex";
     if (missingTierNote && missingTierNote.mode === mode && Date.now() < missingTierNote.until) {
       missingTierNote = null;
       hideToast();
-      openKeys(tier);
+      openKeys(codex ? undefined : tier);
       return;
     }
     modeToggle.classList.remove("is-nudging");
@@ -374,33 +482,35 @@
     modeToggle.classList.add("is-nudging");
     const duration = 3200;
     missingTierNote = { mode, until: Date.now() + duration };
-    showToast(tier === "paid" ? t("error.noPaidKey") : t("error.noFreeKey"), {
-      action: t("toast.addKey"),
+    showToast(codex ? t("error.codexLoginRequired")
+      : tier === "paid" ? t("error.noPaidKey") : t("error.noFreeKey"), {
+      action: codex ? t("toast.openSettings") : t("toast.addKey"),
       duration,
       onAction: () => {
         missingTierNote = null;
-        openKeys(tier);
+        openKeys(codex ? undefined : tier);
       },
     });
   }
 
-  // A drop or "+" with no key at all: the same note, and doing it again
-  // while the note is up opens the key sheet.
+  // A drop or "+" with no way to run: the same note, and doing it again
+  // while the note is up opens the settings sheet.
   function explainMissingKey() {
+    const codex = state.backend === "codex";
     if (missingTierNote && missingTierNote.mode === "any" && Date.now() < missingTierNote.until) {
       missingTierNote = null;
       hideToast();
-      openKeys("free");
+      openKeys(codex ? undefined : "free");
       return;
     }
     const duration = 3200;
     missingTierNote = { mode: "any", until: Date.now() + duration };
-    showToast(t("error.keyRequired"), {
-      action: t("toast.addKey"),
+    showToast(codex ? t("error.codexLoginRequired") : t("error.keyRequired"), {
+      action: codex ? t("toast.openSettings") : t("toast.addKey"),
       duration,
       onAction: () => {
         missingTierNote = null;
-        openKeys("free");
+        openKeys(codex ? undefined : "free");
       },
     });
   }
@@ -428,6 +538,11 @@
         free: Boolean(modeState.Free),
         paid: Boolean(modeState.Paid),
       };
+      state.backend = modeState.Backend === "codex" ? "codex" : "gemini";
+      state.codex = typeof modeState.Codex === "string" ? modeState.Codex : "";
+      state.codexPath = typeof modeState.CodexPath === "string" ? modeState.CodexPath : "";
+      state.codexForced = Boolean(modeState.CodexForced);
+      state.experiment = Boolean(modeState.Experiment);
       if (modeState.Mode === "free" || modeState.Mode === "batch") {
         state.mode = modeState.Mode;
       }
@@ -569,8 +684,10 @@
   function renderHealth() {
     const h = currentLevel();
     const label = h ? levelLabel(h.level) : "";
+    // Health describes Gemini's free keys, so it means nothing on Codex.
+    const codex = state.backend === "codex";
 
-    const showDot = Boolean(h) && !modeToggle.hidden;
+    const showDot = Boolean(h) && !modeToggle.hidden && !codex;
     healthDot.hidden = !showDot;
     modeToggle.classList.toggle("has-health", showDot);
     if (h) {
@@ -579,7 +696,7 @@
     }
 
     // The row is about the user's own free key, so it needs one.
-    const showRow = Boolean(h) && state.available.free;
+    const showRow = Boolean(h) && state.available.free && !codex;
     healthRow.hidden = !showRow;
     appEl.classList.toggle("has-health", showRow);
     if (h) {
@@ -1151,7 +1268,7 @@
     const parts = [];
     if (item.State === "done") parts.push(finishedAt(finishStamp(item)));
     parts.push(audioLength(item.AudioSec));
-    parts.push(isPaid(item) ? t("tier.paid") : t("tier.free"));
+    parts.push(item.Backend === "codex" ? t("tier.codex") : (isPaid(item) ? t("tier.paid") : t("tier.free")));
     if (item.KeyLabel) parts.push(item.KeyLabel);
     parts.push(costText(item));
     return parts.filter(Boolean).map(esc).join(" · ");
@@ -1163,6 +1280,7 @@
   // neither applies. Shown for everyone; paid only leads (paidHint) when a
   // paid key is there to move to.
   function freeTrouble(item) {
+    if (item.Backend === "codex") return null;
     if (isPaid(item)) return null;
     if (item.State !== "failed" && item.State !== "free_exhausted") return null;
     const h = currentHealth();
@@ -1569,9 +1687,11 @@
   function rowActions(item) {
     const actions = [];
     const add = (action, label, group, extra) => actions.push({ action, label, group, lead: false, ...extra });
-    // "유료로 이어서" needs a paid key.
+    // "유료로 이어서" needs a paid key and a Gemini item.
     const toPaid = (extra) => {
-      if (state.available.paid) add("batch", t("action.continuePaid"), "resume", extra);
+      if (state.available.paid && item.Backend !== "codex") {
+        add("batch", t("action.continuePaid"), "resume", extra);
+      }
     };
     switch (item.State) {
       case "done":
@@ -1597,8 +1717,10 @@
         break;
       case "free_exhausted":
         // Paid is the only way on, so it is offered even without a paid key:
-        // runAction then opens the key sheet to add one.
-        add("batch", t("action.continuePaid"), "resume", { lead: true, primary: Boolean(paidHint(item)) });
+        // runAction then opens the key sheet to add one. Codex has no Batch.
+        if (item.Backend !== "codex") {
+          add("batch", t("action.continuePaid"), "resume", { lead: true, primary: Boolean(paidHint(item)) });
+        }
         add("cancel", t("action.cancel"), "stop");
         break;
       case "failed":
@@ -1649,6 +1771,10 @@
           await call("Retry", id);
           break;
         case "batch":
+          if (itemByID(id)?.Backend === "codex") {
+            showToast(t("error.codexNoBatch"));
+            return;
+          }
           if (!state.available.paid) {
             openKeys("paid");
             return;
@@ -1886,7 +2012,8 @@
     keyCaption.hidden = keys.length < 2;
     // Handles only make sense when there is something to reorder.
     keyList.classList.toggle("no-order", keys.filter((key) => key.Source !== "env").length < 2);
-    keysIntro.hidden = state.keys.length > 0;
+    keysIntro.hidden = state.keys.length > 0 || state.backend === "codex";
+    keysCodexNote.hidden = !(state.backend === "codex" && keys.some((key) => key.Tier === "free"));
     for (const button of keyTier.querySelectorAll("button")) {
       button.setAttribute("aria-selected", String(button.dataset.tier === state.keyTier));
     }
@@ -2135,7 +2262,9 @@
   // longer fits the tier (mode switched, key retiered) goes back to automatic.
   function renderPicker() {
     const keys = pickerKeys();
-    const show = !modeToggle.hidden && keys.length >= 2;
+    // Codex's free lane has no keys to choose from.
+    const show = !modeToggle.hidden && keys.length >= 2
+      && !(state.backend === "codex" && state.mode === "free");
     const chosen = keys.find((key) => key.ID === state.newItemKey) || null;
     if (state.newItemKey && (!chosen || !show)) setNewItemKey("");
     keyPicker.hidden = !show;
@@ -2191,10 +2320,14 @@
     keyError.hidden = true;
     state.openKey = "";
     renderKeys();
+    renderProvider();
     loadSignals();
+    // Refresh the Codex login state when the sheet opens.
+    loadModeState();
     // With no key yet the field is the only thing to do; otherwise the sheet
-    // itself takes focus and Tab walks it from the top.
-    openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
+    // itself takes focus and Tab walks it from the top. Codex needs no key.
+    const noKeys = state.keys.length === 0 && state.backend !== "codex";
+    openSurface(keysSheet, { focus: noKeys ? keyValue : keysSheet });
   }
 
   function openExternal(url) {
@@ -2205,8 +2338,18 @@
     }
   }
 
+  // The ? sheet follows the backend: Codex's shorter pieces, missing PDFs and
+  // plain-text output stay out of the settings screen and live here.
+  function renderHelp() {
+    const codex = state.backend === "codex";
+    helpFreeTitle.textContent = codex ? t("tier.codex") : t("tier.free");
+    helpFreeBody.textContent = codex ? t("help.codexBody") : t("help.freeBody");
+    helpFormatsBody.textContent = codex ? t("help.codexFormats") : t("help.formatsBody");
+  }
+
   function openHelp() {
     closeMenu();
+    renderHelp();
     openSurface(helpSheet);
   }
 
@@ -2433,7 +2576,8 @@
 
     addButton.addEventListener("click", pickFiles);
     empty.addEventListener("click", () => {
-      if (emptyAsksForKey()) openKeys("free");
+      if (emptyAsksForCodex()) openKeys();
+      else if (emptyAsksForKey()) openKeys(state.mode === "batch" ? "paid" : "free");
       else pickFiles();
     });
 
@@ -2447,6 +2591,17 @@
       setMode(button.dataset.mode);
     });
     keyPicker.addEventListener("click", openPickerMenu);
+
+    providerToggle.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-backend]");
+      if (!button) return;
+      if (button.getAttribute("aria-disabled") === "true") {
+        showToast(state.codexForced ? t("error.backendForced") : t("provider.loginRequired"));
+        return;
+      }
+      setBackend(button.dataset.backend);
+    });
+    codexRecheck.addEventListener("click", checkCodex);
 
     for (const anchor of [healthDot, healthRow]) {
       anchor.addEventListener("click", onHealthAnchorClick);
@@ -2745,7 +2900,11 @@
     }
 
     if (document.activeElement === search) search.blur();
-    if (state.keys.length === 0) openKeys("free");
+    // A Codex user needs no Gemini key, so only open the sheet when there is
+    // still something to set up (a missing login or no keys at all).
+    if (state.keys.length === 0 && !(state.backend === "codex" && state.codex === "ok")) {
+      openKeys(state.backend === "codex" ? undefined : "free");
+    }
 
     await loadPendingPDFChoices();
 
