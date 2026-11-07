@@ -27,7 +27,6 @@ import (
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/macdrop"
 	"github.com/jseook11/nalmeok/internal/notify"
-	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/runner"
 	"github.com/jseook11/nalmeok/internal/store"
 	"github.com/jseook11/nalmeok/internal/telemetry"
@@ -146,32 +145,22 @@ func newRuntime(backend string) (*config.Config, *store.Store, *runner.Runner, *
 		Enabled: signalsEnabled,
 	})
 	signals.Start()
-	unitMax := float64(plan.UnitMaxSeconds)
-	early := true
-	if backend == runner.BackendCodex {
-		// Codex requests stay short (see codexasr.UnitMaxSeconds), and a free
-		// item (no paid estimate) is all this backend has.
-		unitMax = float64(codexasr.UnitMaxSeconds)
-		early = false
-		// Experiment knobs: measured loss starts around 10 minutes, so the
-		// piece length and the request concurrency stay tunable per run.
-		if secs := envInt("NALMEOK_CODEX_UNIT_SECONDS"); secs > 0 {
-			unitMax = float64(secs)
-		}
-	}
+	// Each backend knows its own piece length and pacing; these two knobs only
+	// override them for an experiment run. 0 means "backend default".
 	engine := runner.New(runner.Options{
-		Store:            history,
-		Media:            runner.DefaultMedia{},
-		NewClient:        gemini.New,
-		Backend:          backend,
-		CodexConcurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
-		WorkDir:          workDir,
-		TranscriptsDir:   transcriptsDir,
-		LogPath:          logPath,
-		UnitMaxSeconds:   unitMax,
-		EarlyEstimate:    early,
-		Notify:           notify.Send,
-		Signal:           signals.Record,
+		Store:     history,
+		Media:     runner.DefaultMedia{},
+		NewClient: gemini.New,
+		Backend:   backend,
+		Codex: runner.CodexOptions{
+			Concurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
+		},
+		WorkDir:        workDir,
+		TranscriptsDir: transcriptsDir,
+		LogPath:        logPath,
+		UnitMaxSeconds: float64(envInt("NALMEOK_CODEX_UNIT_SECONDS")),
+		Notify:         notify.Send,
+		Signal:         signals.Record,
 	})
 	return cfg, history, engine, signals, nil
 }

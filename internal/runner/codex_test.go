@@ -21,6 +21,7 @@ type fakeCodex struct {
 	mu        sync.Mutex
 	got       []string
 	mimes     []string
+	uploads   int
 	inFlight  int
 	peak      int
 	delay     time.Duration
@@ -29,6 +30,9 @@ type fakeCodex struct {
 }
 
 func (c *fakeCodex) Upload(_ context.Context, path, mime string) (store.Upload, error) {
+	c.mu.Lock()
+	c.uploads++
+	c.mu.Unlock()
 	return store.Upload{URI: path, MIME: mime, UploadedAt: time.Now()}, nil
 }
 
@@ -111,14 +115,16 @@ func newCodexHarness(t *testing.T, auth func() (codexasr.Auth, error)) *codexHar
 	h.ctx, h.stop = context.WithCancel(context.Background())
 	t.Cleanup(h.stop)
 	h.r = New(Options{
-		Store:          st,
-		Media:          h.media,
-		Backend:        BackendCodex,
-		CodexAuth:      auth,
-		NewCodexClient: func(codexasr.Auth) gemini.Client { return h.fake },
-		CodexJitter:    func() time.Duration { return 0 },
-		WorkDir:        filepath.Join(dir, "work"),
-		PollInterval:   time.Hour,
+		Store:   st,
+		Media:   h.media,
+		Backend: BackendCodex,
+		Codex: CodexOptions{
+			Auth:      auth,
+			NewClient: func(codexasr.Auth) gemini.Client { return h.fake },
+			Jitter:    func() time.Duration { return 0 },
+		},
+		WorkDir:      filepath.Join(dir, "work"),
+		PollInterval: time.Hour,
 		Sleep: func(_ context.Context, d time.Duration) error {
 			h.mu.Lock()
 			h.sleeps = append(h.sleeps, d)
@@ -198,6 +204,30 @@ func TestCodexBackendRunsWithoutKeys(t *testing.T) {
 			t.Fatalf("mime = %q, want audio/m4a", m)
 		}
 	}
+	// There is no server-side copy: the client posts the piece itself, so the
+	// upload cache must stay untouched.
+	h.fake.mu.Lock()
+	uploads := h.fake.uploads
+	h.fake.mu.Unlock()
+	if uploads != 0 {
+		t.Fatalf("uploads = %d, want 0", uploads)
+	}
+}
+
+func TestCodexDropsKeyPin(t *testing.T) {
+	h := newCodexHarness(t, validCodexAuth())
+	h.r.Start(h.ctx)
+
+	// A pinned Gemini key must not survive on a codex item: a later Retry
+	// would otherwise follow that key's tier.
+	if err := h.r.Add([]string{h.source("lecture.m4a")}, "free", "some-gemini-key"); err != nil {
+		t.Fatal(err)
+	}
+	item := h.st.List("")[0]
+	if item.KeyID != "" {
+		t.Fatalf("key pin = %q, want empty", item.KeyID)
+	}
+	h.wait(item.ID, StateDone)
 }
 
 func TestCodexRunsUnitsConcurrentlyInOrder(t *testing.T) {

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -18,14 +19,116 @@ import (
 // Codex login instead of a Gemini API key.
 const BackendCodex = "codex"
 
+// DefaultCodexConcurrency is how many codex requests run side by side. The
+// endpoint took 96 concurrent short requests in codex-asr's test, but long
+// lecture pieces are heavier, so this stays modest.
+const DefaultCodexConcurrency = 8
+
+// DefaultCodexJitter is the longest random delay before a codex request.
+const DefaultCodexJitter = time.Second
+
 var errCodexNoBatch = userError{i18n.Error("error.codexNoBatch")}
 
-// codexEnabled reports the experimental backend.
-func (r *Runner) codexEnabled() bool { return r.opts.Backend == BackendCodex }
+// CodexOptions configures the codex backend. Zero fields get defaults when
+// Backend is "codex".
+type CodexOptions struct {
+	// Auth returns the local Codex login. nil reads $CODEX_HOME or
+	// ~/.codex/auth.json.
+	Auth func() (codexasr.Auth, error)
+	// NewClient builds the backend's client from a login. nil calls the real
+	// endpoint; tests inject a fake.
+	NewClient func(codexasr.Auth) gemini.Client
+	// Concurrency is how many units run at once. 0 uses
+	// DefaultCodexConcurrency.
+	Concurrency int
+	// Jitter returns the delay before one request, spreading simultaneous
+	// starts. nil uses a random delay up to DefaultCodexJitter.
+	Jitter func() time.Duration
+}
+
+// codexBackend transcribes through the endpoint Codex Desktop uses, with the
+// login already on this machine. There is one credential and no Batch, so the
+// free lane runs every unfinished unit at once under a semaphore instead of
+// rotating keys one request at a time.
+type codexBackend struct{}
+
+func (codexBackend) defaults(o *Options) {
+	// Codex has no documented rate limit, and the free lane's Gemini pacing
+	// only slows it down.
+	o.KeyGap = -1
+	o.EarlyEstimate = false
+	// Pieces stay short for this endpoint (see codexasr.UnitMaxSeconds). The
+	// caller may override the length; 0 means the backend's own default.
+	if o.UnitMaxSeconds <= 0 {
+		o.UnitMaxSeconds = float64(codexasr.UnitMaxSeconds)
+	}
+	if o.Codex.Auth == nil {
+		o.Codex.Auth = codexasr.Find
+	}
+	if o.Codex.Concurrency <= 0 {
+		o.Codex.Concurrency = DefaultCodexConcurrency
+	}
+	if o.Codex.Jitter == nil {
+		o.Codex.Jitter = func() time.Duration {
+			return rand.N(DefaultCodexJitter)
+		}
+	}
+}
+
+func (codexBackend) resolveMode(r *Runner, _, _ string) (string, error) {
+	// Batch is a Gemini feature; this backend always runs live.
+	if _, err := r.codexAuth(); err != nil {
+		return "", err
+	}
+	return "free", nil
+}
+
+func (codexBackend) usesKeys() bool { return false }
+
+func (codexBackend) candidates(*Runner, string, float64) ([]config.Key, error) {
+	return []config.Key{codexKey()}, nil
+}
+
+// parts keeps the files on disk. The client posts each piece itself, so there
+// is no server-side upload to cache; reference PDFs are left out because the
+// endpoint takes audio only.
+func (codexBackend) parts(_ *Runner, _ context.Context, _ gemini.Client, _, _ string, unit store.Unit, _ []string) (gemini.Request, error) {
+	parts := make([]gemini.Part, 0, len(unit.Files))
+	for i, path := range unit.Files {
+		parts = append(parts, gemini.Part{FileURI: path, MIME: unitMIME(unit, i)})
+	}
+	return gemini.Request{System: gemini.PromptFor(len(unit.Files)), Parts: parts}, nil
+}
+
+func (codexBackend) free(r *Runner, ctx context.Context, item store.Item) error {
+	return r.runFreeCodex(ctx, item)
+}
+
+func (codexBackend) client(r *Runner, _ config.Key) (gemini.Client, error) {
+	return r.codexClientFor()
+}
+
+func (codexBackend) batches() bool { return false }
+func (codexBackend) signals() bool { return false }
+
+// message maps the login and format errors a user can act on.
+func (codexBackend) message(err error) (string, bool) {
+	switch {
+	case errors.Is(err, codexasr.ErrExpired):
+		return i18n.T("error.codexAuthExpired"), true
+	case errors.Is(err, codexasr.ErrNotFound), errors.Is(err, codexasr.ErrNoChatGPT):
+		return i18n.T("error.codexAuthMissing"), true
+	case errors.Is(err, codexasr.ErrUnsupported):
+		return i18n.T("error.codexFormat"), true
+	case errors.Is(err, codexasr.ErrNoText):
+		return i18n.T("error.emptyResult"), true
+	}
+	return "", false
+}
 
 // codexAuth returns the local Codex login, or an error naming what is missing.
 func (r *Runner) codexAuth() (codexasr.Auth, error) {
-	auth, err := r.opts.CodexAuth()
+	auth, err := r.opts.Codex.Auth()
 	if err != nil {
 		return codexasr.Auth{}, codexAuthError(err)
 	}
@@ -48,8 +151,8 @@ func (r *Runner) codexClientFor() (gemini.Client, error) {
 		return nil, err
 	}
 	var client gemini.Client
-	if r.opts.NewCodexClient != nil {
-		client = r.opts.NewCodexClient(auth)
+	if r.opts.Codex.NewClient != nil {
+		client = r.opts.Codex.NewClient(auth)
 	} else {
 		client = codexClient{c: codexasr.New(auth)}
 	}
@@ -84,10 +187,7 @@ func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
 		return r.finish(id)
 	}
 
-	workers := r.opts.CodexConcurrency
-	if workers <= 0 {
-		workers = DefaultCodexConcurrency
-	}
+	workers := r.opts.Codex.Concurrency
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -118,7 +218,7 @@ func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
 			if runCtx.Err() != nil {
 				return
 			}
-			if jitter := r.opts.CodexJitter; jitter != nil {
+			if jitter := r.opts.Codex.Jitter; jitter != nil {
 				if d := jitter(); d > 0 {
 					if err := r.opts.Sleep(runCtx, d); err != nil {
 						return
@@ -132,16 +232,7 @@ func (r *Runner) runFreeCodex(ctx context.Context, item store.Item) error {
 				}
 				return
 			}
-			if err := r.update(id, func(it *store.Item) {
-				if i < len(it.Units) {
-					it.Units[i].Text = res.Text
-					if !res.Usage.Empty() {
-						u := res.Usage
-						it.Units[i].Usage = &u
-					}
-				}
-				it.Progress = doneRatio(it.Units)
-			}); err != nil {
+			if err := r.saveUnitText(id, i, res); err != nil {
 				fail(err)
 			}
 		}()
@@ -177,7 +268,7 @@ func (r *Runner) codexUnit(ctx context.Context, id string, unit store.Unit, pdfs
 				return gemini.Result{}, last
 			}
 			wait := base << (attempt - 1)
-			if jitter := r.opts.CodexJitter; jitter != nil {
+			if jitter := r.opts.Codex.Jitter; jitter != nil {
 				wait += jitter()
 			}
 			if err := r.opts.Sleep(ctx, wait); err != nil {
