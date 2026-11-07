@@ -49,8 +49,9 @@ type pdfChoices struct {
 // no key at all nothing is held, so the add fails with the usual note.
 func (a *App) holdPDFChoices(paths []string, mode, keyID string) []string {
 	// The Codex endpoint takes audio only, so a folder's PDFs are not a
-	// choice there. Adding the folder directly keeps the flow the same.
-	if a.backend() == config.BackendCodex {
+	// choice there. Paid still goes to Gemini Batch, which uses them, so it
+	// asks as usual. This mirrors the GUI's backendRouter.Add.
+	if a.backend() == config.BackendCodex && mode != "batch" {
 		return paths
 	}
 	if !a.hasKeys() {

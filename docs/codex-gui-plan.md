@@ -175,7 +175,8 @@ CLI는 지금처럼 `newRuntime(backend)` 하나만 쓴다. GUI만 두 러너를
   - Gemini: 지금 문구.
 - `items:addFailed`의 `noKeys` 플래그도 같은 기준으로 계산한다.
 - Codex 모드에서는 PDF 선택 시트를 띄우지 않는다. `holdPDFChoices`가
-  `hasKeys()`가 아니라 현재 백엔드를 본다.
+  `hasKeys()`가 아니라 현재 백엔드를 본다. 단 Paid는 Gemini Batch로 가서
+  PDF를 쓰므로, Codex 모드라도 Paid일 때는 시트를 띄운다.
 - 키 피커는 Codex일 때 숨긴다(새 파일이 키를 쓰지 않으므로).
 - AIFF는 추가할 때 걸러 내고 나머지만 추가한 뒤 토스트로 알린다
   (`error.codexAIFFSkipped`). AIFF가 든 폴더도 통째로 건너뛴다.

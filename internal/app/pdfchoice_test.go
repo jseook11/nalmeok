@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/jseook11/nalmeok/internal/config"
 )
 
 func writeFiles(t *testing.T, dir string, names ...string) {
@@ -108,5 +110,31 @@ func TestNoKeysDoesNotHoldPDFFolders(t *testing.T) {
 	_ = ta.app.AddPaths([]string{folder})
 	if len(ta.app.PendingPDFChoices()) != 0 {
 		t.Error("held a folder with no keys")
+	}
+}
+
+func TestCodexHoldsPDFFoldersOnlyForPaid(t *testing.T) {
+	ta := newTestApp(t)
+	ta.app.CodexAuth = validCodexAuth
+	ta.app.Experiment = true
+	if _, err := ta.app.cfg.AddKey("Paid 1", "paid", "AIza-paid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.cfg.SetBackend(config.BackendCodex); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(ta.dir, "ch07")
+	writeFiles(t, folder, "1강.m4a", "a.pdf", "b.pdf")
+
+	// Codex (free): no PDFs to choose, the folder is added directly.
+	if got := ta.app.holdPDFChoices([]string{folder}, "free", ""); len(got) != 1 {
+		t.Fatalf("free: rest = %v, want the folder", got)
+	}
+	// Paid goes to Gemini Batch, which sends PDFs: ask first.
+	if got := ta.app.holdPDFChoices([]string{folder}, "batch", ""); len(got) != 0 {
+		t.Fatalf("batch: rest = %v, want held", got)
+	}
+	if n := len(ta.app.PendingPDFChoices()); n != 1 {
+		t.Fatalf("pending = %d, want 1", n)
 	}
 }
