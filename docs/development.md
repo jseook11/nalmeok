@@ -53,6 +53,15 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 
 `go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
 
+### 모델과 자동 재시도
+
+전사 모델은 기본 `gemini-3.8-flash`(`gemini.Model`)이고, 거부되면 `gemini-3.6-flash`(`gemini.FallbackModel`)로 한 번 더 보낸다. 3.8이 오디오 입력 단계에서 간헐적으로 `promptFeedback.blockReason`을 내며 후보를 비우는 오탐이 있었고(2026-11-08), 같은 요청이 3.6에서는 통과했다. 모델은 `gemini.Request.Model`로 요청마다 지정하며, Batch job 하나는 한 모델로 고정이므로 제출할 때 모든 `BatchRequest.Model`이 같아야 한다.
+
+- live: 한 키에서 unit의 거부(`BLOCKED_*`) 시 3.6으로 1회, 빈 `MALFORMED_RESPONSE`면 같은 모델로 1회. 두 재시도는 각각 1회라 그 키에서 최대 3요청이다. 3.6이 429면 기존 키 순환으로 다음 키에서 같은 규칙을 다시 적용한다(무료 요청이라 비용은 없다). 같은 키와 업로드를 재사용하고, 3.6 요청도 키 간격·일일 요청 수·상태 신호에 포함된다.
+- Batch: 결과 수집에서 거부가 있으면 성공한 unit의 텍스트는 두고 남은 unit만 3.6 job으로 1회 자동 재제출한다. 거부 없이 빈 `MALFORMED_RESPONSE`만 있으면 같은 모델로 1회. 재시도 여부는 `BatchRef.Attempt`/`Fallback`에 저장해 재시작·재폴링에서 반복되지 않는다. 수동 **다시 시도**는 자동 재시도를 더 하지 않는다. 사용자가 취소한 항목은 끝난 job의 결과만 수집하고 새 job을 만들지 않는다.
+- 비용: 3.6 구간도 `plan.CostUSD`의 3.8 요금표로 계산한다(근사). 거부된 요청은 청구될 수 있지만 사용량을 저장하지 않으므로 표시 비용은 실제보다 조금 낮을 수 있다. 거부된 unit은 재제출로 한 번 더 청구된다.
+- 상태 신호: fallback 요청도 `Generate` 한 번으로 세므로 무료 신호가 한 건 더 생기고, Batch는 새 job이 끝날 때 한 건 더 생긴다.
+
 ### 빌드
 
 ```bash
@@ -120,7 +129,7 @@ build/nalmeok --version
 
 Gemini 요청 결과를 익명으로 모아 `https://seook.dev/nalmeok`의 `POST /api/signal`로 보낸다. 사이트가 모든 앱의 신호로 무료·Batch가 지금 잘 되는지 판단해 `/nalmeok/status/` 페이지와 `GET /api/status`로 내놓고, 앱은 `App.FreeStatus`로 그것을 읽는다. 사용자 설명은 `usage.md`의 "앱이 보내는 정보"에 있다.
 
-- 기록 위치(`internal/runner`, `Options.Signal`, nil이면 기록하지 않음): 무료는 `freeAttempt`의 `Generate` 시도마다 한 건(`attempt`는 같은 요청의 1부터 센 재시도 번호)과 업로드 실패 한 건. Batch는 업로드 실패, 작업 제출(`SubmitBatch`) 한 건, 끝난 작업 한 건(성공 `ok`, 실패 `other`, 만료 `timeout`, 차단 `blocked`; 사용자가 취소한 작업은 빼고, 상태 확인 실패는 다시 확인하므로 기록하지 않는다).
+- 기록 위치(`internal/runner`, `Options.Signal`, nil이면 기록하지 않음): 무료는 `freeAttempt`의 `Generate` 시도마다 한 건(`attempt`는 같은 요청의 1부터 센 재시도 번호)과 업로드 실패 한 건. 거부 후 3.6으로 다시 보낸 요청이나 빈 결과 재시도도 별도 `Generate` 한 건이다. Batch는 업로드 실패, 작업 제출(`SubmitBatch`) 한 건, 끝난 작업 한 건(성공 `ok`, 실패 `other`, 만료 `timeout`, 차단 `blocked`; 사용자가 취소한 작업은 빼고, 상태 확인 실패는 다시 확인하므로 기록하지 않는다). 자동 재제출한 job은 끝날 때 한 건 더 기록한다.
 - 결과 분류는 `telemetry.Classify`. 취소된 요청은 기록하지 않는다. 실행기의 `blockedError`는 `blocked`, 응답은 왔지만 쓸 수 없는 경우(텍스트 없이 `MAX_TOKENS`, 다른 중단 이유)는 `other`. 텍스트가 있는 `MAX_TOKENS`는 잘린 채 저장하므로 `ok`.
 - 키, 경로, 전사 내용, 오류 메시지는 보내지 않는다. 설치 ID는 UTC 날짜마다 새로 만들어 `<설정 폴더>/signal-id.json`에 둔다.
 - `under_quota`(무료 429에만): 실행기는 키마다 RPM·TPM 아래로 간격을 둔다(`gap()`). 그러니 429는 하루 한도이거나 Google이 부하를 덜어 내는 경우다. 실행기가 키마다 이번 할당 날(미국 태평양 자정 기준, tzdata 없이 UTC-8 고정)에 보낸 `Generate` 수를 메모리에 세고, 이번 요청 전 수가 `freeDailyRequestsFloor`(20, 무료 등급 하루 요청 수의 보수적 하한)보다 적으면 true다. 앱 자신의 수라서 같은 키를 쓰는 다른 앱은 보이지 않고, 다시 켜면 0부터 센다.

@@ -309,6 +309,7 @@
   "status.canceled": "Canceled",
   "status.checkingRequest": "Checking request",
   "status.engineNotReady": "Transcription engine is getting ready",
+  "status.fallback": "Gemini refused · retrying with another model",
   "status.minutesLeft": "{minutes} min left",
   "status.preparing": "Preparing",
   "status.preparingAudio": "Preparing audio",

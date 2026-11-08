@@ -309,6 +309,7 @@
   "status.canceled": "취소됨",
   "status.checkingRequest": "요청 확인 중",
   "status.engineNotReady": "전사 엔진 준비 중",
+  "status.fallback": "Gemini 거부 · 다른 모델로 재시도 중",
   "status.minutesLeft": "남은 {minutes}분",
   "status.preparing": "준비 중",
   "status.preparingAudio": "오디오 준비 중",

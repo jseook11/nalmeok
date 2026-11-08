@@ -928,7 +928,8 @@
   }
 
   const isQueued = (item) => item.State === "running" && item.Detail === t("status.queued");
-  const isRetrying = (item) => item.State === "running" && item.Detail === t("status.retrying");
+  const isRetrying = (item) =>
+    item.State === "running" && (item.Detail === t("status.retrying") || item.Detail === t("status.fallback"));
 
   // Each state as one line: tone (dot colour), text and the moving line
   // under the row. Free or paid shows in the pane, not here. What the row

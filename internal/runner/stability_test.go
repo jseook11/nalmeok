@@ -93,6 +93,29 @@ func TestCancelFinishedBatchCollectsResults(t *testing.T) {
 	}
 }
 
+// Canceling must never pay for another job, even when the finished job was
+// refused and would otherwise be retried on the fallback model.
+func TestCancelFinishedBlockedBatchDoesNotResubmit(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	h.media.pieces = 1
+	h.world.setBatchResult("unit-0", gemini.Result{Finish: gemini.FinishBlocked + "OTHER"})
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	h.wait(item.ID, StateBatchWaiting)
+
+	h.world.setBatchState(gemini.BatchSucceeded)
+	if err := h.r.Cancel(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(item.ID, StateFailed)
+	if n := h.world.batchCount(); n != 1 {
+		t.Fatalf("batch jobs = %d, want 1", n)
+	}
+	if n := h.world.submitCallsNow(); n != 1 {
+		t.Fatalf("SubmitBatch calls = %d, want 1", n)
+	}
+}
+
 // ---- 15b: a job the server no longer knows ends the wait ---------------------
 
 func TestPollNotFoundFailsItem(t *testing.T) {

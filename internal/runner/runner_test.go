@@ -94,6 +94,7 @@ type fakeClient struct {
 	mimes     []string
 	generates int
 	systems   []string // each Generate call's system instruction
+	models    []string // each Generate call's model
 	gen       genFunc
 	hold      chan struct{} // when set, Generate waits for it or ctx
 	unwind    chan struct{} // when set, a held Generate whose ctx ends waits for it before returning
@@ -110,6 +111,7 @@ func (c *fakeClient) Upload(ctx context.Context, path, mime string) (store.Uploa
 func (c *fakeClient) Generate(ctx context.Context, req gemini.Request) (gemini.Result, error) {
 	c.mu.Lock()
 	c.systems = append(c.systems, req.System)
+	c.models = append(c.models, req.Model)
 	c.mu.Unlock()
 	text, finish, err := c.generate(ctx, req.Parts)
 	if err != nil {
@@ -607,6 +609,40 @@ func TestBatchPartialFailureThenRetry(t *testing.T) {
 	}
 }
 
+// A restart after the automatic retry was decided but before the new job was
+// submitted must resume on the fallback model, not start over on the primary.
+func TestResumeFallbackBatchAfterRestart(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	src := h.source("lec.m4a")
+	work := filepath.Join(h.dir, "cfg", "nalmeok", "work", "item-1")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p0 := filepath.Join(work, "lec.m4a.001.m4a")
+	if err := os.WriteFile(p0, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.Add(store.Item{
+		ID: "item-1", Source: src, Kind: "file", Name: "lec.m4a", Mode: "batch",
+		State: StateRunning, AudioSec: 60,
+		Units: []store.Unit{{Index: 0, Files: []string{p0}, MIMEs: []string{"audio/m4a"}, Seconds: 60}},
+		Batch: &store.BatchRef{KeyID: "p1", Fallback: true, Attempt: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.r = h.newRunner()
+	h.r.Start(h.ctx)
+	waiting := h.wait("item-1", StateBatchWaiting)
+	reqs := h.world.requests(waiting.Batch.Name)
+	if len(reqs) != 1 || reqs[0].Model != gemini.FallbackModel {
+		t.Fatalf("resumed requests = %+v", reqs)
+	}
+	if waiting.Batch.Attempt != 1 || !waiting.Batch.Fallback {
+		t.Fatalf("retry state = %+v", waiting.Batch)
+	}
+}
+
 func TestResumeRunningItemAfterRestart(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	src := h.source("lec.m4a")
@@ -740,6 +776,7 @@ func TestEmptyResponseIsRetried(t *testing.T) {
 
 func TestBlockedLiveResponseFailsUnit(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
 	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
 		return "", gemini.FinishBlocked + "OTHER", nil
 	}
@@ -749,28 +786,157 @@ func TestBlockedLiveResponseFailsUnit(t *testing.T) {
 	if failed.Detail != blockedMessage() {
 		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
 	}
+	// 3.8 refused, then 3.6 refused: two requests and then the item fails.
+	c := h.world.client("AIza-f1")
+	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+		t.Errorf("models = %s", got)
+	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if !strings.Contains(logData, "OTHER") {
 		t.Error("log does not contain the block reason")
 	}
 }
 
+func TestBlockedLiveFallsBackToFallbackModel(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 {
+			return "", gemini.FinishBlocked + "OTHER", nil
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	done := h.wait(item.ID, StateDone)
+	c := h.world.client("AIza-f1")
+	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+		t.Fatalf("models = %s", got)
+	}
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestSafetyBlockAlsoFallsBack(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 {
+			return "", gemini.FinishBlocked + "SAFETY", nil
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	h.wait(item.ID, StateDone)
+	if got := strings.Join(h.world.client("AIza-f1").modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+		t.Fatalf("models = %s", got)
+	}
+}
+
+func TestMalformedLiveResponseIsRetried(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 {
+			return "", gemini.FinishMalformed, nil
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	h.wait(item.ID, StateDone)
+	// The same model is tried once more.
+	if got := strings.Join(h.world.client("AIza-f1").modelsNow(), ","); got != gemini.Model+","+gemini.Model {
+		t.Fatalf("models = %s", got)
+	}
+}
+
 func TestBlockedBatchResponseFailsItem(t *testing.T) {
 	h := newHarness(t, paidKey("p1"))
+	h.media.pieces = 1
 	h.world.setBatchResult("unit-0", gemini.Result{Finish: gemini.FinishBlocked + "OTHER"})
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "batch")
 	h.wait(item.ID, StateBatchWaiting)
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
+
+	// The refused unit is resubmitted once on the fallback model.
+	retry := h.wait(item.ID, StateBatchWaiting)
+	if retry.Batch == nil || retry.Batch.Name != "batches/2" || !retry.Batch.Fallback || retry.Batch.Attempt != 1 {
+		t.Fatalf("retry batch = %+v", retry.Batch)
+	}
+	reqs := h.world.requests(retry.Batch.Name)
+	if len(reqs) != 1 || reqs[0].Model != gemini.FallbackModel {
+		t.Fatalf("retry requests = %+v", reqs)
+	}
+
+	h.r.PollOnce(h.ctx)
 	failed := h.wait(item.ID, StateFailed)
 	if failed.Detail != blockedMessage() {
 		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
+	}
+	if got := h.world.batchCount(); got != 2 {
+		t.Errorf("batch jobs = %d, want 2", got)
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if !strings.Contains(logData, "blocked") || !strings.Contains(logData, "OTHER") {
 		t.Error("log does not contain the block reason")
 	}
+}
+
+func TestBlockedBatchFallsBackAndCompletes(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	// unit-0 is refused; unit-1 succeeds in the first job and must not be
+	// sent again.
+	h.world.setBatchResult("unit-0", gemini.Result{Finish: gemini.FinishBlocked + "OTHER"})
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	h.wait(item.ID, StateBatchWaiting)
+	h.world.setBatchState(gemini.BatchSucceeded)
+	h.r.PollOnce(h.ctx)
+
+	retry := h.wait(item.ID, StateBatchWaiting)
+	if retry.Batch == nil || !retry.Batch.Fallback || retry.Batch.Attempt != 1 {
+		t.Fatalf("retry batch = %+v", retry.Batch)
+	}
+	reqs := h.world.requests(retry.Batch.Name)
+	if len(reqs) != 1 || reqs[0].Key != "unit-0" || reqs[0].Model != gemini.FallbackModel {
+		t.Fatalf("retry requests = %+v", reqs)
+	}
+	// The fallback job succeeds.
+	h.world.setBatchResult("unit-0", gemini.Result{Text: "BT(lec.m4a.001.m4a)", Finish: gemini.FinishStop, Usage: fakeUsage})
+	h.r.PollOnce(h.ctx)
+	done := h.wait(item.ID, StateDone)
+	want := "BT(lec.m4a.001.m4a)\n\nBT(lec.m4a.002.m4a)\n"
+	if got := readFile(t, done.Output); got != want {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestMalformedBatchIsRetriedOnSameModel(t *testing.T) {
+	h := newHarness(t, paidKey("p1"))
+	h.media.pieces = 1
+	h.world.setBatchResult("unit-0", gemini.Result{Finish: gemini.FinishMalformed})
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "batch")
+	h.wait(item.ID, StateBatchWaiting)
+	h.world.setBatchState(gemini.BatchSucceeded)
+	h.r.PollOnce(h.ctx)
+
+	retry := h.wait(item.ID, StateBatchWaiting)
+	reqs := h.world.requests(retry.Batch.Name)
+	if len(reqs) != 1 || reqs[0].Model != gemini.Model {
+		t.Fatalf("retry requests = %+v", reqs)
+	}
+	if retry.Batch.Fallback {
+		t.Error("malformed retry must stay on the primary model")
+	}
+	h.world.setBatchResult("unit-0", gemini.Result{Text: "BT(lec.m4a.001.m4a)", Finish: gemini.FinishStop, Usage: fakeUsage})
+	h.r.PollOnce(h.ctx)
+	h.wait(item.ID, StateDone)
 }
 
 func TestTransientErrorsAreRetried(t *testing.T) {
@@ -971,6 +1137,12 @@ func (w *fakeWorld) requests(name string) []gemini.BatchRequest {
 	return append([]gemini.BatchRequest(nil), w.batches[name]...)
 }
 
+func (w *fakeWorld) batchCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.batchOrder)
+}
+
 func (w *fakeWorld) cancelledNames() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -996,6 +1168,12 @@ func (c *fakeClient) generatesNow() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.generates
+}
+
+func (c *fakeClient) modelsNow() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.models...)
 }
 
 func TestCancelBatchWaiting(t *testing.T) {
