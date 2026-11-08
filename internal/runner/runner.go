@@ -517,7 +517,9 @@ func (r *Runner) Cancel(id string) error {
 					// Too late to cancel: the job is done and paid for. Keep
 					// its results instead of throwing them away.
 					if state, serr := client.BatchStatus(ctx, current.Batch.Name); serr == nil && state == gemini.BatchSucceeded {
-						r.collectLocked(ctx, id, client, current.Batch.Name)
+						// The user asked to cancel: keep the finished job's
+						// results, but never start another paid job for it.
+						r.collectLocked(ctx, id, client, current.Batch.Name, false)
 						return nil
 					}
 				} else {
@@ -1202,14 +1204,61 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		}
 		return gemini.Result{}, keyOK, err
 	}
-	if err := r.waitGap(ctx, key.ID, unit.Seconds); err != nil {
-		return gemini.Result{}, keyOK, err
-	}
 
 	r.setDetail(id, i18n.T("status.transcribing"))
+	model := gemini.Model
+	fellBack := false
+	retriedMalformed := false
+	var res gemini.Result
+	for {
+		res, err = r.generate(ctx, id, key, client, req, model, unit.Seconds)
+		if err != nil {
+			if outcome, ok := keyFailure(err); ok {
+				return gemini.Result{}, outcome, nil
+			}
+			return gemini.Result{}, keyOK, err
+		}
+		if cerr := checkText(res.Text, res.Finish); cerr != nil {
+			var be blockedError
+			if errors.As(cerr, &be) && !fellBack {
+				r.logf("item %s unit %d: %s blocked (%s), retrying on %s", id, unit.Index, model, be.reason, gemini.FallbackModel)
+				r.setDetail(id, i18n.T("status.fallback"))
+				model = gemini.FallbackModel
+				fellBack = true
+				continue
+			}
+		}
+		if res.Finish == gemini.FinishMalformed && strings.TrimSpace(res.Text) == "" && !retriedMalformed {
+			r.logf("item %s unit %d: empty %s on %s, retrying once", id, unit.Index, res.Finish, model)
+			r.setDetail(id, retryDetail())
+			retriedMalformed = true
+			continue
+		}
+		break
+	}
+	r.setDetail(id, i18n.T("status.transcribing"))
+	if err := checkText(res.Text, res.Finish); err != nil {
+		return gemini.Result{}, keyOK, err
+	}
+	if res.Finish == gemini.FinishMaxTokens {
+		r.logf("item %s unit %d: cut off at the output cap (%s)", id, unit.Index, usageLog(res.Usage))
+	}
+	res.Text = keepText(res.Text, res.Finish)
+	return res, keyOK, nil
+}
+
+// generate runs one live request on model with the key's spacing, transient
+// retries and telemetry. A blocked answer is not an error here: it comes back
+// as a Result whose Finish is BLOCKED_*, and freeAttempt decides whether to
+// try the fallback model.
+func (r *Runner) generate(ctx context.Context, id string, key config.Key, client gemini.Client, req gemini.Request, model string, seconds float64) (gemini.Result, error) {
+	if err := r.waitGap(ctx, key.ID, seconds); err != nil {
+		return gemini.Result{}, err
+	}
+	req.Model = model
 	var res gemini.Result
 	attempt := 0
-	err = r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail()) }, func() error {
+	err := r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail()) }, func() error {
 		r.mu.Lock()
 		r.lastStart[key.ID] = r.opts.Now()
 		r.mu.Unlock()
@@ -1229,21 +1278,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		}
 		return genErr
 	})
-	if err != nil {
-		if outcome, ok := keyFailure(err); ok {
-			return gemini.Result{}, outcome, nil
-		}
-		return gemini.Result{}, keyOK, err
-	}
-	r.setDetail(id, i18n.T("status.transcribing"))
-	if err := checkText(res.Text, res.Finish); err != nil {
-		return gemini.Result{}, keyOK, err
-	}
-	if res.Finish == gemini.FinishMaxTokens {
-		r.logf("item %s unit %d: cut off at the output cap (%s)", id, unit.Index, usageLog(res.Usage))
-	}
-	res.Text = keepText(res.Text, res.Finish)
-	return res, keyOK, nil
+	return res, err
 }
 
 func keyFailure(err error) (keyOutcome, bool) {
@@ -1673,13 +1708,19 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		}
 		uploads[f.path] = up
 		saved := cloneUploads(uploads)
+		ref := nextBatchRef(item, key.ID)
+		ref.Uploads = saved
 		if err := r.update(id, func(it *store.Item) {
-			it.Batch = &store.BatchRef{KeyID: key.ID, Uploads: saved}
+			it.Batch = &ref
 		}); err != nil {
 			return err
 		}
 	}
 
+	model := gemini.Model
+	if item.Batch != nil && item.Batch.Fallback {
+		model = gemini.FallbackModel
+	}
 	reqs := make([]gemini.BatchRequest, 0, len(pending))
 	for _, u := range pending {
 		var parts []gemini.Part
@@ -1689,7 +1730,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		for _, f := range u.Files {
 			parts = append(parts, gemini.Part{FileURI: uploads[f].URI, MIME: uploads[f].MIME})
 		}
-		reqs = append(reqs, gemini.BatchRequest{Key: unitKey(u.Index), Request: gemini.Request{System: gemini.PromptFor(len(u.Files)), Parts: parts}})
+		reqs = append(reqs, gemini.BatchRequest{Key: unitKey(u.Index), Request: gemini.Request{Model: model, System: gemini.PromptFor(len(u.Files)), Parts: parts}})
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1699,8 +1740,11 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	// the job may exist, and a second one would be billed again. The marker
 	// is saved first so a retry can look the job up.
 	marker := batchDisplayName(item.Name, store.NewID())
+	markerRef := nextBatchRef(item, key.ID)
+	markerRef.Uploads = cloneUploads(uploads)
+	markerRef.Marker = marker
 	if err := r.update(id, func(it *store.Item) {
-		it.Batch = &store.BatchRef{KeyID: key.ID, Uploads: cloneUploads(uploads), Marker: marker}
+		it.Batch = &markerRef
 	}); err != nil {
 		return err
 	}
@@ -1712,6 +1756,10 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 	}
 	r.logf("item %s batch submitted: %s (%d requests)", id, name, len(reqs))
 	saved := cloneUploads(uploads)
+	finalRef := nextBatchRef(item, key.ID)
+	finalRef.Uploads = saved
+	finalRef.Name = name
+	finalRef.SubmittedAt = r.opts.Now()
 	return r.update(id, func(it *store.Item) {
 		// A cancel during creation keeps its state; the name is kept so a
 		// retry waits for this job.
@@ -1720,7 +1768,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 			it.Detail = ""
 		}
 		it.Progress = doneRatio(it.Units)
-		it.Batch = &store.BatchRef{KeyID: key.ID, Name: name, SubmittedAt: r.opts.Now(), Uploads: saved}
+		it.Batch = &finalRef
 	})
 }
 
@@ -1766,6 +1814,22 @@ func cloneUploads(in map[string]store.Upload) map[string]store.Upload {
 		out[k] = v
 	}
 	return out
+}
+
+// nextBatchRef starts a BatchRef for a new write and keeps the item's retry
+// state (Fallback, Attempt), so rewriting the ref for an upload, a marker or
+// a submitted job never loses it. The caller sets Uploads, Marker or Name.
+func nextBatchRef(item store.Item, keyID string) store.BatchRef {
+	var ref store.BatchRef
+	if item.Batch != nil {
+		ref = *item.Batch
+	}
+	ref.KeyID = keyID
+	ref.Name = ""
+	ref.Marker = ""
+	ref.SubmittedAt = time.Time{}
+	ref.Uploads = nil
+	return ref
 }
 
 func (r *Runner) poller(ctx context.Context) {
@@ -1836,7 +1900,7 @@ func (r *Runner) pollItem(ctx context.Context, id string) {
 		r.batchFail(id, i18n.T("error.batchExpired"))
 		return
 	}
-	r.collectLocked(ctx, id, client, item.Batch.Name)
+	r.collectLocked(ctx, id, client, item.Batch.Name, true)
 }
 
 // pollError decides what a failed status or results call means. Network
@@ -1858,8 +1922,9 @@ func (r *Runner) pollError(ctx context.Context, id, what string, err error) {
 }
 
 // collectLocked stores the results of a finished job and writes the output.
-// The caller holds pollMu.
-func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Client, name string) {
+// The caller holds pollMu. allowAuto is false when the user canceled the item:
+// the results are kept, but no new paid job is started.
+func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Client, name string, allowAuto bool) {
 	results, err := client.BatchResults(ctx, name)
 	if err != nil {
 		r.pollError(ctx, id, "results", err)
@@ -1867,6 +1932,7 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 	}
 	failed := 0
 	blocked := false
+	malformed := false
 	firstReason := ""
 	err = r.update(id, func(it *store.Item) {
 		for i := range it.Units {
@@ -1886,6 +1952,8 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 					var be blockedError
 					if errors.As(cerr, &be) {
 						blocked = true
+					} else if res.Finish == gemini.FinishMalformed && strings.TrimSpace(res.Text) == "" {
+						malformed = true
 					}
 				}
 			}
@@ -1922,6 +1990,12 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 		r.signalOutcome("batch", 1, telemetry.OK, 0, nil)
 	}
 	if failed > 0 {
+		item, _ := r.opts.Store.Get(id)
+		if allowAuto && item.Batch != nil && item.Batch.Attempt == 0 && (blocked || malformed) {
+			r.logf("item %s batch: %d units failed (%s), retrying automatically", id, failed, firstReason)
+			r.retryBatch(id, blocked)
+			return
+		}
 		if blocked {
 			r.logf("item %s batch blocked: %s", id, firstReason)
 			r.batchFail(id, blockedMessage())
@@ -1946,6 +2020,51 @@ func (r *Runner) batchFail(id, detail string) {
 			it.Batch.Name = ""
 		}
 	})
+}
+
+// retryBatch resubmits the unfinished units after a refused or empty job.
+// fallback picks the fallback model. It runs at most once per item; Attempt
+// guards a restart or another poll from submitting the same retry again.
+func (r *Runner) retryBatch(id string, fallback bool) {
+	item, ok := r.opts.Store.Get(id)
+	if !ok {
+		return
+	}
+	detail := retryDetail()
+	if fallback {
+		detail = i18n.T("status.fallback")
+	}
+	moved := false
+	err := r.update(id, func(it *store.Item) {
+		if it.State != StateBatchWaiting || it.Batch == nil || it.Batch.Attempt != 0 {
+			return
+		}
+		ref := it.Batch
+		ref.Attempt++
+		ref.Fallback = ref.Fallback || fallback
+		ref.Name = ""
+		ref.Marker = ""
+		ref.SubmittedAt = time.Time{}
+		ref.Uploads = cloneUploads(ref.Uploads)
+		it.Batch = ref
+		it.State = StateRunning
+		it.Detail = detail
+		it.Progress = doneRatio(it.Units)
+		moved = true
+	})
+	if err != nil {
+		r.logf("item %s retry batch: %v", id, err)
+		return
+	}
+	if !moved {
+		return
+	}
+	model := gemini.Model
+	if fallback {
+		model = gemini.FallbackModel
+	}
+	r.logf("item %s: automatic retry on %s", id, model)
+	r.enqueue(id, item.Mode)
 }
 
 // ---- finishing -------------------------------------------------------------

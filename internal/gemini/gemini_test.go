@@ -190,3 +190,19 @@ func TestPromptFor(t *testing.T) {
 		t.Error("PromptFor must pick LivePrompt only for more than one audio part")
 	}
 }
+
+func TestModelSelection(t *testing.T) {
+	if got := modelOr(""); got != Model {
+		t.Errorf("empty live model = %q, want %q", got, Model)
+	}
+	if got := modelOr(FallbackModel); got != FallbackModel {
+		t.Errorf("live model = %q, want %q", got, FallbackModel)
+	}
+	if got := batchModel(nil); got != Model {
+		t.Errorf("empty batch model = %q, want %q", got, Model)
+	}
+	reqs := []BatchRequest{{}, {Request: Request{Model: FallbackModel}}}
+	if got := batchModel(reqs); got != FallbackModel {
+		t.Errorf("batch model = %q, want %q", got, FallbackModel)
+	}
+}

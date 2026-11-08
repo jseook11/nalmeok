@@ -23,8 +23,14 @@ import (
 	"google.golang.org/genai"
 )
 
-// Model is the transcription model for both live and Batch requests.
+// Model is the default transcription model for live and Batch requests.
 const Model = "gemini-3.8-flash"
+
+// FallbackModel is tried once when Model refuses the audio with a BLOCKED_*
+// finish reason. gemini-3.8-flash intermittently rejects benign audio at the
+// input stage (blockReason OTHER, no candidates) while the same request
+// succeeds on 3.6 (2026-11-08).
+const FallbackModel = "gemini-3.6-flash"
 
 // MaxOutputTokens is the per-request output cap (live and Batch).
 const MaxOutputTokens = 65536
@@ -57,6 +63,10 @@ const (
 const (
 	FinishStop      = "STOP"
 	FinishMaxTokens = "MAX_TOKENS"
+	// FinishMalformed is a response the model produced but the server could
+	// not parse. It usually comes back empty, and the same request often
+	// succeeds when sent again.
+	FinishMalformed = "MALFORMED_RESPONSE"
 	// FinishBlocked prefixes a finish reason when Gemini refuses the request
 	// (promptFeedback.blockReason). The rest of the string is the server's
 	// reason, for example "BLOCKED_OTHER".
@@ -96,8 +106,11 @@ type Part struct {
 // Request is one transcription request. System is the instruction, sent as
 // the system instruction rather than as a user part so the model treats it
 // as the rules of the answer and not as more input; Parts are the PDFs and
-// audio.
+// audio. Model overrides Model for this request; empty means Model. A Batch
+// job runs on one model, so every BatchRequest in one SubmitBatch call must
+// carry the same Model.
 type Request struct {
+	Model  string
 	System string
 	Parts  []Part
 }
@@ -244,8 +257,27 @@ func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, e
 	return store.Upload{URI: file.URI, MIME: mime, UploadedAt: uploadedAt}, nil
 }
 
+// modelOr is the model a request runs on: its own Model, or the default.
+func modelOr(model string) string {
+	if m := strings.TrimSpace(model); m != "" {
+		return m
+	}
+	return Model
+}
+
+// batchModel is the model a Batch job runs on: the first request's model, or
+// the default when none is set.
+func batchModel(reqs []BatchRequest) string {
+	for _, r := range reqs {
+		if m := strings.TrimSpace(r.Model); m != "" {
+			return m
+		}
+	}
+	return Model
+}
+
 func (c *client) Generate(ctx context.Context, req Request) (Result, error) {
-	resp, err := c.c.Models.GenerateContent(ctx, Model, contents(req.Parts), generationConfig(req.System))
+	resp, err := c.c.Models.GenerateContent(ctx, modelOr(req.Model), contents(req.Parts), generationConfig(req.System))
 	if err != nil {
 		return Result{}, err
 	}
@@ -295,6 +327,9 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 	if len(displayName) > 120 {
 		displayName = truncateUTF8(displayName, 120)
 	}
+	// A Batch job runs on one model. The runner submits one model per job, so
+	// the first request's model decides for all of them.
+	model := batchModel(reqs)
 	inline := make([]*genai.InlinedRequest, 0, len(reqs))
 	for _, r := range reqs {
 		inline = append(inline, &genai.InlinedRequest{
@@ -312,7 +347,7 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 		}
 		src = &genai.BatchJobSource{FileName: name}
 	}
-	job, err := c.c.Batches.Create(ctx, Model, src, &genai.CreateBatchJobConfig{DisplayName: displayName})
+	job, err := c.c.Batches.Create(ctx, model, src, &genai.CreateBatchJobConfig{DisplayName: displayName})
 	if err != nil {
 		return "", err
 	}
