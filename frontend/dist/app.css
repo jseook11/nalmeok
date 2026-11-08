@@ -1229,17 +1229,15 @@ button {
 }
 
 .key-list {
-  margin: -12px 0 22px;
+  margin: 0 0 22px;
 }
 
+/* The caption sits between the section title and the list; a negative margin
+   would pull it into the title above it. */
 .key-caption {
-  margin: -10px 0 4px;
+  margin: 0 0 4px;
   color: var(--secondary);
   font-size: 12px;
-}
-
-.key-caption:not([hidden]) + .key-list {
-  margin-top: 0;
 }
 
 .key-item {
@@ -1482,10 +1480,6 @@ button {
   border-top: none;
 }
 
-#provider-toggle {
-  margin-top: 10px;
-}
-
 .setting-tag {
   padding: 1px 6px;
   border-radius: 5px;
@@ -1493,6 +1487,20 @@ button {
   color: var(--secondary);
   font-size: 10px;
   font-weight: 600;
+}
+
+/* The switch carries the setting tag with it, so neither wraps away from
+   the label it belongs to. */
+#provider-setting .setting-row {
+  gap: 6px;
+}
+
+#provider-current {
+  margin: 6px 0 0;
+}
+
+#provider-current:empty {
+  display: none;
 }
 
 .sheet-section-title {

@@ -100,8 +100,9 @@
   const keyCaption = $("key-caption");
   const keysCodexNote = $("keys-codex-note");
   const providerSetting = $("provider-setting");
-  const providerToggle = $("provider-toggle");
+  const providerSwitch = $("provider-switch");
   const providerExperiment = $("provider-experiment");
+  const providerCurrent = $("provider-current");
   const codexState = $("codex-state");
   const codexDot = $("codex-dot");
   const codexStateLabel = $("codex-state-label");
@@ -371,9 +372,9 @@
     }
   }
 
-  // The Codex setting lives behind the experiments flag. Once it is visible,
-  // the login state and the two backends are the only controls; everything
-  // else about Codex belongs in the ? sheet.
+  // The Codex setting lives behind the experiments flag. The switch chooses
+  // Gemini or Codex for the free lane; the login state explains why Codex
+  // cannot be picked yet. Everything else about Codex belongs in the ? sheet.
   function renderProvider() {
     const visible = state.experiment || state.backend === "codex" || state.codexForced;
     providerSetting.hidden = !visible;
@@ -384,15 +385,11 @@
     providerExperiment.hidden = !state.experiment;
 
     const codexSelected = state.backend === "codex";
-    for (const button of providerToggle.querySelectorAll("button")) {
-      const selected = button.dataset.backend === state.backend;
-      button.setAttribute("aria-checked", String(selected));
-      // The current choice always stays selectable. Codex is disabled while
-      // its login is unusable, unless it is already the chosen backend, so
-      // the user can still switch back to Gemini.
-      const unusable = button.dataset.backend === "codex" && state.codex !== "ok" && !codexSelected;
-      button.setAttribute("aria-disabled", String(state.codexForced || unusable));
-    }
+    providerSwitch.checked = codexSelected;
+    providerSwitch.disabled = state.codexForced;
+    providerCurrent.textContent = codexSelected
+      ? t("provider.currentCodex")
+      : t("provider.currentGemini");
 
     const showState = state.codex !== "";
     codexState.hidden = !showState;
@@ -2557,6 +2554,31 @@
     regions[at < 0 ? 0 : (at + step) % regions.length].focus();
   }
 
+  // Shift+E turns the hidden Codex experiment on and off. Nothing advertises
+  // the shortcut: the toast only says which way it went, and the setting
+  // appears in the settings sheet while it is on. Fields keep their letters.
+  async function toggleExperiment() {
+    try {
+      await call("SetExperimentEnabled", !state.experiment);
+      await loadModeState();
+      // The toast follows what ModeState reports: NALMEOK_EXPERIMENTS can
+      // keep the setting on even after the stored flag is cleared.
+      showToast(state.experiment ? t("provider.experimentOn") : t("provider.experimentOff"));
+    } catch (error) {
+      showToast(errorText(error));
+    }
+  }
+
+  function experimentShortcut(event) {
+    if (!event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+    if (event.isComposing || event.key.toLowerCase() !== "e") return false;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("input, textarea, [contenteditable]")) return false;
+    event.preventDefault();
+    toggleExperiment();
+    return true;
+  }
+
   function globalKeys(event) {
     const command = event.metaKey || event.ctrlKey;
     if (event.key === "Escape") {
@@ -2592,14 +2614,15 @@
     });
     keyPicker.addEventListener("click", openPickerMenu);
 
-    providerToggle.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-backend]");
-      if (!button) return;
-      if (button.getAttribute("aria-disabled") === "true") {
-        showToast(state.codexForced ? t("error.backendForced") : t("provider.loginRequired"));
+    providerSwitch.addEventListener("change", () => {
+      // Codex without a login cannot run, so the switch falls back rather than
+      // saving a choice that would stop every free transcription.
+      if (providerSwitch.checked && state.codex !== "ok") {
+        providerSwitch.checked = false;
+        showToast(t("provider.loginRequired"));
         return;
       }
-      setBackend(button.dataset.backend);
+      setBackend(providerSwitch.checked ? "codex" : "gemini");
     });
     codexRecheck.addEventListener("click", checkCodex);
 
@@ -2755,6 +2778,9 @@
     // is the innermost one: a modal surface, then the menu, then the focused
     // list, then the window.
     document.addEventListener("keydown", (event) => {
+      // The hidden experiment shortcut comes first: it works from the window
+      // and from the settings sheet, but not while a text field has focus.
+      if (experimentShortcut(event)) return;
       // An open menu takes every key, Tab included, as a native menu does;
       // a menu and a sheet are never open together. The health popover
       // floats over everything else and goes first.

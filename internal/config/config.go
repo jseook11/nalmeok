@@ -376,6 +376,34 @@ func (c *Config) Experiment(name string) bool {
 	return experiments[name]
 }
 
+// SetExperiment stores whether a named experiment is enabled and persists it,
+// keeping the other experiment flags as they are.
+func (c *Config) SetExperiment(name string, on bool) error {
+	c.reload()
+	experiments := map[string]bool{}
+	if len(c.raw["experiments"]) > 0 {
+		if err := json.Unmarshal(c.raw["experiments"], &experiments); err != nil || experiments == nil {
+			experiments = map[string]bool{}
+		}
+	}
+	experiments[name] = on
+	value, err := json.Marshal(experiments)
+	if err != nil {
+		return err
+	}
+	previous, had := c.raw["experiments"]
+	c.raw["experiments"] = value
+	if err := c.Save(); err != nil {
+		if had {
+			c.raw["experiments"] = previous
+		} else {
+			delete(c.raw, "experiments")
+		}
+		return err
+	}
+	return nil
+}
+
 // Pane reports whether the transcript pane is shown (gui.pane).
 func (c *Config) Pane() bool {
 	var gui map[string]json.RawMessage

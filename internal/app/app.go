@@ -792,6 +792,18 @@ func (a *App) SetSignalsEnabled(on bool) error {
 	return a.cfg.SetSignalsEnabled(on)
 }
 
+// SetExperimentEnabled stores the Codex experiment flag in config.json
+// (experiments.codex). The window re-reads ModeState to see the effect, since
+// NALMEOK_EXPERIMENTS can keep the setting visible regardless.
+func (a *App) SetExperimentEnabled(on bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	return a.cfg.SetExperiment("codex", on)
+}
+
 // FreeStatus returns how well the free and Batch tiers work right now for
 // everyone, as judged by the download site from all apps' signals.
 func (a *App) FreeStatus() (telemetry.Status, error) {

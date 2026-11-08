@@ -99,16 +99,11 @@
   <div class="sheet-body">
     <div class="setting" id="provider-setting" hidden>
       <div class="setting-row">
-        <span class="setting-label" data-i18n="provider.label"></span>
+        <label class="setting-label" for="provider-switch" data-i18n="provider.label"></label>
         <span class="setting-tag" id="provider-experiment" data-i18n="provider.experiment" hidden></span>
+        <input class="switch" id="provider-switch" type="checkbox" role="switch">
       </div>
-      <div class="segmented segmented-wide" id="provider-toggle" role="radiogroup"
-           data-i18n-aria-label="provider.label">
-        <button type="button" role="radio" data-backend="gemini" aria-checked="true"
-                data-i18n="provider.gemini"></button>
-        <button type="button" role="radio" data-backend="codex" aria-checked="false"
-                data-i18n="provider.codex"></button>
-      </div>
+      <p class="setting-note" id="provider-current"></p>
       <p class="codex-state" id="codex-state" hidden>
         <i class="dot" id="codex-dot"></i>
         <span id="codex-state-label"></span>

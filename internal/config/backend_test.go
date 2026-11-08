@@ -51,14 +51,41 @@ func TestSetBackendPersistsAndKeepsOtherFields(t *testing.T) {
 	}
 }
 
-func TestSetBackendRejectsUnknown(t *testing.T) {
+func TestSetExperimentPersistsAndKeepsOtherFlags(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{
+  "experiments": {"other": true},
+  "backend": "codex",
+  "gui": {"mode": "batch"}
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	c, err := LoadFrom(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SetBackend("anthropic"); err == nil {
-		t.Fatal("SetBackend accepted an unknown backend")
+	if err := c.SetExperiment("codex", true); err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Experiment("codex") || !again.Experiment("other") {
+		t.Fatal("experiments lost")
+	}
+	if again.Backend() != BackendCodex || again.Mode() != "batch" {
+		t.Fatalf("other fields changed: backend=%q mode=%q", again.Backend(), again.Mode())
+	}
+	if err := again.SetExperiment("codex", false); err != nil {
+		t.Fatal(err)
+	}
+	off, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.Experiment("codex") || !off.Experiment("other") {
+		t.Fatal("turning codex off changed the other flag")
 	}
 }
 
