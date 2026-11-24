@@ -814,8 +814,23 @@
   }
 
   const isQueued = (item) => item.State === "running" && item.Detail === t("status.queued");
+  // A running item that is waiting on Gemini rather than working: its Detail
+  // is one of these status lines (busyWaiting carries the minutes).
   const isRetrying = (item) =>
-    item.State === "running" && (item.Detail === t("status.retrying") || item.Detail === t("status.fallback"));
+    item.State === "running" && (
+      item.Detail === t("status.retrying") ||
+      item.Detail === t("status.fallback") ||
+      item.Detail === t("status.busyFallback") ||
+      fitsTemplate(item.Detail, t("status.busyWaiting", { minutes: "\u0000" })));
+
+  // fitsTemplate reports whether text is template with "\u0000" filled in by
+  // some number.
+  function fitsTemplate(text, template) {
+    const [head, tail] = String(template).split("\u0000");
+    if (!text || tail === undefined) return false;
+    return text.startsWith(head) && text.endsWith(tail) &&
+      /^\d+$/.test(text.slice(head.length, text.length - tail.length));
+  }
 
   // Each state as one line: tone (dot colour), text and the moving line
   // under the row. Free or paid shows in the pane, not here. What the row
@@ -852,10 +867,15 @@
       case "canceled":
         return { tone: "quiet", dot: false, text: t("status.canceled") };
       case "done": {
-        // A .md moved outside the app is noted quietly; the text is kept.
-        const when = finishedAt(finishStamp(item));
-        const text = item.OutputMissing ? [when, t("row.moved")].filter(Boolean).join(" · ") : when;
-        return { tone: "", dot: false, text };
+        // The day header already says when it was added: the row gives the
+        // audio length, and the finish time only when it finished on another
+        // day. A .md moved outside the app is noted quietly.
+        const stamp = finishStamp(item);
+        const otherDay = dayKey({ CreatedAt: stamp }) !== dayKey(item);
+        const length = audioLength(item.AudioSec);
+        const parts = [length, otherDay || !length ? finishedAt(stamp) : ""];
+        if (item.OutputMissing) parts.push(t("row.moved"));
+        return { tone: "", dot: false, text: parts.filter(Boolean).join(" · ") };
       }
       default:
         return { tone: "quiet", dot: false, text: item.Detail || t("status.queued") };
@@ -1155,7 +1175,22 @@
     parts.push(isPaid(item) ? t("tier.paid") : t("tier.free"));
     if (item.KeyLabel) parts.push(item.KeyLabel);
     parts.push(costText(item));
+    parts.push(otherModelsText(item));
     return parts.filter(Boolean).map(esc).join(" · ");
+  }
+
+  // Models Nalmeok falls back to, by the name people know them by. A
+  // finished item names the ones that wrote part of its transcript; the
+  // usual model is not worth a word.
+  const FALLBACK_MODELS = {
+    "gemini-4-hydrogen": "Gemini 4 Hydrogen",
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.6-flash": "Gemini 3.6 Flash",
+  };
+
+  function otherModelsText(item) {
+    const names = Object.keys(item.Models || {}).map((m) => FALLBACK_MODELS[m]).filter(Boolean);
+    return names.length ? t("pane.otherModels", { models: names.join(", ") }) : "";
   }
 
   // A free item that stopped, said in one line: when others' free requests
