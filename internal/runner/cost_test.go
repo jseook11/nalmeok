@@ -49,7 +49,7 @@ func TestMixedDonePricesOnlyBatchUnits(t *testing.T) {
 	h.r.PollOnce(h.ctx)
 	done := h.wait(item.ID, StateDone)
 
-	want := plan.USDToKRW(plan.CostUSD(fakeUsage.Audio, fakeUsage.Text, fakeUsage.Output+fakeUsage.Thoughts, true))
+	want := plan.USDToKRW(plan.CostUSD("", fakeUsage.Audio, fakeUsage.Text, fakeUsage.Output+fakeUsage.Thoughts, true))
 	if done.CostKRW == nil || *done.CostKRW != want {
 		t.Fatalf("CostKRW = %v, want %d (one Batch unit)", done.CostKRW, want)
 	}

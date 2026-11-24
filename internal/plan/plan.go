@@ -123,11 +123,22 @@ func EstimateMidKRW(seconds float64) int {
 	return int(math.Round(float64(low+high) / 2))
 }
 
+// modelPriceFactor is a model's price relative to gemini-3.8-flash, for the
+// models the runner falls back to. Unlisted models (and older units with no
+// model) are priced as 3.8 Flash.
+var modelPriceFactor = map[string]float64{
+	// $1.50 in / $7.50 out per 1M, twice 3.8 Flash (2026-11-24).
+	"gemini-4-hydrogen": 2,
+}
+
 // CostUSD prices reported tokens with the same table as EstimateKRW: audio
 // and other prompt tokens at their input rates, answer and thinking tokens
-// at the output rate, half price on Batch.
-func CostUSD(audio, text, output int, batch bool) float64 {
+// at the output rate, half price on Batch, scaled for model.
+func CostUSD(model string, audio, text, output int, batch bool) float64 {
 	usd := (float64(audio)*priceAudioIn + float64(text)*priceTextIn + float64(output)*priceOutput) / 1e6
+	if f, ok := modelPriceFactor[model]; ok {
+		usd *= f
+	}
 	if batch {
 		usd *= batchMultiplier
 	}

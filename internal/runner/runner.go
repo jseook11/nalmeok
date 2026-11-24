@@ -937,6 +937,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 			if math.Abs(item.Units[i].Seconds-units[i].Seconds) < 1 {
 				units[i].Text = item.Units[i].Text
 				units[i].Usage = item.Units[i].Usage
+				units[i].Model = item.Units[i].Model
 			}
 		}
 	}
@@ -1163,6 +1164,7 @@ func (r *Runner) saveUnitText(id string, i int, res gemini.Result) error {
 	return r.update(id, func(it *store.Item) {
 		if i < len(it.Units) {
 			it.Units[i].Text = res.Text
+			it.Units[i].Model = res.Model
 			if !res.Usage.Empty() {
 				u := res.Usage
 				it.Units[i].Usage = &u
@@ -1192,7 +1194,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 
 	r.setDetail(id, i18n.T("status.transcribing"))
 	model := gemini.Model
-	fellBack := false
+	blocks := 0
 	retriedMalformed := false
 	var res gemini.Result
 	for {
@@ -1213,11 +1215,17 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		}
 		if cerr := checkText(res.Text, res.Finish); cerr != nil {
 			var be blockedError
-			if errors.As(cerr, &be) && !fellBack {
-				r.logf("item %s unit %d: %s blocked (%s), retrying on %s", id, unit.Index, model, be.reason, gemini.FallbackModel)
+			if errors.As(cerr, &be) && blocks < 2 {
+				// A refusal is often a one-off: the same model gets one
+				// more try, then the fallback model one.
+				blocks++
+				next := model
+				if blocks == 2 {
+					next = gemini.FallbackModel
+				}
+				r.logf("item %s unit %d: %s blocked (%s), retrying on %s", id, unit.Index, model, be.reason, next)
 				r.setDetail(id, i18n.T("status.fallback"))
-				model = gemini.FallbackModel
-				fellBack = true
+				model = next
 				continue
 			}
 		}
@@ -1237,6 +1245,8 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 		r.logf("item %s unit %d: cut off at the output cap (%s)", id, unit.Index, usageLog(res.Usage))
 	}
 	res.Text = keepText(res.Text, res.Finish)
+	res.Model = model
+	r.logf("item %s unit %d: done on %s", id, unit.Index, model)
 	return res, keyOK, nil
 }
 
@@ -1746,10 +1756,7 @@ func (r *Runner) submitBatch(ctx context.Context, item store.Item) error {
 		}
 	}
 
-	model := gemini.Model
-	if item.Batch != nil && item.Batch.Fallback {
-		model = gemini.FallbackModel
-	}
+	model := jobModel(item.Batch)
 	reqs := make([]gemini.BatchRequest, 0, len(pending))
 	for _, u := range pending {
 		var parts []gemini.Part
@@ -1994,6 +2001,7 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 				r.logf("item %s unit %d: cut off at the output cap (%s)", id, it.Units[i].Index, usageLog(res.Usage))
 			}
 			it.Units[i].Text = keepText(res.Text, res.Finish)
+			it.Units[i].Model = jobModel(it.Batch)
 			if !res.Usage.Empty() {
 				u := res.Usage
 				u.Batch = true
@@ -2017,9 +2025,9 @@ func (r *Runner) collectLocked(ctx context.Context, id string, client gemini.Cli
 	}
 	if failed > 0 {
 		item, _ := r.opts.Store.Get(id)
-		if allowAuto && item.Batch != nil && item.Batch.Attempt == 0 && (blocked || malformed) {
+		if retry, fallback := autoRetry(item.Batch, blocked, malformed); allowAuto && retry {
 			r.logf("item %s batch: %d units failed (%s), retrying automatically", id, failed, firstReason)
-			r.retryBatch(id, blocked)
+			r.retryBatch(id, item.Batch.Attempt, fallback)
 			return
 		}
 		if blocked {
@@ -2048,10 +2056,37 @@ func (r *Runner) batchFail(id, detail string) {
 	})
 }
 
+// jobModel is the model a Batch job of ref runs on.
+func jobModel(ref *store.BatchRef) string {
+	if ref != nil && ref.Fallback {
+		return gemini.FallbackModel
+	}
+	return gemini.Model
+}
+
+// autoRetry decides the automatic resubmission after a job with failed
+// units. A refusal is retried once on the same model, then once on the
+// fallback model; an empty answer once on the same model. A job already on
+// the fallback model (a manual retry keeps it) is not retried again.
+func autoRetry(ref *store.BatchRef, blocked, malformed bool) (retry, fallback bool) {
+	if ref == nil || ref.Fallback {
+		return false, false
+	}
+	switch {
+	case blocked && ref.Attempt == 0:
+		return true, false
+	case blocked && ref.Attempt == 1:
+		return true, true
+	case malformed && ref.Attempt == 0:
+		return true, false
+	}
+	return false, false
+}
+
 // retryBatch resubmits the unfinished units after a refused or empty job.
-// fallback picks the fallback model. It runs at most once per item; Attempt
-// guards a restart or another poll from submitting the same retry again.
-func (r *Runner) retryBatch(id string, fallback bool) {
+// fallback picks the fallback model. seen is the Attempt the caller decided
+// on; a restart or another poll that already moved past it does nothing.
+func (r *Runner) retryBatch(id string, seen int, fallback bool) {
 	item, ok := r.opts.Store.Get(id)
 	if !ok {
 		return
@@ -2062,7 +2097,7 @@ func (r *Runner) retryBatch(id string, fallback bool) {
 	}
 	moved := false
 	err := r.update(id, func(it *store.Item) {
-		if it.State != StateBatchWaiting || it.Batch == nil || it.Batch.Attempt != 0 {
+		if it.State != StateBatchWaiting || it.Batch == nil || it.Batch.Attempt != seen {
 			return
 		}
 		ref := it.Batch
@@ -2085,11 +2120,7 @@ func (r *Runner) retryBatch(id string, fallback bool) {
 	if !moved {
 		return
 	}
-	model := gemini.Model
-	if fallback {
-		model = gemini.FallbackModel
-	}
-	r.logf("item %s: automatic retry on %s", id, model)
+	r.logf("item %s: automatic retry on %s", id, jobModel(&store.BatchRef{Fallback: fallback}))
 	r.enqueue(id, item.Mode)
 }
 
@@ -2132,6 +2163,7 @@ func (r *Runner) finish(id string) error {
 		it.Detail = ""
 		it.FinishedAt = r.opts.Now()
 		it.Usage, it.CostKRW = itemCost(it.Units)
+		it.Models = unitModels(it.Units)
 		it.Batch = nil
 		// The .md (and its archived copy) is the record; dropping texts and
 		// uploads keeps items.json small.
@@ -2164,7 +2196,7 @@ func itemCost(units []store.Unit) (*store.Usage, *int) {
 		total.Thoughts += u.Usage.Thoughts
 		if u.Usage.Batch {
 			total.Batch = true
-			usd += plan.CostUSD(u.Usage.Audio, u.Usage.Text, u.Usage.Output+u.Usage.Thoughts, true)
+			usd += plan.CostUSD(u.Model, u.Usage.Audio, u.Usage.Text, u.Usage.Output+u.Usage.Thoughts, true)
 		}
 	}
 	if !known {
@@ -2172,6 +2204,22 @@ func itemCost(units []store.Unit) (*store.Usage, *int) {
 	}
 	won := plan.USDToKRW(usd)
 	return &total, &won
+}
+
+// unitModels counts units by the model that produced them; nil when no unit
+// recorded one.
+func unitModels(units []store.Unit) map[string]int {
+	var out map[string]int
+	for _, u := range units {
+		if u.Model == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]int{}
+		}
+		out[u.Model]++
+	}
+	return out
 }
 
 func (r *Runner) fail(id, detail string) {
