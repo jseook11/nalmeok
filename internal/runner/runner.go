@@ -51,14 +51,14 @@ const (
 	// request loses less when the server drops it, and still stays far under
 	// the free tier's 250k tokens per minute.
 	DefaultFreeUnitMaxSeconds = plan.FreeUnitMaxSeconds
-	DefaultKeyGap         = 12 * time.Second
-	DefaultPollInterval   = 30 * time.Second
-	uploadMaxAge          = 47 * time.Hour
-	transientRetries      = 5
-	transientBaseDelay    = 10 * time.Second
-	transientMaxDelay     = 2 * time.Minute
-	freeTPM               = 250_000
-	freeRPM               = 5
+	DefaultKeyGap             = 12 * time.Second
+	DefaultPollInterval       = 30 * time.Second
+	uploadMaxAge              = 47 * time.Hour
+	transientRetries          = 5
+	transientBaseDelay        = 10 * time.Second
+	transientMaxDelay         = 2 * time.Minute
+	freeTPM                   = 250_000
+	freeRPM                   = 5
 	// rateTokensPerSecond spaces free requests. It is deliberately above the
 	// measured plan.AudioTokensPerSecond (25) so the gap also covers the
 	// prompt, PDFs and the measurement's spread.
