@@ -21,7 +21,7 @@ internal/config     설정 폴더, config.json(키·gui.mode·signals)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
-internal/gemini     genai SDK 래퍼: 업로드, live, Batch
+internal/gemini     genai SDK 래퍼: live, Batch / 이어 올리기 되는 파일 업로드(upload.go)
 internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
 internal/app        Wails 바인딩
@@ -52,6 +52,10 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
 `go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
+
+### 파일 업로드
+
+오디오·PDF 업로드는 genai의 `Files.Upload` 대신 resumable 프로토콜을 직접 쓴다(`internal/gemini/upload.go`). SDK는 청크 하나가 실패하면 업로드 전체를 버리고, 바깥 재시도는 새 세션으로 0바이트부터 다시 올린다. 캠퍼스 Wi-Fi에서 큰 파일이 그렇게 6번 실패하고 90분 뒤 항목이 실패했다(2026-11-24). 지금은 세션 하나를 유지하고, 청크가 실패하면 기다렸다가(2·4·8·16·32·60초) `query`로 서버가 받은 바이트 수를 물어 그 지점부터 이어 보낸다. 서버가 진척 없이 8번 연속 실패하면 일시 오류로 돌려주고, runner의 일시 오류 재시도가 새 세션을 연다. 404 같은 4xx는 세션이 사라진 것이라 곧바로 돌려준다. 청크는 start 응답의 `X-Goog-Upload-Chunk-Granularity`(현재 8 MiB)의 배수여야 한다. Batch용 JSONL은 작아서 SDK 업로드를 그대로 쓴다.
 
 ### 모델과 자동 재시도
 

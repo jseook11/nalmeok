@@ -11,8 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -165,7 +164,8 @@ func UsageOf(resp *genai.GenerateContentResponse) store.Usage {
 }
 
 type client struct {
-	c *genai.Client
+	c  *genai.Client
+	up *resumable
 }
 
 // New returns a Gemini Developer API client for apiKey.
@@ -183,7 +183,8 @@ func New(apiKey string) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &client{c: c}, nil
+	up := &resumable{http: &http.Client{}, base: uploadBaseURL, apiKey: apiKey, chunk: uploadChunk, sleep: sleepCtx}
+	return &client{c: c, up: up}, nil
 }
 
 func generationConfig(system string) *genai.GenerateContentConfig {
@@ -214,29 +215,15 @@ func contents(parts []Part) []*genai.Content {
 	return []*genai.Content{genai.NewContentFromParts(out, genai.RoleUser)}
 }
 
-// Upload streams the file instead of using UploadFromPath: that helper puts
-// the file name in an HTTP header, which breaks on non-ASCII names.
+// Upload sends the file with the resumable protocol (upload.go), which
+// survives a dropped connection, and waits until the file is ACTIVE.
 func (c *client) Upload(ctx context.Context, path, mime string) (store.Upload, error) {
-	f, err := os.Open(path)
+	up, err := c.up.upload(ctx, path, mime)
 	if err != nil {
 		return store.Upload{}, err
 	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return store.Upload{}, err
-	}
-	headers := make(map[string][]string)
-	headers["X-Goog-Upload-Header-Content-Length"] = []string{strconv.FormatInt(info.Size(), 10)}
-	file, err := c.c.Files.Upload(ctx, f, &genai.UploadFileConfig{
-		MIMEType:    mime,
-		DisplayName: filepath.Base(path),
-		HTTPOptions: &genai.HTTPOptions{Headers: headers},
-	})
-	if err != nil {
-		return store.Upload{}, err
-	}
-	if file == nil || file.Name == "" {
+	file := &genai.File{Name: up.Name, URI: up.URI, MIMEType: up.MIMEType, State: genai.FileState(up.State)}
+	if file.Name == "" {
 		return store.Upload{}, i18n.Error("gemini.uploadIncomplete")
 	}
 	uploadedAt := time.Now()
