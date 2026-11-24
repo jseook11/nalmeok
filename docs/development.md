@@ -20,7 +20,7 @@ cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
 internal/config     설정 폴더, config.json(키·gui.mode·signals)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
-internal/plan       조각 계획(요청당 최대 65분, 균등 분할), 예상 비용
+internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: 업로드, live, Batch
 internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
@@ -47,7 +47,7 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 | `.flac` | 프레임 경계에서 자르고 STREAMINFO를 새로 씀 |
 | `.ogg`·`.opus`(Opus·Vorbis) | 페이지 경계에서 자르고 코덱 헤더 페이지를 조각마다 반복, granule·순번·CRC를 다시 씀 |
 
-요청 하나는 오디오 최대 65분이다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담았더니 넘쳤다(2026-11-05). 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
+요청 하나는 오디오 최대 65분(Batch)이다. 무료(live) 항목은 40분(`plan.FreeUnitMaxSeconds`)으로 자른다. 503으로 요청이 버려질 때 잃는 양이 작고, 40분(약 77k 토큰)도 무료 TPM 250k에 넉넉히 들어간다. 조각은 준비할 때 항목의 방식(`Runner.unitMax`)에 맞춰 한 번 자르므로, 나중에 무료↔유료로 옮겨도 이미 자른 조각을 그대로 쓴다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담았더니 넘쳤다(2026-11-05). 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
 
 65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
@@ -59,6 +59,7 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 
 - live: 한 키에서 unit의 거부(`BLOCKED_*`) 시 3.6으로 1회, 빈 `MALFORMED_RESPONSE`면 같은 모델로 1회. 두 재시도는 각각 1회라 그 키에서 최대 3요청이다. 3.6이 429면 기존 키 순환으로 다음 키에서 같은 규칙을 다시 적용한다(무료 요청이라 비용은 없다). 같은 키와 업로드를 재사용하고, 3.6 요청도 키 간격·일일 요청 수·상태 신호에 포함된다.
 - Batch: 결과 수집에서 거부가 있으면 성공한 unit의 텍스트는 두고 남은 unit만 3.6 job으로 1회 자동 재제출한다. 거부 없이 빈 `MALFORMED_RESPONSE`만 있으면 같은 모델로 1회. 재시도 여부는 `BatchRef.Attempt`/`Fallback`에 저장해 재시작·재폴링에서 반복되지 않는다. 수동 **다시 시도**는 자동 재시도를 더 하지 않는다. 사용자가 취소한 항목은 끝난 job의 결과만 수집하고 새 job을 만들지 않는다.
+- live 503(모델 혼잡): 무료 503은 요청을 받자마자 돌려주는 모델 단위 용량 부족이라 키를 바꿔도 소용없고, 재시도마다 일일 요청 수만 쓴다. 그래서 같은 모델에서 503이 3번 연속이면(`overloadTries`) 일시 오류 재시도를 끊고 `gemini-3.5-flash-lite`(`gemini.OverloadModel`)로 넘긴다. lite까지 혼잡하면 항목을 실패시키지 않고 `Options.OverloadWaits`(5·10·15·15·15분)만큼 기다렸다가 그 unit을 처음부터 다시 시도한다. 대기 중에는 `status.busyWaiting`을 보이고, 다 기다려도 안 되면 `error.geminiBusy`로 실패한다. 대기 중에도 항목은 running이라 취소·유료로 계속이 그대로 동작한다.
 - 비용: 3.6 구간도 `plan.CostUSD`의 3.8 요금표로 계산한다(근사). 거부된 요청은 청구될 수 있지만 사용량을 저장하지 않으므로 표시 비용은 실제보다 조금 낮을 수 있다. 거부된 unit은 재제출로 한 번 더 청구된다.
 - 상태 신호: fallback 요청도 `Generate` 한 번으로 세므로 무료 신호가 한 건 더 생기고, Batch는 새 job이 끝날 때 한 건 더 생긴다.
 
