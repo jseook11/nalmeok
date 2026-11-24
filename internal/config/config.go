@@ -397,6 +397,98 @@ func (c *Config) SetSignalsEnabled(on bool) error {
 	return nil
 }
 
+// Course is one lecture transcripts can be sorted into (top-level
+// "courses"). Hint is optional context for the classifier: the professor,
+// key topics, the course code.
+type Course struct {
+	Name string `json:"name"`
+	Hint string `json:"hint,omitempty"`
+}
+
+// Courses returns the lectures to sort transcripts into, in the user's
+// order, without blank names.
+func (c *Config) Courses() []Course {
+	var list []Course
+	if err := json.Unmarshal(c.raw["courses"], &list); err != nil {
+		return nil
+	}
+	out := list[:0]
+	for _, course := range list {
+		course.Name = strings.TrimSpace(course.Name)
+		course.Hint = strings.TrimSpace(course.Hint)
+		if course.Name != "" {
+			out = append(out, course)
+		}
+	}
+	return out
+}
+
+// SemesterStart is the first day of week 1 the user set ("2026-09-01"), or
+// "" to work it out from the recording date.
+func (c *Config) SemesterStart() string {
+	var day string
+	if err := json.Unmarshal(c.raw["semester_start"], &day); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(day)
+}
+
+// SetCourses stores the lecture list and the semester start ("" = auto).
+// Names are trimmed; blank and repeated names are dropped.
+func (c *Config) SetCourses(courses []Course, semesterStart string) error {
+	semesterStart = strings.TrimSpace(semesterStart)
+	if semesterStart != "" {
+		if _, err := time.Parse(time.DateOnly, semesterStart); err != nil {
+			return i18n.Error("error.badDate")
+		}
+	}
+	seen := map[string]bool{}
+	clean := []Course{}
+	for _, course := range courses {
+		course.Name = strings.TrimSpace(course.Name)
+		course.Hint = strings.TrimSpace(course.Hint)
+		key := strings.ToLower(course.Name)
+		if course.Name == "" || seen[key] {
+			continue
+		}
+		if strings.ContainsAny(course.Name, `/\:`) {
+			return i18n.Error("error.nameBadChars")
+		}
+		seen[key] = true
+		clean = append(clean, course)
+	}
+	c.reload()
+	list, err := json.Marshal(clean)
+	if err != nil {
+		return err
+	}
+	day, err := json.Marshal(semesterStart)
+	if err != nil {
+		return err
+	}
+	prevList, hadList := c.raw["courses"]
+	prevDay, hadDay := c.raw["semester_start"]
+	c.raw["courses"] = list
+	if semesterStart == "" {
+		delete(c.raw, "semester_start")
+	} else {
+		c.raw["semester_start"] = day
+	}
+	if err := c.Save(); err != nil {
+		restore := func(name string, value json.RawMessage, had bool) {
+			if had {
+				c.raw[name] = value
+			} else {
+				delete(c.raw, name)
+			}
+		}
+		restore("courses", prevList, hadList)
+		restore("semester_start", prevDay, hadDay)
+		return err
+	}
+	return nil
+}
+
 // Tiers reports which processing tiers have at least one key.
 func (c *Config) Tiers() (free, paid bool) {
 	for _, key := range c.AllKeys() {

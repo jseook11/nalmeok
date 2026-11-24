@@ -31,6 +31,8 @@
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <key ID>] <file or folder>...",
   "cli.waiting": "{name}: waiting · {minutes} min",
 
+  "course.weekTopic": "Week {week} - {topic}",
+  "course.week": "Week {week}",
   "cost.estimate": "≈ ₩{amount}",
   "cost.won": "₩{amount}",
 
@@ -57,6 +59,8 @@
   "empty.text": "Drop audio files or a folder here",
 
   "error.apiKeyInvalid": "API key rejected · check key settings",
+  "error.noCourses": "No lectures listed · add them in Settings",
+  "error.badDate": "Date format · like 2026-09-01",
   "error.badKey": "Bad key format",
   "error.badMode": "Bad processing mode",
   "error.badTier": "Bad tier",

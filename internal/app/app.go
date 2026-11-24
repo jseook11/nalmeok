@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/jseook11/nalmeok/internal/config"
+	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/media"
 	"github.com/jseook11/nalmeok/internal/output"
@@ -119,6 +120,10 @@ type App struct {
 	// Telemetry sends the anonymous free-key health signals and reads the
 	// shared status. main sets it; nil (preview mode, tests) sends nothing.
 	Telemetry *telemetry.Client
+
+	// NewClient makes the Gemini client that sorts transcripts into
+	// lectures. nil uses gemini.New; tests and preview mode replace it.
+	NewClient func(apiKey string) (gemini.Client, error)
 }
 
 // New wires the app. The store's change callback emits "items:changed".

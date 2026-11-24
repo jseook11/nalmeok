@@ -31,6 +31,8 @@
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...",
   "cli.waiting": "{name}: 기다리는 중 · {minutes}분",
 
+  "course.weekTopic": "{week}주차-{topic}",
+  "course.week": "{week}주차",
   "cost.estimate": "약 {amount}원",
   "cost.won": "{amount}원",
 
@@ -57,6 +59,8 @@
   "empty.text": "음성 파일이나 폴더를 여기에 놓기",
 
   "error.apiKeyInvalid": "API 키 거부됨 · 키 설정 확인",
+  "error.noCourses": "강의 목록이 비어 있음 · 설정에서 추가",
+  "error.badDate": "날짜 형식 오류 · 2026-09-01처럼",
   "error.badKey": "키 형식 오류",
   "error.badMode": "처리 방식 오류",
   "error.badTier": "등급 오류",

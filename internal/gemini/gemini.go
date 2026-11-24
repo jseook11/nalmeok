@@ -120,6 +120,8 @@ type Request struct {
 	Model  string
 	System string
 	Parts  []Part
+	// Schema asks for a JSON answer of this shape; nil asks for text.
+	Schema *genai.Schema
 }
 
 // BatchRequest is one request inside a Batch job.
@@ -275,7 +277,12 @@ func batchModel(reqs []BatchRequest) string {
 }
 
 func (c *client) Generate(ctx context.Context, req Request) (Result, error) {
-	resp, err := c.c.Models.GenerateContent(ctx, modelOr(req.Model), contents(req.Parts), generationConfig(req.System))
+	cfg := generationConfig(req.System)
+	if req.Schema != nil {
+		cfg.ResponseMIMEType = "application/json"
+		cfg.ResponseSchema = req.Schema
+	}
+	resp, err := c.c.Models.GenerateContent(ctx, modelOr(req.Model), contents(req.Parts), cfg)
 	if err != nil {
 		return Result{}, err
 	}
