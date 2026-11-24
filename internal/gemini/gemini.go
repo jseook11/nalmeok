@@ -26,11 +26,14 @@ import (
 // Model is the default transcription model for live and Batch requests.
 const Model = "gemini-3.8-flash"
 
-// FallbackModel is tried once when Model refuses the audio with a BLOCKED_*
+// FallbackModel takes a unit that Model refused twice with a BLOCKED_*
 // finish reason. gemini-3.8-flash intermittently rejects benign audio at the
-// input stage (blockReason OTHER, no candidates) while the same request
-// succeeds on 3.6 (2026-11-08).
-const FallbackModel = "gemini-3.6-flash"
+// input stage (blockReason OTHER, no candidates; about a quarter of Batch
+// units in Nov 2026, unrelated to length or PDFs), and the same request
+// usually passes on another model. gemini-4-hydrogen is 3.8 Flash's official
+// successor (GA 2026-11-12) with the same inputs, output cap and Batch
+// support, at twice the price.
+const FallbackModel = "gemini-4-hydrogen"
 
 // OverloadModel takes a free unit when the other models keep answering 503
 // (model busy). Its free tier has far more room than Flash's, and it reads
@@ -133,6 +136,9 @@ type Result struct {
 	Finish string
 	Error  string
 	Usage  store.Usage
+	// Model is the model that produced Text. The runner sets it; clients
+	// leave it empty.
+	Model string
 }
 
 // UsageOf reads a response's usageMetadata the way the Python app did: audio

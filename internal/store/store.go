@@ -69,6 +69,9 @@ type Item struct {
 	// (items finished before usage was recorded).
 	Usage   *Usage `json:"Usage,omitempty"`
 	CostKRW *int   `json:"CostKRW,omitempty"`
+	// Models counts the finished item's units by the model that produced
+	// them. Units are dropped when an item finishes; this keeps the record.
+	Models map[string]int `json:"Models,omitempty"`
 	// PDFChosen marks that the user picked the folder's reference PDFs when
 	// adding it; PDFs is that choice (empty = transcribe without a PDF).
 	// Retries keep using it. Without a choice every PDF in the folder is
@@ -109,6 +112,9 @@ type Unit struct {
 	// Usage is what the request that produced Text reported. Nil while the
 	// unit is unfinished or when it finished before usage was recorded.
 	Usage *Usage `json:"Usage,omitempty"`
+	// Model is the model that produced Text; empty for units finished
+	// before models were recorded.
+	Model string `json:"Model,omitempty"`
 }
 
 // BatchRef identifies a submitted Gemini Batch job.
@@ -124,7 +130,7 @@ type BatchRef struct {
 	// Fallback marks a job retried on the fallback model after a refusal.
 	// Manual retries keep it, so they stay on that model too.
 	Fallback bool `json:"Fallback,omitempty"`
-	// Attempt counts the automatic retries this item has used (0 or 1). It
+	// Attempt counts the automatic retries this item has used (0–2). It
 	// keeps a restart or another poll from submitting the same retry again.
 	Attempt int `json:"Attempt,omitempty"`
 }
@@ -383,6 +389,7 @@ func cloneItem(item Item) Item {
 		item.CostKRW = &c
 	}
 	item.Uploads = maps.Clone(item.Uploads)
+	item.Models = maps.Clone(item.Models)
 	if item.Batch != nil {
 		batch := *item.Batch
 		batch.Uploads = maps.Clone(item.Batch.Uploads)

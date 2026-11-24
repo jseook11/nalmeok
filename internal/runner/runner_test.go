@@ -335,6 +335,21 @@ type harness struct {
 	sleeps  []time.Duration
 }
 
+// waitBatch waits until item id is waiting on the Batch job name.
+func (h *harness) waitBatch(id, name string) store.Item {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if it, ok := h.st.Get(id); ok && it.State == StateBatchWaiting && it.Batch != nil && it.Batch.Name == name {
+			return it
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	it, _ := h.st.Get(id)
+	h.t.Fatalf("item %s never waited on %s: state %s, batch %+v", id, name, it.State, it.Batch)
+	return it
+}
+
 func newHarness(t *testing.T, keys ...config.Key) *harness {
 	t.Helper()
 	dir := t.TempDir()
@@ -787,9 +802,10 @@ func TestBlockedLiveResponseFailsUnit(t *testing.T) {
 	if failed.Detail != blockedMessage() {
 		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
 	}
-	// 3.8 refused, then 3.6 refused: two requests and then the item fails.
+	// 3.8 refused twice, then the fallback refused: three requests and then
+	// the item fails.
 	c := h.world.client("AIza-f1")
-	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.Model+","+gemini.FallbackModel {
 		t.Errorf("models = %s", got)
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
@@ -802,7 +818,7 @@ func TestBlockedLiveFallsBackToFallbackModel(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	h.media.pieces = 1
 	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
-		if call == 1 {
+		if call <= 2 {
 			return "", gemini.FinishBlocked + "OTHER", nil
 		}
 		return answer(parts), gemini.FinishStop, nil
@@ -811,11 +827,34 @@ func TestBlockedLiveFallsBackToFallbackModel(t *testing.T) {
 	item := h.addOne(h.source("lec.m4a"), "free")
 	done := h.wait(item.ID, StateDone)
 	c := h.world.client("AIza-f1")
-	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+	if got := strings.Join(c.modelsNow(), ","); got != gemini.Model+","+gemini.Model+","+gemini.FallbackModel {
 		t.Fatalf("models = %s", got)
 	}
 	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n" {
 		t.Fatalf("output = %q", got)
+	}
+	if done.Models[gemini.FallbackModel] != 1 || len(done.Models) != 1 {
+		t.Errorf("Models = %v, want the one unit on %s", done.Models, gemini.FallbackModel)
+	}
+}
+
+func TestBlockedLiveOnceRetriesSameModel(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 {
+			return "", gemini.FinishBlocked + "OTHER", nil
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	done := h.wait(item.ID, StateDone)
+	if got := strings.Join(h.world.client("AIza-f1").modelsNow(), ","); got != gemini.Model+","+gemini.Model {
+		t.Fatalf("models = %s", got)
+	}
+	if done.Models[gemini.Model] != 1 {
+		t.Errorf("Models = %v", done.Models)
 	}
 }
 
@@ -823,7 +862,7 @@ func TestSafetyBlockAlsoFallsBack(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	h.media.pieces = 1
 	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
-		if call == 1 {
+		if call <= 2 {
 			return "", gemini.FinishBlocked + "SAFETY", nil
 		}
 		return answer(parts), gemini.FinishStop, nil
@@ -831,7 +870,7 @@ func TestSafetyBlockAlsoFallsBack(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
 	h.wait(item.ID, StateDone)
-	if got := strings.Join(h.world.client("AIza-f1").modelsNow(), ","); got != gemini.Model+","+gemini.FallbackModel {
+	if got := strings.Join(h.world.client("AIza-f1").modelsNow(), ","); got != gemini.Model+","+gemini.Model+","+gemini.FallbackModel {
 		t.Fatalf("models = %s", got)
 	}
 }
@@ -864,14 +903,22 @@ func TestBlockedBatchResponseFailsItem(t *testing.T) {
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
 
-	// The refused unit is resubmitted once on the fallback model.
-	retry := h.wait(item.ID, StateBatchWaiting)
-	if retry.Batch == nil || retry.Batch.Name != "batches/2" || !retry.Batch.Fallback || retry.Batch.Attempt != 1 {
+	// The refused unit is resubmitted once on the same model...
+	retry := h.waitBatch(item.ID, "batches/2")
+	if retry.Batch.Fallback || retry.Batch.Attempt != 1 {
 		t.Fatalf("retry batch = %+v", retry.Batch)
 	}
-	reqs := h.world.requests(retry.Batch.Name)
-	if len(reqs) != 1 || reqs[0].Model != gemini.FallbackModel {
+	if reqs := h.world.requests(retry.Batch.Name); len(reqs) != 1 || reqs[0].Model != gemini.Model {
 		t.Fatalf("retry requests = %+v", reqs)
+	}
+	// ...then once on the fallback model.
+	h.r.PollOnce(h.ctx)
+	retry = h.waitBatch(item.ID, "batches/3")
+	if !retry.Batch.Fallback || retry.Batch.Attempt != 2 {
+		t.Fatalf("fallback batch = %+v", retry.Batch)
+	}
+	if reqs := h.world.requests(retry.Batch.Name); len(reqs) != 1 || reqs[0].Model != gemini.FallbackModel {
+		t.Fatalf("fallback requests = %+v", reqs)
 	}
 
 	h.r.PollOnce(h.ctx)
@@ -879,8 +926,8 @@ func TestBlockedBatchResponseFailsItem(t *testing.T) {
 	if failed.Detail != blockedMessage() {
 		t.Errorf("Detail = %q, want %q", failed.Detail, blockedMessage())
 	}
-	if got := h.world.batchCount(); got != 2 {
-		t.Errorf("batch jobs = %d, want 2", got)
+	if got := h.world.batchCount(); got != 3 {
+		t.Errorf("batch jobs = %d, want 3", got)
 	}
 	logData := readFile(t, filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"))
 	if !strings.Contains(logData, "blocked") || !strings.Contains(logData, "OTHER") {
@@ -899,8 +946,10 @@ func TestBlockedBatchFallsBackAndCompletes(t *testing.T) {
 	h.world.setBatchState(gemini.BatchSucceeded)
 	h.r.PollOnce(h.ctx)
 
-	retry := h.wait(item.ID, StateBatchWaiting)
-	if retry.Batch == nil || !retry.Batch.Fallback || retry.Batch.Attempt != 1 {
+	h.waitBatch(item.ID, "batches/2") // same model, refused again
+	h.r.PollOnce(h.ctx)
+	retry := h.waitBatch(item.ID, "batches/3")
+	if !retry.Batch.Fallback || retry.Batch.Attempt != 2 {
 		t.Fatalf("retry batch = %+v", retry.Batch)
 	}
 	reqs := h.world.requests(retry.Batch.Name)
@@ -914,6 +963,15 @@ func TestBlockedBatchFallsBackAndCompletes(t *testing.T) {
 	want := "BT(lec.m4a.001.m4a)\n\nBT(lec.m4a.002.m4a)\n"
 	if got := readFile(t, done.Output); got != want {
 		t.Fatalf("output = %q", got)
+	}
+	if done.Models[gemini.Model] != 1 || done.Models[gemini.FallbackModel] != 1 {
+		t.Errorf("Models = %v, want one unit on each model", done.Models)
+	}
+	// The fallback unit is priced at its own model's rate.
+	one := plan.CostUSD("", fakeUsage.Audio, fakeUsage.Text, fakeUsage.Output+fakeUsage.Thoughts, true)
+	two := plan.CostUSD(gemini.FallbackModel, fakeUsage.Audio, fakeUsage.Text, fakeUsage.Output+fakeUsage.Thoughts, true)
+	if done.CostKRW == nil || *done.CostKRW != plan.USDToKRW(one+two) {
+		t.Errorf("CostKRW = %v, want %d", done.CostKRW, plan.USDToKRW(one+two))
 	}
 }
 
