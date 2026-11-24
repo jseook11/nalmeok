@@ -74,6 +74,7 @@
   </section>
 
   <footer class="footer">
+    <button class="foot-text" id="sort-courses" type="button" hidden></button>
     <button class="foot-button" id="help" type="button" data-i18n-aria-label="help.title" data-i18n-title="help.title">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
            stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -81,7 +82,7 @@
         <circle cx="8" cy="12.6" r=".5" fill="currentColor" stroke="none"/>
       </svg>
     </button>
-    <button class="foot-button" id="gear" type="button" data-i18n-aria-label="keys.title" data-i18n-title="keys.title">
+    <button class="foot-button" id="gear" type="button" data-i18n-aria-label="settings.title" data-i18n-title="settings.title">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/>
@@ -93,7 +94,7 @@
 
 <div class="sheet" id="keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title" tabindex="-1" hidden>
   <header class="sheet-head">
-    <h2 id="keys-title" data-i18n="keys.title"></h2>
+    <h2 id="keys-title" data-i18n="settings.title"></h2>
     <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
   </header>
   <div class="sheet-body">
@@ -128,6 +129,29 @@
         <input class="switch" id="signals-switch" type="checkbox" role="switch">
       </div>
       <p class="setting-note" id="signals-body" data-i18n="signals.body" hidden></p>
+    </div>
+    <div class="setting courses-setting" id="courses-setting">
+      <div class="setting-row">
+        <span class="setting-label" data-i18n="courses.label"></span>
+        <button class="info-button" id="courses-about" type="button" aria-expanded="false" aria-controls="courses-body"
+                data-i18n-aria-label="courses.about" data-i18n-title="courses.about">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.4"/>
+            <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
+            <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+      </div>
+      <p class="setting-note" id="courses-body" data-i18n="courses.body" hidden></p>
+      <div class="course-list" id="course-list"></div>
+      <button class="text-button course-add" id="course-add" type="button" data-i18n="courses.add"></button>
+      <div class="setting-row semester-row">
+        <label class="setting-label" for="semester-start" data-i18n="courses.semester"></label>
+        <input class="field field-date" id="semester-start" type="text" inputmode="numeric" spellcheck="false"
+               data-i18n-placeholder="courses.semesterPlaceholder">
+      </div>
+      <p class="setting-note" data-i18n="courses.semesterNote"></p>
     </div>
   </div>
 </div>

@@ -72,6 +72,11 @@ type Item struct {
 	// Models counts the finished item's units by the model that produced
 	// them. Units are dropped when an item finishes; this keeps the record.
 	Models map[string]int `json:"Models,omitempty"`
+	// Course is the lecture a finished transcript was sorted into. Sorted
+	// records that sorting ran ("matched", or "none" when no listed lecture
+	// fit), so sorting everything again skips it.
+	Course string `json:"Course,omitempty"`
+	Sorted string `json:"Sorted,omitempty"`
 	// PDFChosen marks that the user picked the folder's reference PDFs when
 	// adding it; PDFs is that choice (empty = transcribe without a PDF).
 	// Retries keep using it. Without a choice every PDF in the folder is

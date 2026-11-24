@@ -1,4 +1,6 @@
 {
+  "action.sortAgain": "강의 다시 정리",
+  "action.sort": "강의별 정리",
   "action.addFile": "파일 추가",
   "action.cancel": "취소",
   "action.continuePaid": "유료로 이어서",
@@ -29,8 +31,28 @@
   "cli.usage": "사용법:",
   "cli.usageIntro": "테스트·자동화용 CLI. 앱 창은 인자 없이 실행. 폴더 안 PDF는 모두 용어 참고에 사용.",
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <키 ID>] <파일 또는 폴더>...",
+  "cli.usageSort": "  nalmeok sort [<항목 ID>...]   끝난 전사본을 강의 목록(config.json의 courses)으로 정리",
+  "cli.sortDone": "정리 {matched}개 · 해당 없음 {none}개 · 실패 {failed}개",
   "cli.waiting": "{name}: 기다리는 중 · {minutes}분",
 
+  "course.weekTopic": "{week}주차-{topic}",
+  "course.week": "{week}주차",
+  "courses.label": "강의 목록",
+  "courses.about": "강의 목록 설명",
+  "courses.body": "끝난 전사본을 이 강의 중 하나로 정리. 왼쪽 아래 버튼을 누를 때만 실행. 전사본 가운데 일부만 Gemini로 보내 강의와 주제를 고르고, 녹음 시각으로 주차를 셈. 맞는 강의가 없으면 그대로 둠.",
+  "courses.add": "강의 추가",
+  "courses.namePlaceholder": "강의 이름",
+  "courses.hintPlaceholder": "힌트 (선택) · 교수, 주요 용어",
+  "courses.remove": "강의 빼기",
+  "courses.semester": "개강일",
+  "courses.semesterPlaceholder": "자동",
+  "courses.semesterNote": "2026-09-01 형식. 비우면 3월·9월 첫 평일. 1주차는 개강일부터 7일",
+  "courses.sortButton": "강의별 정리 · {count}",
+  "courses.sorting": "정리하는 중…",
+  "courses.sorted": "{count}개 정리",
+  "courses.noMatch": "해당 없음 {count}개",
+  "courses.failed": "실패 {count}개",
+  "courses.nothing": "정리할 항목 없음",
   "cost.estimate": "약 {amount}원",
   "cost.won": "{amount}원",
 
@@ -57,6 +79,8 @@
   "empty.text": "음성 파일이나 폴더를 여기에 놓기",
 
   "error.apiKeyInvalid": "API 키 거부됨 · 키 설정 확인",
+  "error.noCourses": "강의 목록이 비어 있음 · 설정에서 추가",
+  "error.badDate": "날짜 형식 오류 · 2026-09-01처럼",
   "error.badKey": "키 형식 오류",
   "error.badMode": "처리 방식 오류",
   "error.badTier": "등급 오류",
@@ -262,6 +286,7 @@
 
   "search.placeholder": "검색",
 
+  "settings.title": "설정",
   "sheet.done": "완료",
 
   "signals.about": "전송 내용",

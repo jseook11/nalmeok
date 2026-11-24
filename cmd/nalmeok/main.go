@@ -61,6 +61,8 @@ func main() {
 		fmt.Println(version)
 	case "doctor":
 		os.Exit(runDoctor())
+	case "sort":
+		os.Exit(runSort(args[1:]))
 	default:
 		os.Exit(runCLI(args))
 	}
@@ -612,4 +614,45 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, i18n.T("cli.usageRun"))
 	fmt.Fprintln(w, "  nalmeok --version")
 	fmt.Fprintln(w, "  nalmeok doctor")
+	fmt.Fprintln(w, i18n.T("cli.usageSort"))
+}
+
+// runSort sorts finished transcripts into the lecture list in config.json:
+// every never-sorted item, or the items named by ID.
+func runSort(ids []string) int {
+	rt, err := newSharedRuntime()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer rt.signals.Close()
+	a := app.New(rt.cfg, rt.store, nil)
+	a.TranscriptsDir = rt.transcriptsDir
+	var sum app.SortSummary
+	if len(ids) == 0 {
+		sum, err = a.SortCourses()
+	} else {
+		for _, id := range ids {
+			one, oerr := a.SortCourse(id)
+			sum.Matched += one.Matched
+			sum.None += one.None
+			sum.Failed += one.Failed
+			if oerr != nil && err == nil {
+				err = oerr
+			}
+			if one.Error != "" && sum.Error == "" {
+				sum.Error = one.Error
+			}
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println(i18n.T("cli.sortDone", "matched", sum.Matched, "none", sum.None, "failed", sum.Failed))
+	if sum.Error != "" {
+		fmt.Fprintln(os.Stderr, sum.Error)
+		return 1
+	}
+	return 0
 }

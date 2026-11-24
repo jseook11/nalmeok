@@ -129,6 +129,12 @@
   const signalsSwitch = $("signals-switch");
   const signalsAbout = $("signals-about");
   const signalsBody = $("signals-body");
+  const coursesAbout = $("courses-about");
+  const coursesBody = $("courses-body");
+  const courseList = $("course-list");
+  const courseAdd = $("course-add");
+  const semesterStart = $("semester-start");
+  const sortCourses = $("sort-courses");
 
   const menu = $("menu");
   const toast = $("toast");
@@ -150,6 +156,9 @@
     keys: [],
     mode: "free",
     available: { free: false, paid: false },
+    courses: [], // lecture list for sorting transcripts ({ name, hint }, as in config.json)
+    sortable: 0, // finished items never sorted into a lecture
+    sorting: false,
     query: "",
     keyTier: "free",
     newItemKey: "", // toolbar choice for new files; "" = automatic
@@ -868,12 +877,13 @@
         return { tone: "quiet", dot: false, text: t("status.canceled") };
       case "done": {
         // The day header already says when it was added: the row gives the
-        // audio length, and the finish time only when it finished on another
-        // day. A .md moved outside the app is noted quietly.
+        // lecture it was sorted into, the audio length, and the finish time
+        // only when it finished on another day. A .md moved outside the app
+        // is noted quietly.
         const stamp = finishStamp(item);
         const otherDay = dayKey({ CreatedAt: stamp }) !== dayKey(item);
         const length = audioLength(item.AudioSec);
-        const parts = [length, otherDay || !length ? finishedAt(stamp) : ""];
+        const parts = [item.Course, length, otherDay || !length ? finishedAt(stamp) : ""];
         if (item.OutputMissing) parts.push(t("row.moved"));
         return { tone: "", dot: false, text: parts.filter(Boolean).join(" · ") };
       }
@@ -1063,6 +1073,90 @@
     state.items = Array.isArray(items) ? items : [];
     noteHealthTriggers(state.items);
     renderItems();
+    loadSortable();
+  }
+
+  // ── Sorting into lectures ──
+  //
+  // The footer offers "sort into lectures" while finished transcripts wait
+  // to be sorted and a lecture list exists. Nothing runs on its own.
+  async function loadSortable() {
+    try {
+      state.sortable = state.courses.length ? Number(await call("SortableCount")) || 0 : 0;
+    } catch (_) {
+      state.sortable = 0;
+    }
+    renderSortButton();
+  }
+
+  function renderSortButton() {
+    sortCourses.hidden = !state.courses.length || (!state.sortable && !state.sorting);
+    sortCourses.disabled = state.sorting;
+    sortCourses.textContent = state.sorting ? t("courses.sorting")
+      : t("courses.sortButton", { count: state.sortable });
+  }
+
+  async function runSort(id) {
+    if (state.sorting) return;
+    state.sorting = true;
+    renderSortButton();
+    try {
+      const sum = id ? await call("SortCourse", id) : await call("SortCourses");
+      const parts = [];
+      if (sum.Matched) parts.push(t("courses.sorted", { count: sum.Matched }));
+      if (sum.None) parts.push(t("courses.noMatch", { count: sum.None }));
+      if (sum.Failed) parts.push(sum.Error || t("courses.failed", { count: sum.Failed }));
+      showToast(parts.join(" · ") || t("courses.nothing"));
+    } catch (error) {
+      showToast(errorText(error));
+    } finally {
+      state.sorting = false;
+      await refreshItems();
+    }
+  }
+
+  async function loadCourses() {
+    try {
+      const settings = await call("Courses");
+      state.courses = Array.isArray(settings.Courses) ? settings.Courses : [];
+      semesterStart.value = settings.SemesterStart || "";
+    } catch (_) {
+      state.courses = [];
+    }
+    renderCourses();
+    loadSortable();
+  }
+
+  function renderCourses() {
+    courseList.innerHTML = state.courses.map((c, i) => `
+      <div class="course-item" data-index="${i}">
+        <input class="field course-name" type="text" value="${esc(c.name)}" spellcheck="false"
+          placeholder="${esc(t("courses.namePlaceholder"))}" aria-label="${esc(t("courses.namePlaceholder"))}">
+        <input class="field course-hint" type="text" value="${esc(c.hint || "")}" spellcheck="false"
+          placeholder="${esc(t("courses.hintPlaceholder"))}" aria-label="${esc(t("courses.hintPlaceholder"))}">
+        <button class="course-remove" type="button" aria-label="${esc(t("courses.remove"))}"
+          title="${esc(t("courses.remove"))}">−</button>
+      </div>`).join("");
+  }
+
+  // The list as typed, blank lines included, so a half-typed row survives a
+  // re-render; the backend drops blanks when saving.
+  function coursesFromFields() {
+    return [...courseList.querySelectorAll(".course-item")].map((row) => ({
+      name: row.querySelector(".course-name").value,
+      hint: row.querySelector(".course-hint").value,
+    }));
+  }
+
+  async function saveCourses() {
+    const typed = coursesFromFields();
+    try {
+      await call("SetCourses", { Courses: typed, SemesterStart: semesterStart.value });
+      state.courses = typed.filter((c) => c.name.trim());
+    } catch (error) {
+      showToast(errorText(error));
+    }
+    loadSortable();
   }
 
   let itemsLoading = null; // the load in flight, shared by every refreshItems
@@ -1622,6 +1716,9 @@
         add("open", t("menu.open"), "output");
         add("copy", t("menu.copy"), "output", { lead: true });
         add("reveal", REVEAL_LABEL, "output", { lead: true });
+        if (state.courses.length) {
+          add("sort", item.Sorted ? t("action.sortAgain") : t("action.sort"), "output");
+        }
         break;
       case "running":
         // A free item can move to paid mid-run (e.g. while the server is busy).
@@ -1696,6 +1793,9 @@
           break;
         case "rename":
           startRename(id);
+          return;
+        case "sort":
+          await runSort(id);
           return;
         case "delete":
           removeWithUndo(id);
@@ -2228,6 +2328,7 @@
     state.openKey = "";
     renderKeys();
     loadSignals();
+    loadCourses();
     // With no key yet the field is the only thing to do; otherwise the sheet
     // itself takes focus and Tab walks it from the top.
     openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
@@ -2657,9 +2758,30 @@
     trackHover(keyList, ".key-row");
     trackHover(list, ".row");
     // Buttons outside the list get the same JS hover (see trackHover).
-    trackHover(document.body, ".tool-button, .foot-button, .picker-button, .row-action, .plain-button, .text-button, .empty, .health-row, .info-button");
+    trackHover(document.body, ".tool-button, .foot-button, .foot-text, .picker-button, .row-action, .plain-button, .text-button, .empty, .health-row, .info-button, .course-remove");
 
     signalsSwitch.addEventListener("change", () => setSignals(signalsSwitch.checked));
+    coursesAbout.addEventListener("click", () => {
+      const open = coursesBody.hidden;
+      coursesBody.hidden = !open;
+      coursesAbout.setAttribute("aria-expanded", String(open));
+    });
+    courseAdd.addEventListener("click", () => {
+      state.courses = coursesFromFields();
+      state.courses.push({ name: "", hint: "" });
+      renderCourses();
+      courseList.querySelector(".course-item:last-child .course-name")?.focus();
+    });
+    courseList.addEventListener("click", (event) => {
+      const remove = event.target.closest(".course-remove");
+      if (!remove) return;
+      remove.closest(".course-item").remove();
+      saveCourses();
+    });
+    // Saved when a field is left, not on every key.
+    courseList.addEventListener("change", saveCourses);
+    semesterStart.addEventListener("change", saveCourses);
+    sortCourses.addEventListener("click", () => runSort(""));
     signalsAbout.addEventListener("click", () => {
       const open = signalsBody.hidden;
       signalsBody.hidden = !open;
@@ -2773,6 +2895,7 @@
     } catch (error) {
       showToast(errorText(error));
     }
+    await loadCourses();
 
     try {
       await refreshItems();

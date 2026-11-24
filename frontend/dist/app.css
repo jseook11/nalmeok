@@ -1069,6 +1069,29 @@ button {
   color: var(--text);
 }
 
+/* "Sort into lectures": a quiet text button at the footer's start, shown
+   only while there is something to sort. */
+.foot-text {
+  margin-right: auto;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--secondary);
+  font-size: 12px;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.foot-text.is-hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.foot-text:disabled {
+  opacity: 0.6;
+}
+
 /* ── Context menu ─────────────────────────────────────────── */
 
 .menu,
@@ -1471,6 +1494,57 @@ button {
   margin: 4px 0 0;
   color: var(--secondary);
   font-size: 12px;
+}
+
+/* Lecture list: a name and an optional hint per line, removed with "−". */
+.course-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.course-list:empty {
+  display: none;
+}
+
+.course-item {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 22px;
+  gap: 6px;
+  align-items: center;
+}
+
+.course-remove {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--tertiary);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.course-remove.is-hover {
+  color: var(--danger-text);
+}
+
+.course-add {
+  margin-top: 8px;
+  padding: 0;
+}
+
+.semester-row {
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.field-date {
+  width: 120px;
+  text-align: right;
 }
 
 /* macOS-style small switch. The knob is a gradient: inputs have no
