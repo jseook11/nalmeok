@@ -1,4 +1,6 @@
 {
+  "action.sortAgain": "Sort again",
+  "action.sort": "Sort into lecture",
   "action.addFile": "Add file",
   "action.cancel": "Cancel",
   "action.continuePaid": "Continue paid",
@@ -29,10 +31,28 @@
   "cli.usage": "Usage:",
   "cli.usageIntro": "CLI for tests and automation. Run with no arguments for the app window. All PDFs in a folder are used for terminology reference.",
   "cli.usageRun": "  nalmeok [--batch|--free] [--key <key ID>] <file or folder>...",
+  "cli.usageSort": "  nalmeok sort [<item ID>...]   file finished transcripts into the lecture list (courses in config.json)",
+  "cli.sortDone": "Sorted {matched} · no match {none} · failed {failed}",
   "cli.waiting": "{name}: waiting · {minutes} min",
 
   "course.weekTopic": "Week {week} - {topic}",
   "course.week": "Week {week}",
+  "courses.label": "Lectures",
+  "courses.about": "About lectures",
+  "courses.body": "Files finished transcripts under one of these lectures, only when you click the button at the bottom left. A small part of the transcript goes to Gemini to pick the lecture and topic; the week comes from when it was recorded. Transcripts that fit none stay put.",
+  "courses.add": "Add lecture",
+  "courses.namePlaceholder": "Lecture name",
+  "courses.hintPlaceholder": "Hint (optional) · professor, key terms",
+  "courses.remove": "Remove lecture",
+  "courses.semester": "Semester start",
+  "courses.semesterPlaceholder": "Automatic",
+  "courses.semesterNote": "Like 2026-09-01. Empty: first weekday of March or September. Week 1 is the 7 days from the start",
+  "courses.sortButton": "Sort into lectures · {count}",
+  "courses.sorting": "Sorting…",
+  "courses.sorted": "{count} sorted",
+  "courses.noMatch": "{count} no match",
+  "courses.failed": "{count} failed",
+  "courses.nothing": "Nothing to sort",
   "cost.estimate": "≈ ₩{amount}",
   "cost.won": "₩{amount}",
 
@@ -266,6 +286,7 @@
 
   "search.placeholder": "Search",
 
+  "settings.title": "Settings",
   "sheet.done": "Done",
 
   "signals.about": "What is sent",

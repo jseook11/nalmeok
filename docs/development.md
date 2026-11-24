@@ -17,13 +17,14 @@ Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode·signals)
+internal/config     설정 폴더, config.json(키·gui.mode·signals·courses·semester_start)
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: live, Batch / 이어 올리기 되는 파일 업로드(upload.go)
 internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개
 internal/output     결과 병합, .md 쓰기
+internal/course     강의별 정리: 학기 주차 계산, 전사본 일부로 강의·주제 판별(JSON 응답)
 internal/app        Wails 바인딩
 internal/telemetry  무료 키 상태 신호: 요청 결과를 모아 사이트로 보내고, 전체 상태를 읽는다 (아래 "상태 신호")
 internal/notify     완료 알림: macOS 앱 번들은 UNUserNotificationCenter, 번들 밖은 osascript, Windows는 토스트
@@ -52,6 +53,16 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
 `go test ./internal/media`의 원본 소리는 테스트가 직접 만든 WAV이고, 나머지 형식은 `afconvert`로 만든다(macOS가 아니면 건너뜀). ffmpeg로 만든 실제 파일(조각난 MP4, Ogg)과 ffmpeg 디코딩 확인은 ffmpeg가 있을 때만 돈다. CI에는 ffmpeg가 없으므로 같은 경우를 Go로 만든 바이트로도 검사한다.
+
+### 강의별 정리
+
+사용자가 누를 때만 돈다(`App.SortCourses`, `App.SortCourse`, CLI `nalmeok sort`). 대상은 끝났고 `.md`가 있으며 `Item.Sorted`가 빈 항목이다.
+
+- 강의 목록: `config.json`의 `"courses": [{"name": "...", "hint": "..."}]`, 개강일 `"semester_start": "2026-09-01"`(없으면 자동). 설정 시트에서 편집한다.
+- 분류(`course.Classify`): 전사본 30·50·70% 지점의 약 400자씩(`course.Sample`, 단어 경계)을 `gemini-3.5-flash-lite`에 보내 `{course, confident, topic}` JSON 스키마로 받는다. `course`는 목록 이름 또는 `NONE` enum이고, `confident`가 false면 맞는 강의 없음으로 본다. 가운데 1000자 한 군데만 보냈을 때 프로그래밍언어론의 수 표현 부분이 컴퓨터구조로 분류됐고, 세 군데로 바꾸자 실제 전사본 10개가 모두 맞았다(2026-11-24).
+- 키: 무료 키 먼저, 그다음 유료. 429·인증 오류면 그 키를 버리고 다음 키. 모든 키가 막히면 남은 항목은 묻지 않고 멈춘다.
+- 주차(`course.SemesterStart`, `course.Week`): 녹음 시각은 MP4 계열의 `mvhd` 생성 시각(2010년 이후, 수정 시각보다 1시간 넘게 늦지 않을 때), 아니면 파일 수정 시각(`media.RecordedAt`). 폴더 항목은 오디오 중 가장 이른 시각. 개강일 설정이 그 시각이 속한 반년을 덮으면 그 날을, 아니면 3월 2일·9월 1일부터 첫 평일을 쓴다. 1·2월 녹음과 개강 전 녹음은 주차 없이 주제만 쓴다. 1주차는 개강일부터 7일.
+- 이동: `<.md 폴더>/<강의>/<주차·주제>.md`(`course.FileBase`, 언어별 문구 `course.weekTopic`). 이미 정리된 항목을 다시 정리하면 이전 강의 폴더의 부모를 기준으로 한다. `Item.Name`은 새 파일 이름, `Item.Course`는 강의, `Item.Sorted`는 `matched`/`none`. 원본 음성은 옮기지 않는다.
 
 ### 파일 업로드
 
