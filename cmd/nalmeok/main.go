@@ -14,14 +14,12 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jseook11/nalmeok/frontend"
 	"github.com/jseook11/nalmeok/internal/app"
-	"github.com/jseook11/nalmeok/internal/codexasr"
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
@@ -102,7 +100,7 @@ func filterPSNArgs(args []string) []string {
 }
 
 // sharedRuntime holds what the GUI and CLI load once: settings, history, and
-// the health-signal client. The GUI builds one runner per backend from it.
+// the health-signal client.
 type sharedRuntime struct {
 	cfg            *config.Config
 	store          *store.Store
@@ -159,90 +157,27 @@ func newSharedRuntime() (*sharedRuntime, error) {
 	}, nil
 }
 
-// newRunner builds one runner. Each backend knows its own piece length and
-// pacing; the two env knobs only override them for an experiment run. 0 means
-// "backend default".
-func (s *sharedRuntime) newRunner(backend string) *runner.Runner {
-	opts := runner.Options{
+// newRunner builds the runner.
+func (s *sharedRuntime) newRunner() *runner.Runner {
+	return runner.New(runner.Options{
 		Store:          s.store,
 		Media:          runner.DefaultMedia{},
 		NewClient:      gemini.New,
-		Backend:        backend,
 		WorkDir:        s.workDir,
 		TranscriptsDir: s.transcriptsDir,
 		LogPath:        s.logPath,
 		Notify:         notify.Send,
 		Signal:         s.signals.Record,
-	}
-	if backend == runner.BackendCodex {
-		opts.Codex = runner.CodexOptions{
-			Concurrency: envInt("NALMEOK_CODEX_CONCURRENCY"),
-		}
-		opts.UnitMaxSeconds = float64(envInt("NALMEOK_CODEX_UNIT_SECONDS"))
-	}
-	return runner.New(opts)
+	})
 }
 
-// newRuntime wires one runner for the CLI. backend is the flag or environment
-// value; when it is empty and useConfig is true, config.json's choice applies.
-func newRuntime(backend string, useConfig bool) (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
+// newRuntime wires the runner for the CLI.
+func newRuntime() (*config.Config, *store.Store, *runner.Runner, *telemetry.Client, error) {
 	s, err := newSharedRuntime()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	if useConfig && strings.TrimSpace(backend) == "" {
-		backend = s.cfg.Backend()
-	}
-	backend, err = normalizeBackend(backend)
-	if err != nil {
-		s.signals.Close()
-		return nil, nil, nil, nil, err
-	}
-	return s.cfg, s.store, s.newRunner(backend), s.signals, nil
-}
-
-// backendEnv is the environment variable the GUI reads, since a window
-// launched from Finder gets no command line.
-const backendEnv = "NALMEOK_BACKEND"
-
-// experimentsEnv lists enabled experiments, comma separated, for a build that
-// should show the setting without editing config.json.
-const experimentsEnv = "NALMEOK_EXPERIMENTS"
-
-// normalizeBackend validates a backend name and maps the default spellings to
-// the empty string.
-func normalizeBackend(backend string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(backend)) {
-	case "", "gemini":
-		return "", nil
-	case runner.BackendCodex:
-		return runner.BackendCodex, nil
-	}
-	return "", fmt.Errorf("unknown backend %q: use gemini or codex", backend)
-}
-
-// codexExperiment reports whether the hidden Codex setting is enabled, from
-// config.json or the environment.
-func codexExperiment(cfg *config.Config) bool {
-	if cfg != nil && cfg.Experiment("codex") {
-		return true
-	}
-	for _, name := range strings.Split(os.Getenv(experimentsEnv), ",") {
-		if strings.EqualFold(strings.TrimSpace(name), "codex") {
-			return true
-		}
-	}
-	return false
-}
-
-// envInt reads a positive integer experiment knob. An absent or invalid
-// value is 0, which means "use the default".
-func envInt(name string) int {
-	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
-	if err != nil || v <= 0 {
-		return 0
-	}
-	return v
+	return s.cfg, s.store, s.newRunner(), s.signals, nil
 }
 
 // signalsEnabled re-reads config.json, so turning signals off in settings
@@ -275,32 +210,12 @@ func runGUI() {
 		defer folderLock.Close()
 	}
 
-	forced := strings.TrimSpace(os.Getenv(backendEnv))
 	shared, err := newSharedRuntime()
 	if err != nil {
 		log.Fatal(err)
 	}
 	// Sends what is still queued, waiting at most 2 s.
 	defer shared.signals.Close()
-
-	startupBackend := forced
-	if startupBackend == "" {
-		startupBackend = shared.cfg.Backend()
-	}
-	startupBackend, err = normalizeBackend(startupBackend)
-	if err != nil {
-		log.Fatal(err)
-	}
-	forcedSet := forced != ""
-	currentBackend := func() string {
-		if forcedSet {
-			if startupBackend == runner.BackendCodex {
-				return config.BackendCodex
-			}
-			return config.BackendGemini
-		}
-		return shared.cfg.Backend()
-	}
 
 	var application *app.App
 	var onDomReady func(context.Context)
@@ -324,22 +239,12 @@ func runGUI() {
 			}
 		}
 	} else {
-		// Two runners, one per backend: changing the setting routes new items
-		// without a restart, while items already added keep their backend.
-		router := &backendRouter{
-			gemini:  shared.newRunner(""),
-			codex:   shared.newRunner(runner.BackendCodex),
-			store:   shared.store,
-			current: currentBackend,
-		}
-		defer router.Close()
-		application = app.New(shared.cfg, shared.store, router)
+		engine := shared.newRunner()
+		defer engine.Close()
+		application = app.New(shared.cfg, shared.store, engine)
 		application.ValidateKey = gemini.ValidateKey
 		application.Telemetry = shared.signals
 	}
-	application.BackendFunc = currentBackend
-	application.BackendForced = forcedSet
-	application.Experiment = codexExperiment(shared.cfg)
 	application.TranscriptsDir = shared.transcriptsDir
 
 	assets, err := fs.Sub(frontend.Assets, "dist")
@@ -470,7 +375,6 @@ func runCLI(args []string) int {
 	batch := flags.Bool("batch", false, i18n.T("cli.flagBatch"))
 	free := flags.Bool("free", false, i18n.T("cli.flagFree"))
 	keyID := flags.String("key", "", i18n.T("cli.flagKey"))
-	backendFlag := flags.String("backend", "", i18n.T("cli.flagBackend"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -486,15 +390,6 @@ func runCLI(args []string) int {
 		printUsage(os.Stderr)
 		return 2
 	}
-	backend := strings.TrimSpace(*backendFlag)
-	if backend == "" {
-		backend = os.Getenv(backendEnv)
-	}
-	if _, err := normalizeBackend(backend); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-
 	folderLock, err := config.Lock()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, lockMessage(err))
@@ -502,7 +397,7 @@ func runCLI(args []string) int {
 	}
 	defer folderLock.Close()
 
-	cfg, history, engine, signals, err := newRuntime(backend, true)
+	cfg, history, engine, signals, err := newRuntime()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -530,11 +425,7 @@ func runCLI(args []string) int {
 
 	if err := engine.Add(paths, mode, strings.TrimSpace(*keyID)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		// Paths the backend cannot send were left out; run the rest.
-		var skipped *runner.SkippedError
-		if !errors.As(err, &skipped) || skipped.Added == 0 {
-			return 1
-		}
+		return 1
 	}
 
 	ids := make([]string, 0, len(paths))
@@ -711,20 +602,7 @@ func runDoctor() int {
 	fmt.Println(i18n.T("cli.doctorDir", "dir", dir))
 	fmt.Println(i18n.T("cli.doctorKeys", "free", free, "paid", paid))
 	fmt.Println(i18n.T("cli.doctorItems", "count", items))
-	fmt.Println(i18n.T("cli.doctorCodex", "state", codexState()))
 	return 0
-}
-
-// codexState describes the local Codex login for doctor.
-func codexState() string {
-	auth, err := codexasr.Find()
-	if err != nil {
-		return i18n.T("cli.codexMissing")
-	}
-	if auth.Expired(time.Now()) {
-		return i18n.T("cli.codexExpired", "path", auth.Path)
-	}
-	return i18n.T("cli.codexFound", "path", auth.Path)
 }
 
 func printUsage(w io.Writer) {
@@ -732,7 +610,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, i18n.T("cli.usage"))
 	fmt.Fprintln(w, i18n.T("cli.usageRun"))
-	fmt.Fprintln(w, i18n.T("cli.usageBackend"))
 	fmt.Fprintln(w, "  nalmeok --version")
 	fmt.Fprintln(w, "  nalmeok doctor")
 }

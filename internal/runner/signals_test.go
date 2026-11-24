@@ -99,8 +99,10 @@ func TestSignalBlockedAnswer(t *testing.T) {
 	h.wait(item.ID, StateFailed)
 
 	got := sig.now()
-	if len(got) != 1 || got[0].Outcome != telemetry.Blocked || got[0].Code != 0 {
-		t.Fatalf("events = %+v, want one blocked", got)
+	// The primary request is refused and the fallback request is refused too:
+	// one event per request.
+	if len(got) != 2 || got[0].Outcome != telemetry.Blocked || got[1].Outcome != telemetry.Blocked {
+		t.Fatalf("events = %+v, want two blocked", got)
 	}
 }
 

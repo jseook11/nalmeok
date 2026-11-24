@@ -33,8 +33,10 @@ type Item struct {
 	Kind   string `json:"Kind"`
 	Name   string `json:"Name"`
 	Mode   string `json:"Mode"`
-	// Backend is the transcription backend the item was added with. Empty
-	// means gemini, so items written by older versions keep working.
+	// Backend is the transcription backend an older version recorded for the
+	// item. Gemini is now the only backend: new items leave it empty and
+	// every item runs on Gemini whatever it holds. The field stays so
+	// items.json round-trips without loss.
 	Backend   string    `json:"Backend,omitempty"`
 	State     string    `json:"State"`
 	Progress  float64   `json:"Progress"`
@@ -119,6 +121,12 @@ type BatchRef struct {
 	// name never came back. The job may exist, so it is looked up before
 	// another one is created.
 	Marker string `json:"Marker,omitempty"`
+	// Fallback marks a job retried on the fallback model after a refusal.
+	// Manual retries keep it, so they stay on that model too.
+	Fallback bool `json:"Fallback,omitempty"`
+	// Attempt counts the automatic retries this item has used (0 or 1). It
+	// keeps a restart or another poll from submitting the same retry again.
+	Attempt int `json:"Attempt,omitempty"`
 }
 
 // Upload records a file uploaded to Gemini, for a Batch job or a free request.

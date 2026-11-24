@@ -385,3 +385,28 @@ func TestNewIDIsUnique(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+func TestBatchRetryStateSurvivesReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "items.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := Item{ID: "i1", Name: "lec.m4a", State: "running",
+		Batch: &BatchRef{KeyID: "k1", Fallback: true, Attempt: 1}}
+	if err := s.Add(item); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.Get("i1")
+	if !ok || got.Batch == nil {
+		t.Fatalf("batch missing after reload: %+v", got)
+	}
+	if !got.Batch.Fallback || got.Batch.Attempt != 1 {
+		t.Fatalf("batch retry state = %+v", got.Batch)
+	}
+}

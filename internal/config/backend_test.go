@@ -1,28 +1,22 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestBackendDefaultsToGemini(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	c, err := LoadFrom(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := c.Backend(); got != BackendGemini {
-		t.Fatalf("Backend = %q, want %q", got, BackendGemini)
-	}
-}
-
-func TestSetBackendPersistsAndKeepsOtherFields(t *testing.T) {
+// A config.json written while a second transcription backend existed still
+// loads, and the next save drops the retired backend settings while keeping
+// everything else.
+func TestRetiredBackendFieldsLoadAndAreDropped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{
   "gui": {"mode": "batch", "pane": true},
   "experiments": {"codex": true},
-  "backend": "gemini"
+  "backend": "codex",
+  "future": 1
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -30,48 +24,34 @@ func TestSetBackendPersistsAndKeepsOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Experiment("codex") {
-		t.Fatal("experiments.codex not read")
+	if c.Mode() != "batch" || !c.Pane() {
+		t.Fatalf("gui fields: mode=%q pane=%v", c.Mode(), c.Pane())
 	}
-	if err := c.SetBackend(BackendCodex); err != nil {
+	if err := c.SetPane(false); err != nil {
 		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"backend", "experiments"} {
+		if _, ok := raw[name]; ok {
+			t.Fatalf("%q written back: %s", name, data)
+		}
+	}
+	if _, ok := raw["future"]; !ok {
+		t.Fatalf("unknown field lost: %s", data)
 	}
 	again, err := LoadFrom(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := again.Backend(); got != BackendCodex {
-		t.Fatalf("Backend = %q, want %q", got, BackendCodex)
-	}
-	if again.Mode() != "batch" || !again.Pane() {
-		t.Fatalf("other gui fields changed: mode=%q pane=%v", again.Mode(), again.Pane())
-	}
-	if !again.Experiment("codex") {
-		t.Fatal("experiments flag lost")
-	}
-}
-
-func TestSetBackendRejectsUnknown(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	c, err := LoadFrom(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.SetBackend("anthropic"); err == nil {
-		t.Fatal("SetBackend accepted an unknown backend")
-	}
-}
-
-func TestUnknownStoredBackendIsGemini(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"backend":"anthropic"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	c, err := LoadFrom(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := c.Backend(); got != BackendGemini {
-		t.Fatalf("Backend = %q, want %q", got, BackendGemini)
+	if again.Mode() != "batch" || again.Pane() {
+		t.Fatalf("after save: mode=%q pane=%v", again.Mode(), again.Pane())
 	}
 }

@@ -22,7 +22,7 @@ import (
 var codeRe = regexp.MustCompile(`Error (\d{3}), Message:`)
 
 // statusCoder is implemented by errors that carry an HTTP status without
-// being a genai.APIError (the codex backend's HTTPError, for example).
+// being a genai.APIError.
 type statusCoder interface{ StatusCode() int }
 
 // StatusCode returns the HTTP status carried by err, or 0.

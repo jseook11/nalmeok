@@ -10,19 +10,14 @@ import (
 )
 
 // backend is one transcription service the runner can drive. Gemini (API
-// keys) is the default; codex (a local Codex login) is the experiment in
-// codex.go. Everything backend-specific goes through this interface, so the
-// runner itself never asks which service it is talking to: a new backend is a
-// new implementation, not another branch in a lane.
+// keys) is the only implementation. Everything service-specific goes through
+// this interface, so the runner never asks which service it is talking to;
+// the interface is the seam where a future backend would plug in, as a new
+// implementation rather than another branch in a lane.
 type backend interface {
-	// defaults fills in backend-specific option defaults. New applies the
-	// generic defaults afterwards, so a backend only sets what differs.
-	defaults(o *Options)
 	// resolveMode checks the backend is usable and returns the mode new items
 	// run in.
 	resolveMode(r *Runner, mode, keyID string) (string, error)
-	// usesKeys reports whether items can be pinned to an API key.
-	usesKeys() bool
 	// candidates returns the keys to try for one unit, in order.
 	candidates(r *Runner, pinned string, seconds float64) ([]config.Key, error)
 	// parts builds one unit's request, uploading files when the service needs
@@ -32,33 +27,11 @@ type backend interface {
 	free(r *Runner, ctx context.Context, item store.Item) error
 	// client returns the client that talks to the service with key.
 	client(r *Runner, key config.Key) (gemini.Client, error)
-	// batches reports whether Batch submission is available.
-	batches() bool
-	// signals reports whether request outcomes go to telemetry.
-	signals() bool
-	// message maps one of this backend's errors to a user sentence. It returns
-	// false when the error is not its own, leaving the generic mapping.
-	message(err error) (string, bool)
-	// skips reports whether a dropped path holds audio this backend cannot
-	// send. Add leaves such paths out instead of letting them fail later.
-	skips(path string) bool
-}
-
-// newBackend returns the backend named by Backend. An empty or unknown name
-// is Gemini, so the zero Options value keeps the original behavior.
-func newBackend(name string) backend {
-	switch name {
-	case BackendCodex:
-		return codexBackend{}
-	}
-	return geminiBackend{}
 }
 
 // geminiBackend transcribes with Gemini API keys: live requests on free keys,
 // Batch jobs on paid ones.
 type geminiBackend struct{}
-
-func (geminiBackend) defaults(*Options) {}
 
 func (geminiBackend) resolveMode(r *Runner, mode, keyID string) (string, error) {
 	keys := r.opts.Keys()
@@ -83,10 +56,6 @@ func (geminiBackend) resolveMode(r *Runner, mode, keyID string) (string, error) 
 	}
 	return mode, nil
 }
-
-func (geminiBackend) usesKeys() bool { return true }
-
-func (geminiBackend) skips(string) bool { return false }
 
 // candidates returns the free keys to try for one unit, in order.
 //
@@ -153,7 +122,3 @@ func (geminiBackend) client(r *Runner, key config.Key) (gemini.Client, error) {
 	r.clients[key.APIKey] = c
 	return c, nil
 }
-
-func (geminiBackend) batches() bool                { return true }
-func (geminiBackend) signals() bool                { return true }
-func (geminiBackend) message(error) (string, bool) { return "", false }

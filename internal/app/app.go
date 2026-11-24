@@ -10,9 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/jseook11/nalmeok/internal/codexasr"
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/media"
@@ -65,22 +63,6 @@ type ModeState struct {
 	Mode string `json:"Mode"`
 	Free bool   `json:"Free"`
 	Paid bool   `json:"Paid"`
-	// Backend is the transcription backend new items use.
-	Backend string `json:"Backend"`
-	// Codex is the local Codex login state: "ok", "expired" or "missing".
-	Codex string `json:"Codex,omitempty"`
-	// CodexPath is the auth file the state came from, when known.
-	CodexPath string `json:"CodexPath,omitempty"`
-	// CodexForced is true when NALMEOK_BACKEND fixes the backend.
-	CodexForced bool `json:"CodexForced,omitempty"`
-	// Experiment reports whether the Codex setting should be visible.
-	Experiment bool `json:"Experiment,omitempty"`
-}
-
-// CodexStatus is the local Codex login as the settings sheet shows it.
-type CodexStatus struct {
-	State string `json:"State"` // "ok", "expired" or "missing"
-	Path  string `json:"Path"`
 }
 
 var (
@@ -137,21 +119,6 @@ type App struct {
 	// Telemetry sends the anonymous free-key health signals and reads the
 	// shared status. main sets it; nil (preview mode, tests) sends nothing.
 	Telemetry *telemetry.Client
-
-	// BackendFunc returns the backend new items should use. main points it at
-	// the live settings (and NALMEOK_BACKEND); nil uses cfg.Backend().
-	BackendFunc func() string
-
-	// BackendForced is true when NALMEOK_BACKEND fixes the backend, so the
-	// settings toggle must not change it.
-	BackendForced bool
-
-	// Experiment reveals the Codex setting even when config.json does not
-	// carry the experiments flag (NALMEOK_EXPERIMENTS).
-	Experiment bool
-
-	// CodexAuth reads the local Codex login. nil reads the default file.
-	CodexAuth func() (codexasr.Auth, error)
 }
 
 // New wires the app. The store's change callback emits "items:changed".
@@ -411,11 +378,6 @@ func (a *App) SetItemKey(id, keyID string) error {
 	if !ok {
 		return store.ErrNotFound
 	}
-	// Codex items have no keys. A Gemini item (including a Batch item) keeps
-	// its key choice even while Codex is the free backend.
-	if item.Backend == config.BackendCodex {
-		return i18n.Error("error.codexNoKeys")
-	}
 	keyID = strings.TrimSpace(keyID)
 	mode := ""
 	if keyID != "" {
@@ -625,68 +587,6 @@ func isFile(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// backend returns the backend new items use: the live setting, or
-// cfg.Backend() when main did not install a function.
-func (a *App) backend() string {
-	if a.BackendFunc != nil {
-		return a.BackendFunc()
-	}
-	if a.cfg == nil {
-		return config.BackendGemini
-	}
-	return a.cfg.Backend()
-}
-
-// codexAuth reads the local Codex login.
-func (a *App) codexAuth() (codexasr.Auth, error) {
-	if a.CodexAuth != nil {
-		return a.CodexAuth()
-	}
-	return codexasr.Find()
-}
-
-// codexState returns "ok", "expired" or "missing" and the auth file path.
-func (a *App) codexState() (string, string) {
-	auth, err := a.codexAuth()
-	if err != nil {
-		return "missing", ""
-	}
-	if auth.Expired(time.Now()) {
-		return "expired", auth.Path
-	}
-	return "ok", auth.Path
-}
-
-// CodexStatus reports the local Codex login for the settings sheet.
-func (a *App) CodexStatus() CodexStatus {
-	state, path := a.codexState()
-	return CodexStatus{State: state, Path: path}
-}
-
-// CheckCodex re-reads the login, so a sign-in done outside the app shows up
-// without reopening the settings sheet.
-func (a *App) CheckCodex() CodexStatus {
-	return a.CodexStatus()
-}
-
-// Backend reports the transcription backend new items use.
-func (a *App) Backend() string {
-	return a.backend()
-}
-
-// SetBackend stores the backend for new items. NALMEOK_BACKEND wins.
-func (a *App) SetBackend(name string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.cfg == nil {
-		return errNoConfig
-	}
-	if a.BackendForced {
-		return i18n.Error("error.backendForced")
-	}
-	return a.cfg.SetBackend(name)
-}
-
 // effectiveMode picks the mode new items use: the only available tier wins,
 // otherwise the stored preference.
 func effectiveMode(stored string, free, paid bool) string {
@@ -702,14 +602,6 @@ func effectiveMode(stored string, free, paid bool) string {
 	return "free"
 }
 
-// freeLaneSet reports whether the free lane counts when picking the mode.
-// Gemini needs a free API key. Codex always counts: a missing or expired
-// login is fixed by logging in again, so the stored mode stays and the add
-// stops with the login note instead of moving new files to paid Batch.
-func (a *App) freeLaneSet(freeKeys bool) bool {
-	return freeKeys || a.backend() == config.BackendCodex
-}
-
 // GetMode returns the mode the next drop will use.
 func (a *App) GetMode() string {
 	a.mu.Lock()
@@ -718,38 +610,18 @@ func (a *App) GetMode() string {
 		return "free"
 	}
 	free, paid := a.cfg.Tiers()
-	return effectiveMode(a.cfg.Mode(), a.freeLaneSet(free), paid)
+	return effectiveMode(a.cfg.Mode(), free, paid)
 }
 
-// ModeState reports the effective mode, which tiers are usable, and which
-// backend the free lane uses. The codex backend's free lane depends on its
-// login, not on Gemini keys.
+// ModeState reports the effective mode and which tiers are usable.
 func (a *App) ModeState() ModeState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cfg == nil {
-		return ModeState{Mode: "free", Backend: config.BackendGemini}
+		return ModeState{Mode: "free"}
 	}
-	backend := a.backend()
-	freeKeys, paid := a.cfg.Tiers()
-	experiment := a.Experiment || a.cfg.Experiment("codex")
-	state := ModeState{
-		Free:        freeKeys,
-		Paid:        paid,
-		Backend:     backend,
-		Experiment:  experiment,
-		CodexForced: a.BackendForced,
-	}
-	// The settings sheet shows the login state even while Gemini is selected,
-	// so the user can see whether Codex is ready before switching.
-	if experiment || backend == config.BackendCodex || a.BackendForced {
-		state.Codex, state.CodexPath = a.codexState()
-	}
-	state.Mode = effectiveMode(a.cfg.Mode(), a.freeLaneSet(freeKeys), paid)
-	if backend == config.BackendCodex {
-		state.Free = state.Codex == "ok"
-	}
-	return state
+	free, paid := a.cfg.Tiers()
+	return ModeState{Mode: effectiveMode(a.cfg.Mode(), free, paid), Free: free, Paid: paid}
 }
 
 // hasKeys reports whether any tier has a key.
