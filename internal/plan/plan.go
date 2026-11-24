@@ -14,6 +14,9 @@ import (
 // stays near an hour.
 const UnitMaxSeconds = 65 * 60
 
+// FreeUnitMaxSeconds is the longest audio one free (live) request carries.
+const FreeUnitMaxSeconds = 40 * 60
+
 // unitSlack is how far past maxSeconds a unit may run. EvenSeconds pads each
 // piece by a second so frame rounding never leaves a few seconds over; the
 // slack lets Units fold such a remainder into the last unit instead of

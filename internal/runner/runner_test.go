@@ -15,6 +15,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/store"
 	"google.golang.org/genai"
 )
@@ -979,7 +980,7 @@ func TestTransientErrorsAreRetried(t *testing.T) {
 func TestTransientRetriesGiveUpAfterFive(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
-		return "", "", genai.APIError{Code: 503}
+		return "", "", genai.APIError{Code: 500}
 	}
 	h.r.Start(h.ctx)
 	item := h.addOne(h.source("lec.m4a"), "free")
@@ -993,6 +994,91 @@ func TestTransientRetriesGiveUpAfterFive(t *testing.T) {
 	want := []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute}
 	if got := h.sleepsNow(); !equalDurations(got, want) {
 		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+}
+
+func TestFree503MovesToOverloadModel(t *testing.T) {
+	h := newHarness(t, freeKey("f1"), freeKey("f2"))
+	h.media.pieces = 1
+	c := h.world.client("AIza-f1")
+	c.gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call <= overloadTries {
+			return "", "", genai.APIError{Code: 503}
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	h.wait(item.ID, StateDone)
+	want := strings.Repeat(gemini.Model+",", overloadTries) + gemini.OverloadModel
+	if got := strings.Join(c.modelsNow(), ","); got != want {
+		t.Fatalf("models = %s, want %s", got, want)
+	}
+	if got := h.world.client("AIza-f2").generatesNow(); got != 0 {
+		t.Errorf("second key generates = %d, want 0 (503 is per model, not per key)", got)
+	}
+	if got, want := h.sleepsNow(), []time.Duration{10 * time.Second, 20 * time.Second}; !equalDurations(got, want) {
+		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+}
+
+func TestFree503EverywhereWaitsAndResumes(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	busyCalls := 2 * overloadTries // both models, one round
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call <= busyCalls {
+			return "", "", genai.APIError{Code: 503}
+		}
+		return answer(parts), gemini.FinishStop, nil
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	h.wait(item.ID, StateDone)
+	sleeps := h.sleepsNow()
+	found := false
+	for _, d := range sleeps {
+		if d == defaultOverloadWaits[0] {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("sleeps = %v, want a %s overload wait", sleeps, defaultOverloadWaits[0])
+	}
+	if got := h.world.client("AIza-f1").generatesNow(); got != busyCalls+1 {
+		t.Errorf("generates = %d, want %d", got, busyCalls+1)
+	}
+}
+
+func TestFree503GivesUpAfterOverloadWaits(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	h.media.pieces = 1
+	h.world.client("AIza-f1").gen = func(int, []gemini.Part) (string, string, error) {
+		return "", "", genai.APIError{Code: 503}
+	}
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+	failed := h.wait(item.ID, StateFailed)
+	if failed.Detail != i18n.T("error.geminiBusy") {
+		t.Errorf("Detail = %q", failed.Detail)
+	}
+	rounds := len(defaultOverloadWaits) + 1
+	if got, want := h.world.client("AIza-f1").generatesNow(), rounds*2*overloadTries; got != want {
+		t.Errorf("generates = %d, want %d", got, want)
+	}
+}
+
+func TestUnitMaxDependsOnMode(t *testing.T) {
+	r := New(Options{})
+	if got := r.unitMax("batch"); got != plan.UnitMaxSeconds {
+		t.Errorf("batch unit = %v, want %v", got, plan.UnitMaxSeconds)
+	}
+	if got := r.unitMax("free"); got != plan.FreeUnitMaxSeconds {
+		t.Errorf("free unit = %v, want %v", got, plan.FreeUnitMaxSeconds)
+	}
+	small := New(Options{UnitMaxSeconds: 600})
+	if got := small.unitMax("free"); got != 600 {
+		t.Errorf("free unit with a smaller UnitMaxSeconds = %v, want 600", got)
 	}
 }
 

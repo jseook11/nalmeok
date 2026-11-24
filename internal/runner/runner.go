@@ -47,6 +47,10 @@ const (
 // Defaults that mirror the Python app.
 const (
 	DefaultUnitMaxSeconds = plan.UnitMaxSeconds
+	// DefaultFreeUnitMaxSeconds keeps free requests at 40 minutes: a shorter
+	// request loses less when the server drops it, and still stays far under
+	// the free tier's 250k tokens per minute.
+	DefaultFreeUnitMaxSeconds = plan.FreeUnitMaxSeconds
 	DefaultKeyGap         = 12 * time.Second
 	DefaultPollInterval   = 30 * time.Second
 	uploadMaxAge          = 47 * time.Hour
@@ -55,7 +59,14 @@ const (
 	transientMaxDelay     = 2 * time.Minute
 	freeTPM               = 250_000
 	freeRPM               = 5
-	rateTokensPerSecond   = 32
+	// rateTokensPerSecond spaces free requests. It is deliberately above the
+	// measured plan.AudioTokensPerSecond (25) so the gap also covers the
+	// prompt, PDFs and the measurement's spread.
+	rateTokensPerSecond = 32
+	// overloadTries is how many 503s in a row one model gets before the unit
+	// moves on: the free tier answers 503 at admission when the model is
+	// busy, and every further try burns daily quota for nothing.
+	overloadTries = 3
 	// freeDailyRequestsFloor is a conservative floor of the free tier's
 	// requests per day. A 429 before a key has sent this many requests today
 	// is not the daily quota, since gap() keeps each key under RPM and TPM.
@@ -130,7 +141,14 @@ type Options struct {
 	// none; the app and CLI pass notify.Send.
 	Notify func(title, message string)
 
-	UnitMaxSeconds float64
+	// UnitMaxSeconds is the longest audio one Batch request carries, and
+	// the upper bound for free requests too. FreeUnitMaxSeconds is the
+	// longest a free (live) request carries; the smaller of the two wins.
+	UnitMaxSeconds     float64
+	FreeUnitMaxSeconds float64
+	// OverloadWaits are the pauses before a free unit is tried again after
+	// every model answered 503; the item fails once they run out.
+	OverloadWaits []time.Duration
 	// KeyGap is the minimum time between request starts per free key. A
 	// negative value disables waiting (tests).
 	KeyGap       time.Duration
@@ -177,6 +195,12 @@ func New(opts Options) *Runner {
 	}
 	if opts.KeyGap == 0 {
 		opts.KeyGap = DefaultKeyGap
+	}
+	if opts.FreeUnitMaxSeconds <= 0 {
+		opts.FreeUnitMaxSeconds = DefaultFreeUnitMaxSeconds
+	}
+	if opts.OverloadWaits == nil {
+		opts.OverloadWaits = defaultOverloadWaits
 	}
 	if opts.PollInterval <= 0 {
 		opts.PollInterval = DefaultPollInterval
@@ -871,7 +895,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 		if err := ctx.Err(); err != nil {
 			return item, err
 		}
-		ps, err := r.opts.Media.Prepare(track, dir, plan.EvenSeconds(track.Seconds, r.opts.UnitMaxSeconds))
+		ps, err := r.opts.Media.Prepare(track, dir, plan.EvenSeconds(track.Seconds, r.unitMax(item.Mode)))
 		if err != nil {
 			return item, userError{err}
 		}
@@ -893,7 +917,7 @@ func (r *Runner) prepare(ctx context.Context, id string) (store.Item, error) {
 			return item, userError{i18n.Error("media.openFailed", "name", filepath.Base(p))}
 		}
 	}
-	plans := r.opts.Media.Units(tracks, r.opts.UnitMaxSeconds)
+	plans := r.opts.Media.Units(tracks, r.unitMax(item.Mode))
 	units := make([]store.Unit, 0, len(plans))
 	var total float64
 	for i, p := range plans {
@@ -1030,7 +1054,9 @@ const (
 )
 
 // runFreeGemini transcribes an item's unfinished units one at a time, rotating
-// through the free keys.
+// through the free keys. When every model stays overloaded (503), the unit
+// waits through OverloadWaits and is tried again; only then does the item
+// fail.
 func (r *Runner) runFreeGemini(ctx context.Context, item store.Item) error {
 	id := item.ID
 	pdfs := r.pdfPaths(id)
@@ -1038,62 +1064,43 @@ func (r *Runner) runFreeGemini(ctx context.Context, item store.Item) error {
 		if item.Units[i].Text != "" {
 			continue
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		unit := item.Units[i]
-		r.setDetail(id, i18n.T("status.transcribing"))
-
-		candidates, err := r.back.candidates(r, item.KeyID, unit.Seconds)
-		if err != nil {
-			return err
-		}
-		limited := 0
-		var text string
-		var usage store.Usage
-		done := false
-		for k := 0; k < len(candidates) && !done; k++ {
-			key := candidates[k]
-			res, outcome, err := r.freeAttempt(ctx, id, key, unit, pdfs)
-			if err != nil {
+		var res gemini.Result
+		for round := 0; ; round++ {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			switch outcome {
-			case keyOK:
-				text = res.Text
-				usage = res.Usage
-				done = true
-			case keyLimited:
-				limited++
-				r.logf("item %s unit %d: key %s limited (429)", id, unit.Index, key.ID)
-			case keyRejected:
-				r.logf("item %s unit %d: key %s rejected", id, unit.Index, key.ID)
-			}
-		}
-		if !done {
-			if limited == 0 {
-				return userError{i18n.Error("error.freeKeyInvalid")}
-			}
-			remaining := 0.0
-			for _, u := range item.Units {
-				if u.Text == "" {
-					remaining += u.Seconds
+			r.setDetail(id, i18n.T("status.transcribing"))
+			var limited int
+			var done bool
+			var err error
+			res, limited, done, err = r.freeUnit(ctx, id, item.KeyID, unit, pdfs)
+			if err != nil {
+				if !isOverload(err) {
+					return err
 				}
-			}
-			minutes := int(math.Ceil(remaining / 60))
-			r.logf("item %s free keys exhausted, %d min left", id, minutes)
-			return r.update(id, func(it *store.Item) {
-				if it.State != StateRunning || it.Mode == "batch" {
-					return
+				if round >= len(r.opts.OverloadWaits) {
+					r.logf("item %s unit %d: Gemini stayed busy, giving up: %v", id, unit.Index, r.redact(err))
+					return userError{i18n.Error("error.geminiBusy")}
 				}
-				it.State = StateFreeExhausted
-				it.Detail = i18n.T("status.minutesLeft", "minutes", minutes)
-				it.Progress = doneRatio(it.Units)
-			})
+				wait := r.opts.OverloadWaits[round]
+				r.logf("item %s unit %d: every model busy (503), waiting %s", id, unit.Index, wait)
+				r.setDetail(id, i18n.T("status.busyWaiting", "minutes", int(math.Ceil(wait.Minutes()))))
+				if err := r.opts.Sleep(ctx, wait); err != nil {
+					return err
+				}
+				continue
+			}
+			if !done {
+				if limited == 0 {
+					return userError{i18n.Error("error.freeKeyInvalid")}
+				}
+				return r.freeExhausted(id, item.Units)
+			}
+			break
 		}
-
-		item.Units[i].Text = text
-		if err := r.saveUnitText(id, i, gemini.Result{Text: text, Usage: usage}); err != nil {
+		item.Units[i].Text = res.Text
+		if err := r.saveUnitText(id, i, res); err != nil {
 			return err
 		}
 	}
@@ -1101,6 +1108,52 @@ func (r *Runner) runFreeGemini(ctx context.Context, item store.Item) error {
 		return err
 	}
 	return r.finish(id)
+}
+
+// freeUnit tries one unit on each candidate key in turn. done is false when
+// every key was limited or rejected; limited counts the 429s.
+func (r *Runner) freeUnit(ctx context.Context, id, pinned string, unit store.Unit, pdfs []string) (gemini.Result, int, bool, error) {
+	candidates, err := r.back.candidates(r, pinned, unit.Seconds)
+	if err != nil {
+		return gemini.Result{}, 0, false, err
+	}
+	limited := 0
+	for _, key := range candidates {
+		res, outcome, err := r.freeAttempt(ctx, id, key, unit, pdfs)
+		if err != nil {
+			return gemini.Result{}, limited, false, err
+		}
+		switch outcome {
+		case keyOK:
+			return res, limited, true, nil
+		case keyLimited:
+			limited++
+			r.logf("item %s unit %d: key %s limited (429)", id, unit.Index, key.ID)
+		case keyRejected:
+			r.logf("item %s unit %d: key %s rejected", id, unit.Index, key.ID)
+		}
+	}
+	return gemini.Result{}, limited, false, nil
+}
+
+// freeExhausted parks a free item whose keys all hit their daily quota.
+func (r *Runner) freeExhausted(id string, units []store.Unit) error {
+	remaining := 0.0
+	for _, u := range units {
+		if u.Text == "" {
+			remaining += u.Seconds
+		}
+	}
+	minutes := int(math.Ceil(remaining / 60))
+	r.logf("item %s free keys exhausted, %d min left", id, minutes)
+	return r.update(id, func(it *store.Item) {
+		if it.State != StateRunning || it.Mode == "batch" {
+			return
+		}
+		it.State = StateFreeExhausted
+		it.Detail = i18n.T("status.minutesLeft", "minutes", minutes)
+		it.Progress = doneRatio(it.Units)
+	})
 }
 
 // saveUnitText stores one finished unit and moves the item's progress. i is the
@@ -1148,6 +1201,14 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 			if outcome, ok := keyFailure(err); ok {
 				return gemini.Result{}, outcome, nil
 			}
+			if isOverload(err) && model != gemini.OverloadModel {
+				// 503 is the model's capacity, not the key's: another key
+				// would get the same answer, a lighter model usually not.
+				r.logf("item %s unit %d: %s busy, retrying on %s", id, unit.Index, model, gemini.OverloadModel)
+				r.setDetail(id, i18n.T("status.busyFallback"))
+				model = gemini.OverloadModel
+				continue
+			}
 			return gemini.Result{}, keyOK, err
 		}
 		if cerr := checkText(res.Text, res.Finish); cerr != nil {
@@ -1190,6 +1251,7 @@ func (r *Runner) generate(ctx context.Context, id string, key config.Key, client
 	req.Model = model
 	var res gemini.Result
 	attempt := 0
+	busy := 0
 	err := r.retryTransient(ctx, func(int) { r.setDetail(id, retryDetail()) }, func() error {
 		r.mu.Lock()
 		r.lastStart[key.ID] = r.opts.Now()
@@ -1208,9 +1270,35 @@ func (r *Runner) generate(ctx context.Context, id string, key config.Key, client
 		} else {
 			r.signal(ctx, "free", attempt, checkText(res.Text, res.Finish), nil)
 		}
+		if gemini.IsUnavailable(genErr) {
+			busy++
+			if busy >= overloadTries {
+				// Ends the transient retries: overloadedError is not
+				// transient.
+				return overloadedError{model: model}
+			}
+		} else {
+			busy = 0
+		}
 		return genErr
 	})
 	return res, err
+}
+
+// overloadedError means a model kept answering 503. It deliberately hides the
+// status code, also from its message (StatusCode parses messages), so it is
+// neither transient nor a key failure.
+type overloadedError struct {
+	model string
+}
+
+func (e overloadedError) Error() string { return e.model + " overloaded (503 x3)" }
+
+// isOverload reports a live request that failed because the model is busy:
+// three 503s in a row, or transient retries that ended on a 503.
+func isOverload(err error) bool {
+	var oe overloadedError
+	return errors.As(err, &oe) || gemini.IsUnavailable(err)
 }
 
 func keyFailure(err error) (keyOutcome, bool) {
@@ -1419,6 +1507,19 @@ func (r *Runner) retryTransient(ctx context.Context, onRetry func(int), fn func(
 		r.logf("transient error (attempt %d): %v", attempt+1, r.redact(err))
 	}
 	return err
+}
+
+// defaultOverloadWaits add up to an hour: free 503 storms usually clear in
+// minutes but sometimes last half an hour or more.
+var defaultOverloadWaits = []time.Duration{5 * time.Minute, 10 * time.Minute, 15 * time.Minute, 15 * time.Minute, 15 * time.Minute}
+
+// unitMax is the longest audio one request of mode carries. Units are cut
+// when an item is prepared, so an item moved between modes later keeps them.
+func (r *Runner) unitMax(mode string) float64 {
+	if mode == "batch" {
+		return r.opts.UnitMaxSeconds
+	}
+	return math.Min(r.opts.UnitMaxSeconds, r.opts.FreeUnitMaxSeconds)
 }
 
 // defaultBackoff doubles from 10 s and stops at 2 min: 10, 20, 40, 80, 120 s.

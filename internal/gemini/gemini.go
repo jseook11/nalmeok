@@ -32,6 +32,11 @@ const Model = "gemini-3.8-flash"
 // succeeds on 3.6 (2026-11-08).
 const FallbackModel = "gemini-3.6-flash"
 
+// OverloadModel takes a free unit when the other models keep answering 503
+// (model busy). Its free tier has far more room than Flash's, and it reads
+// audio and PDFs with the same thinking levels.
+const OverloadModel = "gemini-3.5-flash-lite"
+
 // MaxOutputTokens is the per-request output cap (live and Batch).
 const MaxOutputTokens = 65536
 

@@ -49,6 +49,12 @@ func StatusCode(err error) int {
 	return 0
 }
 
+// IsUnavailable reports a 503: the model is overloaded right now. It is
+// transient, but on the free tier it is per model, not per key.
+func IsUnavailable(err error) bool {
+	return StatusCode(err) == 503
+}
+
 // Is429 reports a rate-limit or quota error.
 func Is429(err error) bool {
 	return StatusCode(err) == 429
