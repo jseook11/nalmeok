@@ -26,13 +26,6 @@ import (
 // DefaultFreeMinutes is the Python app's default per-key limit.
 const DefaultFreeMinutes = 130
 
-// Backend names for new items. BackendGemini uses API keys; BackendCodex
-// reuses a local Codex login. An empty or unknown stored value is gemini.
-const (
-	BackendGemini = "gemini"
-	BackendCodex  = "codex"
-)
-
 // Key is one saved API key. The JSON names match the Python app.
 type Key struct {
 	ID           string `json:"id"`
@@ -327,53 +320,6 @@ func (c *Config) SetMode(mode string) error {
 		return err
 	}
 	return nil
-}
-
-// Backend returns the transcription backend for new items. Anything other
-// than an explicit "codex" is gemini, so older files need no migration.
-func (c *Config) Backend() string {
-	var name string
-	if err := json.Unmarshal(c.raw["backend"], &name); err != nil {
-		return BackendGemini
-	}
-	if strings.ToLower(strings.TrimSpace(name)) == BackendCodex {
-		return BackendCodex
-	}
-	return BackendGemini
-}
-
-// SetBackend stores and immediately persists the backend choice.
-func (c *Config) SetBackend(name string) error {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name != BackendGemini && name != BackendCodex {
-		return i18n.Error("error.unknownBackend", "backend", name)
-	}
-	c.reload()
-	value, err := json.Marshal(name)
-	if err != nil {
-		return err
-	}
-	previous, had := c.raw["backend"]
-	c.raw["backend"] = value
-	if err := c.Save(); err != nil {
-		if had {
-			c.raw["backend"] = previous
-		} else {
-			delete(c.raw, "backend")
-		}
-		return err
-	}
-	return nil
-}
-
-// Experiment reports whether a named experiment is enabled in config.json,
-// e.g. {"experiments": {"codex": true}}. It never writes the flag.
-func (c *Config) Experiment(name string) bool {
-	var experiments map[string]bool
-	if err := json.Unmarshal(c.raw["experiments"], &experiments); err != nil {
-		return false
-	}
-	return experiments[name]
 }
 
 // Pane reports whether the transcript pane is shown (gui.pane).
@@ -756,6 +702,10 @@ func (c *Config) Save() error {
 	return c.SaveTo(c.path)
 }
 
+// retiredFields are top-level settings an older version wrote and this one
+// no longer uses. They are read as unknown fields and not written back.
+var retiredFields = []string{"backend", "experiments"}
+
 // SaveTo writes the config to path atomically. Unknown top-level fields are
 // preserved; the legacy top-level api_key is folded into keys.
 func (c *Config) SaveTo(path string) error {
@@ -770,6 +720,11 @@ func (c *Config) SaveTo(path string) error {
 	}
 	raw["keys"] = keysJSON
 	delete(raw, "api_key")
+	// "backend" and "experiments" chose a transcription backend that has
+	// since been removed. Nothing reads them, so a save drops them.
+	for _, name := range retiredFields {
+		delete(raw, name)
+	}
 
 	var gui map[string]json.RawMessage
 	if existing, ok := raw["gui"]; ok {

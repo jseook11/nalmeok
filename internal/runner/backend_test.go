@@ -1,142 +1,76 @@
 package runner
 
 import (
-	"context"
-	"errors"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/jseook11/nalmeok/internal/codexasr"
-	"github.com/jseook11/nalmeok/internal/config"
-	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
-func TestOwns(t *testing.T) {
-	codex := New(Options{Backend: BackendCodex})
-	if !codex.owns(store.Item{Backend: config.BackendCodex}) {
-		t.Fatal("codex runner rejected a codex item")
-	}
-	if codex.owns(store.Item{Backend: ""}) {
-		t.Fatal("codex runner claimed a legacy gemini item")
-	}
+// legacyBackend is the Backend value an older build stored for an item added
+// with a transcription backend that has since been removed.
+const legacyBackend = "codex"
 
-	gemini := New(Options{})
-	if !gemini.owns(store.Item{Backend: ""}) || !gemini.owns(store.Item{Backend: config.BackendGemini}) {
-		t.Fatal("gemini runner rejected a gemini item")
+// legacyItem saves an item with legacyBackend and two pending units whose
+// pieces are already on disk.
+func legacyItem(t *testing.T, h *harness, id, state string) {
+	t.Helper()
+	work := filepath.Join(h.dir, "cfg", "nalmeok", "work", id)
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if gemini.owns(store.Item{Backend: config.BackendCodex}) {
-		t.Fatal("gemini runner claimed a codex item")
+	p0 := filepath.Join(work, "lec.m4a.001.m4a")
+	p1 := filepath.Join(work, "lec.m4a.002.m4a")
+	for _, p := range []string{p0, p1} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-}
-
-func TestStartSkipsOtherBackend(t *testing.T) {
-	h := newHarness(t, freeKey("k1"))
-	gemini := h.addOne(h.source("a.m4a"), "free")
-	codexID := "codex-1"
 	if err := h.st.Add(store.Item{
-		ID:      codexID,
-		Source:  h.source("b.m4a"),
-		Kind:    "file",
-		Name:    "b.m4a",
-		Mode:    "free",
-		Backend: config.BackendCodex,
-		State:   StateRunning,
-		Detail:  i18n.T("status.queued"),
+		ID: id, Source: h.source("lec.m4a"), Kind: "file", Name: "lec.m4a",
+		Mode: "free", Backend: legacyBackend, State: state, AudioSec: 120,
+		Units: []store.Unit{
+			{Index: 0, Files: []string{p0}, MIMEs: []string{"audio/m4a"}, Seconds: 60},
+			{Index: 1, Files: []string{p1}, MIMEs: []string{"audio/m4a"}, Seconds: 60},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
 
+// A running item stored with the retired backend name resumes on Gemini.
+func TestLegacyBackendItemResumesOnGemini(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	legacyItem(t, h, "old-1", StateRunning)
+
+	h.r = h.newRunner()
 	h.r.Start(h.ctx)
-	h.wait(gemini.ID, StateDone)
-
-	item, ok := h.st.Get(codexID)
-	if !ok {
-		t.Fatal("codex item disappeared")
+	done := h.wait("old-1", StateDone)
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nT(lec.m4a.002.m4a)\n" {
+		t.Fatalf("output = %q", got)
 	}
-	if item.State != StateRunning || !item.StartedAt.IsZero() {
-		t.Fatalf("gemini runner touched a codex item: state=%q started=%v", item.State, item.StartedAt)
+	if n := h.world.client("AIza-f1").generatesNow(); n != 2 {
+		t.Fatalf("generates = %d, want 2", n)
 	}
 }
 
-func TestRetryRejectsOtherBackend(t *testing.T) {
-	h := newHarness(t, freeKey("k1"))
-	id := "codex-1"
-	if err := h.st.Add(store.Item{
-		ID:      id,
-		Name:    "b.m4a",
-		Mode:    "free",
-		Backend: config.BackendCodex,
-		State:   StateFailed,
-	}); err != nil {
-		t.Fatal(err)
+// A failed item stored with the retired backend name retries on Gemini.
+func TestLegacyBackendItemRetriesOnGemini(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	legacyItem(t, h, "old-2", StateFailed)
+	h.r.Start(h.ctx)
+
+	if err := h.r.Retry("old-2"); err != nil {
+		t.Fatalf("Retry: %v", err)
 	}
-	err := h.r.Retry(id)
-	if err == nil || !strings.Contains(err.Error(), i18n.T("error.wrongBackend")) {
-		t.Fatalf("Retry err = %v", err)
+	done := h.wait("old-2", StateDone)
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nT(lec.m4a.002.m4a)\n" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
-func TestPollOnceDoesNothingOnCodex(t *testing.T) {
-	h := newCodexHarness(t, func() (codexasr.Auth, error) {
-		return codexasr.Auth{AccessToken: "token"}, nil
-	})
-	id := "batch-1"
-	if err := h.st.Add(store.Item{
-		ID:      id,
-		Name:    "lecture.m4a",
-		Mode:    "batch",
-		Backend: config.BackendGemini,
-		State:   StateBatchWaiting,
-		Batch:   &store.BatchRef{Name: "jobs/1", KeyID: "paid-1"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	h.r.PollOnce(context.Background())
-	item, ok := h.st.Get(id)
-	if !ok {
-		t.Fatal("batch item disappeared")
-	}
-	if item.State != StateBatchWaiting {
-		t.Fatalf("codex runner changed a gemini batch item: state=%q detail=%q", item.State, item.Detail)
-	}
-}
-
-func TestCodexAddSkipsAIFF(t *testing.T) {
-	h := newCodexHarness(t, func() (codexasr.Auth, error) {
-		return codexasr.Auth{AccessToken: "token"}, nil
-	})
-	m4a := h.source("a.m4a")
-	aiff := h.source("b.aiff")
-	folder := filepath.Dir(h.source("mixed/c.aif"))
-	h.source("mixed/d.m4a")
-
-	err := h.r.Add([]string{m4a, aiff, folder}, "free", "")
-	var skipped *SkippedError
-	if !errors.As(err, &skipped) {
-		t.Fatalf("Add err = %v, want SkippedError", err)
-	}
-	if skipped.Added != 1 || len(skipped.Paths) != 2 {
-		t.Fatalf("skipped = %+v", skipped)
-	}
-	items := h.st.List("")
-	if len(items) != 1 || items[0].Source != m4a {
-		t.Fatalf("items = %+v", items)
-	}
-
-	// Nothing left to add: still the same error, and no item.
-	err = h.r.Add([]string{aiff}, "free", "")
-	if !errors.As(err, &skipped) || skipped.Added != 0 {
-		t.Fatalf("Add err = %v", err)
-	}
-	if n := len(h.st.List("")); n != 1 {
-		t.Fatalf("items = %d, want 1", n)
-	}
-}
-
-func TestGeminiAddKeepsAIFF(t *testing.T) {
+func TestAddKeepsAIFF(t *testing.T) {
 	h := newHarness(t, freeKey("k1"))
 	if err := h.r.Add([]string{h.source("b.aiff")}, "free", ""); err != nil {
 		t.Fatalf("Add err = %v", err)
