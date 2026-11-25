@@ -1,9 +1,10 @@
 name: macOS
 
+# CI runs only before a release: on a release PR (branch release/*) or by
+# hand. Everyday PRs merge after the local checks (docs/code-review.md).
 on:
-  push:
-    branches: [master]
   pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +17,7 @@ concurrency:
 jobs:
   test:
     name: Test (macOS)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release/')
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -31,30 +33,3 @@ jobs:
       - name: Run unit tests
         run: go test ./...
 
-  build:
-    name: Build macOS app
-    runs-on: macos-15
-    needs: test
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build unsigned app
-        run: scripts/build_mac_app.sh
-      - name: Smoke-test the bundle
-        run: |
-          build/nalmeok --version
-          build/Nalmeok.app/Contents/MacOS/nalmeok --version
-          archs=$(lipo -archs build/Nalmeok.app/Contents/MacOS/nalmeok)
-          echo "$archs" | grep -qw x86_64
-          echo "$archs" | grep -qw arm64
-      - name: Upload unsigned app
-        uses: actions/upload-artifact@v4
-        with:
-          name: nalmeok-macos-unsigned-${{ github.sha }}
-          path: build/Nalmeok.app
-          if-no-files-found: error
-          retention-days: 14
