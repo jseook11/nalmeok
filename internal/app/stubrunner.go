@@ -6,13 +6,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
 // StubRunner makes dropped paths visible in the history without transcribing
-// them. It lets the phase 1 UI exercise every state; phase 2 replaces it with
-// the real runner.
+// them. The screen preview (NALMEOK_UI_PREVIEW=1) uses it so the UI can be
+// shown without network or real keys.
 type StubRunner struct {
 	store *store.Store
 }
@@ -30,8 +31,8 @@ func (r *StubRunner) Add(paths []string, mode, keyID string) error {
 	if r.store == nil {
 		return errNotReady
 	}
-	if mode != "free" && mode != "batch" {
-		mode = "free"
+	if !config.IsMode(mode) {
+		mode = config.ModeFree
 	}
 	for _, path := range paths {
 		kind := "file"
@@ -91,7 +92,7 @@ func (r *StubRunner) Retry(id string) error {
 // SendToBatch shows the Batch waiting state with a submission time.
 func (r *StubRunner) SendToBatch(id string) error {
 	return r.update(id, func(item *store.Item) {
-		item.Mode = "batch"
+		item.Mode = config.ModeBatch
 		item.State = "batch_waiting"
 		item.Progress = 0
 		item.Detail = ""

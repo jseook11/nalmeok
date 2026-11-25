@@ -24,6 +24,30 @@ import (
 // DefaultFreeMinutes is the default per-key free limit, in minutes.
 const DefaultFreeMinutes = 130
 
+// Processing modes (gui.mode, store.Item.Mode) and key tiers (Key.Tier). A
+// free key runs items live in the free mode; a paid key runs them as Batch
+// jobs.
+const (
+	ModeFree  = "free"
+	ModeBatch = "batch"
+	TierFree  = "free"
+	TierPaid  = "paid"
+)
+
+// ModeForTier is the mode an item pinned to a key of tier runs in.
+func ModeForTier(tier string) string {
+	if tier == TierFree {
+		return ModeFree
+	}
+	return ModeBatch
+}
+
+// IsMode reports whether mode is one of the processing modes.
+func IsMode(mode string) bool { return mode == ModeFree || mode == ModeBatch }
+
+// IsTier reports whether tier is one of the key tiers.
+func IsTier(tier string) bool { return tier == TierFree || tier == TierPaid }
+
 // Key is one saved API key. The JSON names are what existing config files
 // use; renaming them would drop saved keys.
 type Key struct {
@@ -139,7 +163,7 @@ func LoadFrom(path string) (*Config, error) {
 		path: path,
 		raw:  make(map[string]json.RawMessage),
 		keys: []Key{},
-		mode: "free",
+		mode: ModeFree,
 	}
 
 	data, err := os.ReadFile(path)
@@ -178,7 +202,7 @@ func legacyKey(raw json.RawMessage) *Key {
 	return &Key{
 		ID:           "legacy",
 		Label:        i18n.T("key.defaultLabel"),
-		Tier:         "paid",
+		Tier:         TierPaid,
 		APIKey:       key,
 		LimitMinutes: DefaultFreeMinutes,
 	}
@@ -187,12 +211,12 @@ func legacyKey(raw json.RawMessage) *Key {
 func parseMode(raw json.RawMessage) string {
 	var gui map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &gui); err != nil {
-		return "free"
+		return ModeFree
 	}
-	if text(gui["mode"]) == "batch" {
-		return "batch"
+	if text(gui["mode"]) == ModeBatch {
+		return ModeBatch
 	}
-	return "free"
+	return ModeFree
 }
 
 // keyFields are the key fields this app reads; anything else in a key entry
@@ -282,10 +306,10 @@ func number(raw json.RawMessage) (int, bool) {
 
 func normalizeTier(tier string) string {
 	switch strings.ToLower(strings.TrimSpace(tier)) {
-	case "free":
-		return "free"
+	case TierFree:
+		return TierFree
 	default:
-		return "paid"
+		return TierPaid
 	}
 }
 
@@ -299,17 +323,17 @@ func clampMinutes(minutes int) int {
 	return minutes
 }
 
-// Mode returns "free" or "batch".
+// Mode returns ModeFree or ModeBatch.
 func (c *Config) Mode() string {
-	if c.mode == "batch" {
-		return "batch"
+	if c.mode == ModeBatch {
+		return ModeBatch
 	}
-	return "free"
+	return ModeFree
 }
 
 // SetMode stores and immediately persists the processing mode.
 func (c *Config) SetMode(mode string) error {
-	if mode != "free" && mode != "batch" {
+	if !IsMode(mode) {
 		return i18n.Error("error.unknownMode", "mode", mode)
 	}
 	c.reload()
@@ -528,7 +552,7 @@ func (c *Config) SetCourses(courses []Course, semesterStart string) error {
 // Tiers reports which processing tiers have at least one key.
 func (c *Config) Tiers() (free, paid bool) {
 	for _, key := range c.AllKeys() {
-		if key.Tier == "free" {
+		if key.Tier == TierFree {
 			free = true
 		} else {
 			paid = true
@@ -545,9 +569,9 @@ func (c *Config) EffectiveMode() string {
 	free, paid := c.Tiers()
 	switch {
 	case free && !paid:
-		return "free"
+		return ModeFree
 	case paid && !free:
-		return "batch"
+		return ModeBatch
 	default:
 		return c.Mode()
 	}
@@ -589,9 +613,9 @@ func EnvKey() *Key {
 	if apiKey == "" {
 		return nil
 	}
-	tier := "paid"
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("GEMINI_API_KEY_TIER")), "free") {
-		tier = "free"
+	tier := TierPaid
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("GEMINI_API_KEY_TIER")), TierFree) {
+		tier = TierFree
 	}
 	return &Key{
 		ID:           "env",
@@ -729,11 +753,11 @@ func (c *Config) RenameKey(id, label string) (Key, error) {
 	})
 }
 
-// SetKeyTier changes a saved key's tier to "free" or "paid". The processing
+// SetKeyTier changes a saved key's tier to TierFree or TierPaid. The processing
 // mode is not stored here; EffectiveMode follows the new set of tiers.
 func (c *Config) SetKeyTier(id, tier string) (Key, error) {
 	tier = strings.ToLower(strings.TrimSpace(tier))
-	if tier != "free" && tier != "paid" {
+	if !IsTier(tier) {
 		return Key{}, i18n.Error("error.badTier")
 	}
 	return c.editKey(id, func(k *Key) { k.Tier = tier })

@@ -292,7 +292,7 @@ func (a *App) newClient() func(string) (gemini.Client, error) {
 // a tiny request the free tier covers.
 func freeFirst(keys []config.Key) []config.Key {
 	out := make([]config.Key, 0, len(keys))
-	for _, tier := range []string{"free", "paid"} {
+	for _, tier := range []string{config.TierFree, config.TierPaid} {
 		for _, k := range keys {
 			if k.Tier == tier {
 				out = append(out, k)

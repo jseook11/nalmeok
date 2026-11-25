@@ -45,6 +45,7 @@
   | 파일이 있는가 | `internal/app` `isFile` |
   | 끝난 항목 하나 꺼내기, 그 전사본 읽기 | `App.finishedItem`, `App.outputText` |
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
+  | 모드·등급 값, 등급에서 모드, 값 검사 | `config.ModeFree`·`ModeBatch`·`TierFree`·`TierPaid`, `config.ModeForTier`, `IsMode`, `IsTier`. 다음 항목이 쓸 모드는 `Config.EffectiveMode`, runner의 키 고르기는 `resolveMode`·`availableMode`·`freeCandidates`(`runner/keys.go`). 문자열 `"free"`를 직접 쓰지 않는다 |
   | config 한 값 바꾸기 | 키는 `Config.editKey`, `gui` 아래 값은 `Config.setGUI`. 바꾸기 직전에 `reload`를 부른다(직접 고칠 때도) |
   | 녹음 시각, 학기 주차 | `media.RecordedAt`, `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of` |
   | 녹음 이름 (확장자 뺀 파일 이름, 폴더 이름 그대로) | Go `recordingName`, 화면 `displayName` |
