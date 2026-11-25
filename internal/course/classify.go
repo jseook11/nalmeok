@@ -156,26 +156,16 @@ func cleanTopic(topic string) string {
 	return topic
 }
 
-// FileBase is the transcript's new name without ".md": "10주차 - 부분공간과
-// 생성", or only the part that is known. It follows the lecture's language,
-// not the interface's: an English interface named Korean lectures
-// "Week 10 - 기저와 행렬식" (2026-11-25).
-func FileBase(week int, topic, courseName string) string {
-	lang := i18n.Language()
-	if hasHangul(topic) || hasHangul(courseName) {
-		lang = "ko"
-	}
+// FileBase is the transcript's new name without ".md": "Week 10 - topic"
+// in the interface language, or only the part that is known.
+func FileBase(week int, topic string) string {
 	switch {
 	case week > 0 && topic != "":
-		return i18n.TIn(lang, "course.weekTopic", "week", week, "topic", topic)
+		return i18n.T("course.weekTopic", "week", week, "topic", topic)
 	case week > 0:
-		return i18n.TIn(lang, "course.week", "week", week)
+		return i18n.T("course.week", "week", week)
 	}
 	return topic
-}
-
-func hasHangul(s string) bool {
-	return strings.ContainsFunc(s, func(r rune) bool { return unicode.Is(unicode.Hangul, r) })
 }
 
 // weekInName matches a week the user wrote in a file name: "9주차",

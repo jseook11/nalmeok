@@ -99,10 +99,8 @@ func catalog(l string) (map[string]string, error) {
 
 // Lookup returns key's text in the current language, falling back to the
 // base language. ok is false when neither has it.
-func Lookup(key string) (string, bool) { return lookupIn(Language(), key) }
-
-func lookupIn(l, key string) (string, bool) {
-	if c, _ := catalog(l); c != nil {
+func Lookup(key string) (string, bool) {
+	if c, _ := catalog(Language()); c != nil {
 		if s, ok := c[key]; ok {
 			return s, true
 		}
@@ -122,16 +120,6 @@ func lookupIn(l, key string) (string, bool) {
 // A missing key returns the key itself.
 func T(key string, pairs ...any) string {
 	s, ok := Lookup(key)
-	if !ok {
-		return key
-	}
-	return Format(s, pairs...)
-}
-
-// TIn is T in language l instead of the current one, for text that follows
-// its content's language rather than the interface's, such as a file name.
-func TIn(l, key string, pairs ...any) string {
-	s, ok := lookupIn(l, key)
 	if !ok {
 		return key
 	}
