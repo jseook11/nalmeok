@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/course"
@@ -167,7 +168,8 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if !isFile(item.Output) {
 		return false, errNoOutput
 	}
-	base := course.FileBase(a.weeks.of(item, start), res.Topic)
+	week, _ := a.weeks.of(item, start)
+	base := course.FileBase(week, res.Topic)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
@@ -205,14 +207,15 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 	return nil
 }
 
-// weekOf is the semester week item's recording belongs to, or 0: counted
-// from when it was recorded, or, when that cannot be read (a folder whose
-// audio is gone), the week written in its name ("9주차", "week 9").
-func weekOf(item store.Item, start string) int {
+// weekOf is the semester week item's recording belongs to, or 0, and when it
+// was recorded (zero when that cannot be read). The week is counted from the
+// recording time, or, when that cannot be read (a folder whose audio is
+// gone), taken from its name ("9주차", "week 9").
+func weekOf(item store.Item, start string) (int, time.Time) {
 	if at, ok := media.RecordedAt(item.Source); ok {
-		return course.Week(at, course.SemesterStart(at, start))
+		return course.Week(at, course.SemesterStart(at, start)), at
 	}
-	return course.WeekFromName(recordingName(item))
+	return course.WeekFromName(recordingName(item)), time.Time{}
 }
 
 // weekCache remembers weekOf per item. An entry holds while the item's
@@ -225,23 +228,49 @@ type weekCache struct {
 type weekEntry struct {
 	source, start string
 	week          int
+	recorded      time.Time
 }
 
-func (c *weekCache) of(item store.Item, start string) int {
+// of is item's week and recording time. A week the user set (WeekSet) wins
+// over the counted one.
+func (c *weekCache) of(item store.Item, start string) (int, time.Time) {
 	c.mu.Lock()
 	e, ok := c.m[item.ID]
 	c.mu.Unlock()
-	if ok && e.source == item.Source && e.start == start {
-		return e.week
+	if !ok || e.source != item.Source || e.start != start {
+		week, at := weekOf(item, start)
+		e = weekEntry{source: item.Source, start: start, week: week, recorded: at}
+		c.mu.Lock()
+		if c.m == nil {
+			c.m = make(map[string]weekEntry)
+		}
+		c.m[item.ID] = e
+		c.mu.Unlock()
 	}
-	week := weekOf(item, start)
-	c.mu.Lock()
-	if c.m == nil {
-		c.m = make(map[string]weekEntry)
+	if item.WeekSet > 0 {
+		return item.WeekSet, e.recorded
 	}
-	c.m[item.ID] = weekEntry{source: item.Source, start: start, week: week}
-	c.mu.Unlock()
-	return week
+	return e.week, e.recorded
+}
+
+// MaxWeek is the highest week SetWeek takes.
+const MaxWeek = 30
+
+// SetWeek sets the semester week of item id by hand; 0 goes back to the
+// counted week. Copies of the same transcript get it too. A sorted
+// transcript keeps its file name; sorting it again names it with this week.
+func (a *App) SetWeek(id string, week int) error {
+	if week < 0 || week > MaxWeek {
+		return i18n.Error("error.weekRange", "max", MaxWeek)
+	}
+	if a.store == nil {
+		return store.ErrNotFound
+	}
+	item, ok := a.store.Get(id)
+	if !ok {
+		return store.ErrNotFound
+	}
+	return a.updateTranscript(item, func(it *store.Item) { it.WeekSet = week })
 }
 
 func (a *App) semesterStart() string {

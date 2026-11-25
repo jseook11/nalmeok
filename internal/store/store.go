@@ -77,6 +77,9 @@ type Item struct {
 	// fit), so sorting everything again skips it.
 	Course string `json:"Course,omitempty"`
 	Sorted string `json:"Sorted,omitempty"`
+	// WeekSet is the semester week the user set by hand; 0 means counted
+	// from the recording time or name.
+	WeekSet int `json:"WeekSet,omitempty"`
 	// PDFChosen marks that the user picked the folder's reference PDFs when
 	// adding it; PDFs is that choice (empty = transcribe without a PDF).
 	// Retries keep using it. Without a choice every PDF in the folder is

@@ -7,6 +7,7 @@
   "action.delete": "Delete",
   "action.locate": "Locate…",
   "action.rename": "Rename",
+  "action.setWeek": "Set Week",
   "action.restore": "Save again",
   "action.retry": "Retry",
 
@@ -116,6 +117,7 @@
   "error.keyOrder": "Key list mismatch",
   "error.keyRequired": "API key required",
   "error.locked": "Nalmeok is already running",
+  "error.weekRange": "Week must be a number from 1 to {max}",
   "error.nameBadChars": "Name cannot contain / \\ :",
   "error.nameRequired": "Enter a name",
   "error.geminiBusy": "Gemini stayed busy",
@@ -153,6 +155,8 @@
   "error.unknownMode": "Unknown processing mode: {mode}",
 
   "field.name": "Name",
+  "field.week": "Week",
+  "field.weekPlaceholder": "Week number, empty for automatic",
 
   "gemini.badResultLine": "Could not read result line {line}: {error}",
   "gemini.emptyResults": "Server result is empty",
