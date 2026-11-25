@@ -1,7 +1,5 @@
-// Package config reads and writes the settings shared with the Python app.
-//
-// The file lives next to the Python app's config.json so existing keys keep
-// working. Only the "keys" list and "gui.mode" are interpreted here; every
+// Package config reads and writes config.json, which the app and the CLI
+// share. Only the "keys" list and "gui.mode" are interpreted here; every
 // other top-level field is kept byte-for-byte when the file is written back.
 package config
 
@@ -23,10 +21,11 @@ import (
 	"time"
 )
 
-// DefaultFreeMinutes is the Python app's default per-key limit.
+// DefaultFreeMinutes is the default per-key free limit, in minutes.
 const DefaultFreeMinutes = 130
 
-// Key is one saved API key. The JSON names match the Python app.
+// Key is one saved API key. The JSON names are what existing config files
+// use; renaming them would drop saved keys.
 type Key struct {
 	ID           string `json:"id"`
 	Label        string `json:"label"`
@@ -124,7 +123,8 @@ func LogPath() (string, error) {
 }
 
 // Load reads the default config file. A missing or unreadable file yields an
-// empty configuration, matching the Python app's forgiving behaviour.
+// empty configuration rather than an error, so a broken file never blocks
+// the app.
 func Load() (*Config, error) {
 	path, err := ConfigPath()
 	if err != nil {
@@ -160,7 +160,7 @@ func LoadFrom(path string) (*Config, error) {
 	if _, ok := raw["keys"]; ok {
 		c.keys, c.keyExtra, c.keyRest = parseKeys(raw["keys"])
 	} else if legacy := legacyKey(raw["api_key"]); legacy != nil {
-		// The Python app read a single top-level api_key as a paid key.
+		// Old config files hold a single top-level api_key: a paid key.
 		c.keys = []Key{*legacy}
 	}
 	return c, nil
@@ -603,7 +603,7 @@ func EnvKey() *Key {
 }
 
 // AddKey adds a key, or updates label/tier when the same API key already
-// exists. An empty label falls back to the tier name, like the Python app.
+// exists. An empty label falls back to the tier name.
 func (c *Config) AddKey(label, tier, apiKey string) (Key, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
@@ -795,7 +795,7 @@ func (c *Config) DeleteKey(id string) (bool, error) {
 	return true, nil
 }
 
-// reload picks up what another process (the CLI, the Python app) wrote since
+// reload picks up what another process (the CLI) wrote since
 // this copy was read, so the change about to be saved does not erase it.
 // Every editing method calls it right before changing and saving. A missing
 // or unreadable file keeps the copy in memory.

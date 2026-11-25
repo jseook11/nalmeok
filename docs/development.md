@@ -49,7 +49,7 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 | `.flac` | 프레임 경계에서 자르고 STREAMINFO를 새로 씀 |
 | `.ogg`·`.opus`(Opus·Vorbis) | 페이지 경계에서 자르고 코덱 헤더 페이지를 조각마다 반복, granule·순번·CRC를 다시 씀 |
 
-요청 하나는 오디오 최대 65분(Batch)이다. 무료(live) 항목은 40분(`plan.FreeUnitMaxSeconds`)으로 자른다. 503으로 요청이 버려질 때 잃는 양이 작고, 40분(약 77k 토큰)도 무료 TPM 250k에 넉넉히 들어간다. 조각은 준비할 때 항목의 방식(`Runner.unitMax`)에 맞춰 한 번 자르므로, 나중에 무료↔유료로 옮겨도 이미 자른 조각을 그대로 쓴다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담았더니 넘쳤다(2026-11-05). 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
+요청 하나는 오디오 최대 65분(Batch)이다. 무료(live) 항목은 40분(`plan.FreeUnitMaxSeconds`)으로 자른다. 503으로 요청이 버려질 때 잃는 양이 작고, 40분(약 77k 토큰)도 무료 TPM 250k에 넉넉히 들어간다. 조각은 준비할 때 항목의 방식(`Runner.unitMax`)에 맞춰 한 번 자르므로, 나중에 무료↔유료로 옮겨도 이미 자른 조각을 그대로 쓴다. 답과 thinking이 출력 한도 65,536토큰을 함께 쓰는데, 110분을 한 요청에 담으면 넘친다. 긴 파일은 필요한 최소 개수로 똑같이 나눈다(`plan.EvenSeconds`). 110분은 55분 둘, 140분은 약 47분 셋이다. 프레임 경계 때문에 남는 몇 초는 따로 요청하지 않고 마지막 조각에 붙인다(`plan.Units`, 60초 여유). 그래도 출력 한도에 걸린 조각은 받은 텍스트를 버리지 않고 끝에 잘렸다는 줄(`transcript.truncated`)을 붙여 저장하고, 토큰 사용량을 로그에 남긴다.
 
 65분 안에 드는 WAV·AIFF·MP3·FLAC·Ogg는 원본을 그대로 올린다(하드 링크 또는 복사). 조각난 MP4는 moov에 `mvex`가 있을 때만 moof의 샘플을 읽는다. OBS Hybrid MP4처럼 완전한 moov와 moof가 같이 있으면 moof는 무시한다. WebM/MKV, MP4 안의 ALAC·Opus·AC-3은 받지 않는다.
 
@@ -68,17 +68,17 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 
 ### 파일 업로드
 
-오디오·PDF 업로드는 genai의 `Files.Upload` 대신 resumable 프로토콜을 직접 쓴다(`internal/gemini/upload.go`). SDK는 청크 하나가 실패하면 업로드 전체를 버리고, 바깥 재시도는 새 세션으로 0바이트부터 다시 올린다. 캠퍼스 Wi-Fi에서 큰 파일이 그렇게 6번 실패하고 90분 뒤 항목이 실패했다(2026-11-24). 지금은 세션 하나를 유지하고, 청크가 실패하면 기다렸다가(2·4·8·16·32·60초) `query`로 서버가 받은 바이트 수를 물어 그 지점부터 이어 보낸다. 서버가 진척 없이 8번 연속 실패하면 일시 오류로 돌려주고, runner의 일시 오류 재시도가 새 세션을 연다. 404 같은 4xx는 세션이 사라진 것이라 곧바로 돌려준다. 청크는 start 응답의 `X-Goog-Upload-Chunk-Granularity`(현재 8 MiB)의 배수여야 한다. Batch용 JSONL은 작아서 SDK 업로드를 그대로 쓴다.
+오디오·PDF 업로드는 genai의 `Files.Upload` 대신 resumable 프로토콜을 직접 쓴다(`internal/gemini/upload.go`). SDK는 청크 하나가 실패하면 업로드 전체를 버리고, 바깥 재시도는 새 세션으로 0바이트부터 다시 올린다. 불안정한 망에서는 큰 파일이 끝내 올라가지 않는다. 그래서 세션 하나를 유지하고, 청크가 실패하면 기다렸다가(2·4·8·16·32·60초) `query`로 서버가 받은 바이트 수를 물어 그 지점부터 이어 보낸다. 서버가 진척 없이 8번 연속 실패하면 일시 오류로 돌려주고, runner의 일시 오류 재시도가 새 세션을 연다. 404 같은 4xx는 세션이 사라진 것이라 곧바로 돌려준다. 청크는 start 응답의 `X-Goog-Upload-Chunk-Granularity`(현재 8 MiB)의 배수여야 한다. Batch용 JSONL은 작아서 SDK 업로드를 그대로 쓴다.
 
 ### 모델과 자동 재시도
 
-전사 모델은 기본 `gemini-3.8-flash`(`gemini.Model`)이다. 거부되면 같은 모델로 한 번 더 보내고, 또 거부되면 `gemini-4-hydrogen`(`gemini.FallbackModel`, 3.8 Flash의 공식 후속, 2026-11-12 GA)으로 한 번 보낸다. 3.8이 오디오 입력 단계에서 간헐적으로 `promptFeedback.blockReason`(주로 OTHER)을 내며 후보를 비우는 오탐이 있다. 2026-11 노트북 로그에서 Batch 첫 제출 unit의 약 24%가 거부됐고, 길이·PDF 유무와는 관계가 없었다. 무료에서 503이 이어질 때 쓰는 `gemini.OverloadModel`은 아래 live 503 항목을 본다. 모델은 `gemini.Request.Model`로 요청마다 지정하며, Batch job 하나는 한 모델로 고정이므로 제출할 때 모든 `BatchRequest.Model`이 같아야 한다.
+전사 모델은 기본 `gemini-3.8-flash`(`gemini.Model`)이다. 거부되면 같은 모델로 한 번 더 보내고, 또 거부되면 `gemini-4-hydrogen`(`gemini.FallbackModel`, 3.8 Flash의 공식 후속)으로 한 번 보낸다. 3.8이 오디오 입력 단계에서 간헐적으로 `promptFeedback.blockReason`(주로 OTHER)을 내며 후보를 비우는 오탐이 있고, 길이·PDF 유무와는 관계가 없다. 무료에서 503이 이어질 때 쓰는 `gemini.OverloadModel`은 아래 live 503 항목을 본다. 모델은 `gemini.Request.Model`로 요청마다 지정하며, Batch job 하나는 한 모델로 고정이므로 제출할 때 모든 `BatchRequest.Model`이 같아야 한다.
 
 - live: 한 키에서 unit의 거부(`BLOCKED_*`) 시 같은 모델로 1회, 그다음 FallbackModel로 1회. 빈 `MALFORMED_RESPONSE`면 같은 모델로 1회. 그 키에서 최대 4요청이다. 429면 기존 키 순환으로 다음 키에서 같은 규칙을 다시 적용한다(무료 요청이라 비용은 없다). 같은 키와 업로드를 재사용하고, 재시도 요청도 키 간격·일일 요청 수·상태 신호에 포함된다.
 - Batch: 결과 수집에서 거부가 있으면 성공한 unit의 텍스트는 두고 남은 unit만 같은 모델 job으로 1회, 또 거부되면 FallbackModel job으로 1회 자동 재제출한다(`autoRetry`). 거부 없이 빈 `MALFORMED_RESPONSE`만 있으면 같은 모델로 1회. 재시도 단계는 `BatchRef.Attempt`(0–2)/`Fallback`에 저장해 재시작·재폴링에서 반복되지 않는다.
 - 모델 기록: unit마다 텍스트를 만든 모델을 `Unit.Model`에 남기고 로그에 `done on <model>`을 쓴다. 항목이 끝나면 unit은 지워지므로 모델별 unit 수를 `Item.Models`에 남긴다. 수동 **다시 시도**는 자동 재시도를 더 하지 않는다. 사용자가 취소한 항목은 끝난 job의 결과만 수집하고 새 job을 만들지 않는다.
 - live 503(모델 혼잡): 무료 503은 요청을 받자마자 돌려주는 모델 단위 용량 부족이라 키를 바꿔도 소용없고, 재시도마다 일일 요청 수만 쓴다. 그래서 같은 모델에서 503이 3번 연속이면(`overloadTries`) 일시 오류 재시도를 끊고 `gemini-3.5-flash-lite`(`gemini.OverloadModel`)로 넘긴다. lite까지 혼잡하면 항목을 실패시키지 않고 `Options.OverloadWaits`(5·10·15·15·15분)만큼 기다렸다가 그 unit을 처음부터 다시 시도한다. 대기 중에는 `status.busyWaiting`을 보이고, 다 기다려도 안 되면 `error.geminiBusy`로 실패한다. 대기 중에도 항목은 running이라 취소·유료로 계속이 그대로 동작한다.
-- 비용: `plan.CostUSD`는 unit의 모델로 요금을 고른다. hydrogen은 3.8 Flash의 2배(`modelPriceFactor`), 모델이 없거나 표에 없는 모델(예전 3.6 구간)은 3.8 요금표로 계산한다(근사). 거부된 요청은 청구될 수 있지만 사용량을 저장하지 않으므로 표시 비용은 실제보다 조금 낮을 수 있다. 거부된 unit은 재제출로 한 번 더 청구된다.
+- 비용: `plan.CostUSD`는 unit의 모델로 요금을 고른다. hydrogen은 3.8 Flash의 2배(`modelPriceFactor`), 모델이 없거나 표에 없는 모델은 3.8 요금표로 계산한다(근사). 거부된 요청은 청구될 수 있지만 사용량을 저장하지 않으므로 표시 비용은 실제보다 조금 낮을 수 있다. 거부된 unit은 재제출로 한 번 더 청구된다.
 - 상태 신호: fallback 요청도 `Generate` 한 번으로 세므로 무료 신호가 한 건 더 생기고, Batch는 새 job이 끝날 때 한 건 더 생긴다.
 
 ### 빌드

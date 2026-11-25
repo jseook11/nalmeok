@@ -44,7 +44,7 @@ const (
 	StateCanceled      = "canceled"
 )
 
-// Defaults that mirror the Python app.
+// Default request limits.
 const (
 	DefaultUnitMaxSeconds = plan.UnitMaxSeconds
 	// DefaultFreeUnitMaxSeconds keeps free requests at 40 minutes: a shorter

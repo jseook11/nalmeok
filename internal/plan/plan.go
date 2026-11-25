@@ -23,7 +23,7 @@ const FreeUnitMaxSeconds = 40 * 60
 // sending it as a request of its own.
 const unitSlack = 60
 
-// Pricing for gemini-3.8-flash, USD per 1M tokens (the old Python app's MODELS).
+// Pricing for gemini-3.8-flash, USD per 1M tokens.
 const (
 	priceTextIn  = 0.75
 	priceAudioIn = 0.75
@@ -95,7 +95,7 @@ func RequestCount(seconds float64) int {
 	return int(math.Ceil(seconds / UnitMaxSeconds))
 }
 
-// EstimateKRW ports the Python estimate: audio 25 tok/s, output 2.5–3.0
+// EstimateKRW estimates the cost: audio 25 tok/s, output 2.5–3.0
 // tok/s, prompt text once per request; Batch is half price. Returns the
 // rounded won range.
 func EstimateKRW(seconds float64, batch bool) (low, high int) {

@@ -140,8 +140,7 @@ func IsTransient(err error) bool {
 }
 
 // ValidateKey checks apiKey with a non-billing models.get call. Only a
-// rejected key is an error; network trouble lets the key be saved, like the
-// Python app's check_key.
+// rejected key is an error; network trouble lets the key be saved.
 func ValidateKey(ctx context.Context, apiKey string) error {
 	c, err := New(apiKey)
 	if err != nil {

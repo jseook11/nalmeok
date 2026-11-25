@@ -1,9 +1,9 @@
 package gemini
 
-// Prompt started as a copy of the old Python app's PROMPT (constants.py). Since 2026-11-03 it adds explicit paragraph
-// rules, a rule to start with the first spoken words (the model sometimes
+// Prompt is the transcription instruction. Besides fidelity it sets explicit
+// paragraph rules, starts with the first spoken words (the model sometimes
 // wrote its plan, a timestamped draft or a slide outline into the answer) and
-// LaTeX for spoken math. This file is the source of truth.
+// asks for LaTeX for spoken math. This file is the source of truth.
 const Prompt = `Transcribe the following spoken audio (Korean/English mixed) accurately, prioritizing fidelity to the audio over fluency.
 
 Role and Purpose:
@@ -36,8 +36,7 @@ Guidelines:
    - Write formulas, equations, and math symbols the speaker reads out in LaTeX: inline as $...$, and an equation that stands on its own as $$...$$ on its own line. Keep the spoken words around them unchanged.
    - Write only what is spoken. Do not add terms, symbols, or steps the speaker did not say, and do not copy formulas from the reference documents that are not spoken.`
 
-// LivePrompt is copied verbatim from the old Python app's LIVE_PROMPT. It is
-// used when one request carries more than one audio part.
+// LivePrompt is Prompt for a request that carries more than one audio part.
 const LivePrompt = Prompt + `
 
 The audio parts are in chronological order. Transcribe every part in order as one continuous transcript. Do not add file names, headers, or separators.`
