@@ -45,7 +45,7 @@
   | 파일이 있는가 | `internal/app` `isFile` |
   | 끝난 항목 하나 꺼내기, 그 전사본 읽기 | `App.finishedItem`, `App.outputText` |
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
-  | 모드·등급 값, 등급에서 모드, 값 검사 | `config.ModeFree`·`ModeBatch`·`TierFree`·`TierPaid`, `config.ModeForTier`, `IsMode`, `IsTier`. 다음 항목이 쓸 모드는 `Config.EffectiveMode`, runner의 키 고르기는 `resolveMode`·`availableMode`·`freeCandidates`(`runner/keys.go`). 문자열 `"free"`를 직접 쓰지 않는다 |
+  | 모드·등급 값, 등급에서 모드, 값 검사 | `config.ModeFree`·`ModeBatch`·`TierFree`·`TierPaid`, `config.ModeForTier`, `IsMode`, `IsTier`. 다음 항목이 쓸 모드는 `Config.EffectiveMode`, runner의 키 고르기는 `resolveMode`·`availableMode`(`runner/keys.go`)와 `backend.candidates`. 문자열 `"free"`를 직접 쓰지 않는다 |
   | config 한 값 바꾸기 | 키는 `Config.editKey`, `gui` 아래 값은 `Config.setGUI`. 바꾸기 직전에 `reload`를 부른다(직접 고칠 때도) |
   | 녹음 시각, 학기 주차 | `media.RecordedAt`, `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of` |
   | 녹음 이름 (확장자 뺀 파일 이름, 폴더 이름 그대로) | Go `recordingName`, 화면 `displayName` |
@@ -72,6 +72,8 @@
   더 부른다) 만드는 쪽을 고친다. 파일을 쪼개는 것은 정리가 아니다. 지금 구조 안에서 원인을 고친다.
 - **모양을 바꿨으면 만드는 곳과 읽는 곳을 전부 찾는다.** `store.Item` 필드는 `items.json`에 남으므로 옛 파일도
   읽혀야 한다. `app.Item`의 `json` 태그는 `app.js`가 읽는다.
+- **전사 서비스별 코드는 `runner.backend` 뒤에 둔다.** 지금은 구현이 `geminiBackend` 하나지만, 다른 서비스(ChatGPT 로그인 Codex)를
+  붙일 자리라 지우지 않는다. 새 서비스는 lane에 분기를 더하지 않고 새 구현으로 붙인다.
 - 안 쓰게 된 함수·export·문구 키·CSS 클래스·config 값은 지운다. 문구 키는 `go test ./internal/i18n`이 남은 것을
   잡는다.
 

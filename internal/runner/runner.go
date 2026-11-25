@@ -167,6 +167,7 @@ type Options struct {
 // Runner implements app.Runner.
 type Runner struct {
 	opts    Options
+	back    backend
 	log     *log.Logger
 	logFile *logFile
 
@@ -226,6 +227,7 @@ func New(opts Options) *Runner {
 	}
 	r := &Runner{
 		opts:      opts,
+		back:      geminiBackend{},
 		lanes:     map[string]*lane{config.ModeFree: newLane(config.ModeFree), config.ModeBatch: newLane(config.ModeBatch)},
 		pollNow:   make(chan struct{}, 1),
 		clients:   make(map[string]gemini.Client),
