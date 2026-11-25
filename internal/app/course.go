@@ -74,7 +74,9 @@ func (a *App) sortable() []store.Item {
 	}
 	var out []store.Item
 	for _, item := range a.store.List("") {
-		if item.State == "done" && item.Output != "" && item.Sorted == "" {
+		// A transcript that is gone (its folder deleted, or moved by a
+		// duplicate item's sort) has nothing to sort.
+		if item.State == "done" && item.Sorted == "" && isFile(item.Output) {
 			out = append(out, item)
 		}
 	}
@@ -123,6 +125,10 @@ func (a *App) sortItems(items []store.Item) (SortSummary, error) {
 		if err := ctx.Err(); err != nil {
 			return sum, err
 		}
+		// A duplicate sorted earlier in this run moved this transcript too.
+		if now, ok := a.store.Get(item.ID); !ok || now.Output != item.Output {
+			continue
+		}
 		matched, err := a.sortOne(ctx, clients, item, courses, start)
 		switch {
 		case err != nil:
@@ -149,13 +155,13 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if err != nil {
 		return false, err
 	}
-	name := strings.TrimSuffix(filepath.Base(item.Source), filepath.Ext(item.Source))
+	name := recordingName(item)
 	res, err := clients.classify(ctx, text, name, courses)
 	if err != nil {
 		return false, err
 	}
 	if res.Course == "" {
-		return false, a.store.Update(item.ID, func(it *store.Item) { it.Sorted = sortedNone })
+		return false, a.updateTranscript(item, func(it *store.Item) { it.Sorted = sortedNone })
 	}
 	if !isFile(item.Output) {
 		return false, errNoOutput
@@ -166,17 +172,11 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 			week = course.Week(at, course.SemesterStart(at, start))
 		}
 	}
-	base := course.FileBase(week, res.Topic, res.Course)
+	base := course.FileBase(week, res.Topic)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
-	// A transcript sorted before sits in its old lecture's folder; the new
-	// folder goes next to that one, not inside it.
-	root := filepath.Dir(item.Output)
-	if item.Course != "" && filepath.Base(root) == item.Course {
-		root = filepath.Dir(root)
-	}
-	dir := filepath.Join(root, res.Course)
+	dir := filepath.Join(sortRoot(item), res.Course)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, i18n.Wrap("error.renameFailed", err)
 	}
@@ -187,12 +187,55 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 			return false, i18n.Wrap("error.renameFailed", err)
 		}
 	}
-	return true, a.store.Update(item.ID, func(it *store.Item) {
+	return true, a.updateTranscript(item, func(it *store.Item) {
 		it.Output = target
 		it.Name = strings.TrimSuffix(filepath.Base(target), ".md")
 		it.Course = res.Course
 		it.Sorted = sortedMatched
 	})
+}
+
+// updateTranscript applies fn to item and to every other item writing to the
+// same .md: the same recording added twice shares one transcript, and a copy
+// left behind would point at a file that moved.
+func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
+	for _, other := range a.store.List("") {
+		if other.ID != item.ID && other.Output != item.Output {
+			continue
+		}
+		if err := a.store.Update(other.ID, fn); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordingName is the name the user gave the recording: a file's name
+// without extension, or a folder's name as it is ("algorithm_09.1" keeps
+// its ".1").
+func recordingName(item store.Item) string {
+	name := filepath.Base(item.Source)
+	if item.Kind != "folder" {
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+	}
+	return name
+}
+
+// sortRoot is the folder the lecture folders go in. A file's transcript sits
+// next to the recording, so that folder. A folder's transcript sits inside
+// the recording folder, and lecture folders made there would nest one
+// lecture inside another ("알고리즘 9주차/알고리즘/..."), so the folder's
+// parent. A transcript sorted before sits in its old lecture's folder; the
+// new folder goes next to that one, not inside it.
+func sortRoot(item store.Item) string {
+	if item.Kind == "folder" {
+		return filepath.Dir(filepath.Clean(item.Source))
+	}
+	root := filepath.Dir(item.Output)
+	if item.Course != "" && filepath.Base(root) == item.Course {
+		root = filepath.Dir(root)
+	}
+	return root
 }
 
 func (a *App) newClient() func(string) (gemini.Client, error) {

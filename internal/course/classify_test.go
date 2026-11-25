@@ -52,20 +52,15 @@ func TestCleanTopic(t *testing.T) {
 }
 
 func TestFileBase(t *testing.T) {
-	if FileBase(0, "정렬", "알고리즘") != "정렬" || FileBase(0, "", "") != "" {
+	if FileBase(0, "정렬") != "정렬" || FileBase(0, "") != "" {
 		t.Error("no week should give the topic alone")
 	}
-	// The interface language in tests is English; a Korean lecture still
-	// gets a Korean name.
-	ko := map[string]string{"weekTopic": "{week}\uc8fc\ucc28 - {topic}", "week": "{week}\uc8fc\ucc28"}
-	if got, want := FileBase(10, "기저와 행렬식", "선형대수학"), i18n.Format(ko["weekTopic"], "week", 10, "topic", "기저와 행렬식"); got != want {
-		t.Errorf("Korean lecture = %q, want %q", got, want)
+	// Both parts follow the interface language, like the rest of the app.
+	if got := FileBase(10, "basis와 eigenvector"); got != i18n.T("course.weekTopic", "week", 10, "topic", "basis와 eigenvector") {
+		t.Errorf("FileBase = %q", got)
 	}
-	if got, want := FileBase(3, "", "알고리즘"), i18n.Format(ko["week"], "week", 3); got != want {
-		t.Errorf("Korean week = %q, want %q", got, want)
-	}
-	if got := FileBase(3, "Sorting", "Algorithms"); got != i18n.T("course.weekTopic", "week", 3, "topic", "Sorting") {
-		t.Errorf("English lecture = %q", got)
+	if got := FileBase(3, ""); got != i18n.T("course.week", "week", 3) {
+		t.Errorf("FileBase = %q", got)
 	}
 }
 

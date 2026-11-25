@@ -101,7 +101,7 @@ func TestSortCoursesMovesIntoLectureFolder(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	base := course.FileBase(11, "부분공간과 생성", "선형대수학")
+	base := course.FileBase(11, "부분공간과 생성")
 	want := filepath.Join(ta.dir, "선형대수학", base+".md")
 	if got.Output != want || got.Name != base || got.Course != "선형대수학" || got.Sorted != sortedMatched {
 		t.Fatalf("item = %q %q %q %q", got.Output, got.Name, got.Course, got.Sorted)
@@ -148,7 +148,7 @@ func TestSortCourseAgainMovesBetweenLectures(t *testing.T) {
 	}
 	// Week counts from the set start (Monday 2026-09-07): 2026-11-10 is week 10.
 	first, _ := ta.app.store.Get(item.ID)
-	if filepath.Base(first.Output) != course.FileBase(10, "부분공간", "선형대수학")+".md" {
+	if filepath.Base(first.Output) != course.FileBase(10, "부분공간")+".md" {
 		t.Fatalf("first = %s", first.Output)
 	}
 	answers["부분공간"] = `{"course":"알고리즘","confident":true,"topic":"정렬"}`
@@ -156,7 +156,7 @@ func TestSortCourseAgainMovesBetweenLectures(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "알고리즘", course.FileBase(10, "정렬", "알고리즘")+".md"); again.Output != want {
+	if want := filepath.Join(ta.dir, "알고리즘", course.FileBase(10, "정렬")+".md"); again.Output != want {
 		t.Fatalf("again = %s, want %s", again.Output, want)
 	}
 }
@@ -231,7 +231,59 @@ func TestSortUsesTheRecordingName(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(9, "자료형", "프로그래밍언어론")+".md"); got.Output != want {
+	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(9, "자료형")+".md"); got.Output != want {
 		t.Fatalf("output = %s, want %s", got.Output, want)
+	}
+}
+
+func TestSortFolderGoesNextToTheFolder(t *testing.T) {
+	ta, item := sortFixture(t, "부분공간 span basis")
+	ta.setCourses(t, "", "선형대수학")
+	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
+		t.Fatal(err)
+	}
+	// A folder item's transcript lives inside the recording folder.
+	folder := filepath.Join(ta.dir, "선형 10주차")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(folder, "선형 10주차.md")
+	if err := os.Rename(item.Output, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source, it.Output = "folder", folder, out }); err != nil {
+		t.Fatal(err)
+	}
+	// The same folder added again shares the transcript.
+	dup, _ := ta.app.store.Get(item.ID)
+	dup.ID = "i2"
+	if err := ta.app.store.Add(dup); err != nil {
+		t.Fatal(err)
+	}
+	// An item whose transcript is gone is not counted.
+	gone := dup
+	gone.ID, gone.Output = "i3", filepath.Join(ta.dir, "gone", "gone.md")
+	if err := ta.app.store.Add(gone); err != nil {
+		t.Fatal(err)
+	}
+	if n := ta.app.SortableCount(); n != 2 {
+		t.Fatalf("SortableCount = %d, want 2", n)
+	}
+	ta.withSorter(t, map[string]string{"부분공간": `{"course":"선형대수학","confident":true,"topic":"부분공간"}`}, nil)
+	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 || sum.Failed != 0 {
+		t.Fatalf("SortCourses = %+v, %v", sum, err)
+	}
+	want := filepath.Join(ta.dir, "선형대수학", course.FileBase(10, "부분공간")+".md")
+	for _, id := range []string{"i1", "i2"} {
+		got, _ := ta.app.store.Get(id)
+		if got.Output != want || got.Sorted != sortedMatched || got.Course != "선형대수학" {
+			t.Errorf("%s = %q %q", id, got.Output, got.Sorted)
+		}
+	}
+	if !isFile(want) {
+		t.Error("transcript was not moved next to the folder")
+	}
+	if n := ta.app.SortableCount(); n != 0 {
+		t.Errorf("SortableCount after = %d", n)
 	}
 }
