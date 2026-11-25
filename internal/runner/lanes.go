@@ -191,5 +191,5 @@ func (r *Runner) process(ctx context.Context, id string) error {
 	if item.Mode == config.ModeBatch {
 		return r.submitBatch(ctx, item)
 	}
-	return r.runFreeGemini(ctx, item)
+	return r.back.free(r, ctx, item)
 }

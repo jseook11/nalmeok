@@ -25,7 +25,8 @@ internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, �
 internal/gemini     genai SDK 래퍼: live, Batch / 이어 올리기 되는 파일 업로드(upload.go)
 internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개. 파일은 단계별:
                     lanes(줄·작업자) prepare(조각) free(live) batch(제출·확인) finish(.md)
-                    keys(키·모드 고르기) upload answer(응답 검사) signal(상태 신호)
+                    backend(전사 서비스 인터페이스, 지금은 Gemini 하나) keys(키·모드 고르기)
+                    upload answer(응답 검사) signal(상태 신호)
 internal/output     결과 병합, .md 쓰기
 internal/course     강의별 정리: 학기 주차 계산, 전사본 일부로 강의·주제 판별(JSON 응답)
 internal/app        Wails 바인딩

@@ -84,7 +84,7 @@ func (r *Runner) runFreeGemini(ctx context.Context, item store.Item) error {
 // freeUnit tries one unit on each candidate key in turn. done is false when
 // every key was limited or rejected; limited counts the 429s.
 func (r *Runner) freeUnit(ctx context.Context, id, pinned string, unit store.Unit, pdfs []string) (gemini.Result, int, bool, error) {
-	candidates, err := r.freeCandidates(pinned, unit.Seconds)
+	candidates, err := r.back.candidates(r, pinned, unit.Seconds)
 	if err != nil {
 		return gemini.Result{}, 0, false, err
 	}
@@ -152,7 +152,7 @@ func (r *Runner) freeAttempt(ctx context.Context, id string, key config.Key, uni
 	if err != nil {
 		return gemini.Result{}, keyRejected, nil
 	}
-	req, err := r.uploadParts(ctx, client, id, key.ID, unit, pdfs)
+	req, err := r.back.parts(r, ctx, client, id, key.ID, unit, pdfs)
 	if err != nil {
 		// The upload retries on its own; its failure is one event.
 		r.signal(ctx, config.ModeFree, 1, err, r.freeUnderQuota(key.ID, false))
