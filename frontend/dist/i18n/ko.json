@@ -35,7 +35,7 @@
   "cli.sortDone": "정리 {matched}개 · 해당 없음 {none}개 · 실패 {failed}개",
   "cli.waiting": "{name}: 기다리는 중 · {minutes}분",
 
-  "course.weekTopic": "{week}주차-{topic}",
+  "course.weekTopic": "{week}주차 - {topic}",
   "course.week": "{week}주차",
   "courses.label": "강의 목록",
   "courses.about": "강의 목록 설명",
