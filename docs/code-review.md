@@ -20,7 +20,7 @@
 "전체 정리", "runner 정리"처럼 diff가 아니라 영역을 받았을 때.
 
 1. 시작 전에 `git status`를 본다. 커밋 안 된 변경이 있는 파일은 작업 중인 것이다. 건드리지 않고 보고에만 적는다.
-2. 영역의 파일을 전부 읽는다. 항목 하나의 흐름은 `App.AddPaths`(`internal/app`) → `runner.Add` → `worker` →
+2. 영역의 파일을 전부 읽는다. 항목 하나의 흐름은 `App.addPaths`(드롭)·`PickFiles`(`internal/app`) → `runner.Add` → `worker` →
    `runItem`·`process` → 무료(`runFreeGemini`·`freeAttempt`) 또는 Batch(`submitBatch`, 확인, `retryBatch`) →
    `finish` → `output.WriteNew` 순서로, `development.md`의 관련 절과 같이 읽는다. 화면은 `app.js`의 `init` →
    `bindEvents` → `loadItems`·`renderItems` → `renderPane` 순서로 읽는다.
@@ -74,7 +74,8 @@
   읽혀야 한다. `app.Item`의 `json` 태그는 `app.js`가 읽는다.
 - **전사 서비스별 코드는 `runner.backend` 뒤에 둔다.** 지금은 구현이 `geminiBackend` 하나지만, 다른 서비스(ChatGPT 로그인 Codex)를
   붙일 자리라 지우지 않는다. 새 서비스는 lane에 분기를 더하지 않고 새 구현으로 붙인다.
-- 안 쓰게 된 함수·export·문구 키·CSS 클래스·config 값은 지운다. 문구 키는 `go test ./internal/i18n`이 남은 것을
+- 안 쓰게 된 함수·export·문구 키·CSS 클래스·config 값은 지운다. 단, `App.setItemKey`(항목별 키 고르기)는 화면에
+  붙이지 않았을 뿐 남겨 둔 기능이라 지우지 않는다. 화면에 내보내지 않으려고 소문자로 둔다. 문구 키는 `go test ./internal/i18n`이 남은 것을
   잡는다.
 
 ## C. 경계

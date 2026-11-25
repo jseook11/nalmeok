@@ -33,7 +33,7 @@ func TestFolderWithSeveralPDFsWaitsForChoice(t *testing.T) {
 	other := filepath.Join(ta.dir, "ch09")
 	writeFiles(t, other, "a.mp3", "x.pdf", "y.pdf")
 
-	if err := ta.app.AddPaths([]string{many, one, noAudio, other}); err != nil {
+	if err := ta.app.addPaths([]string{many, one, noAudio, other}); err != nil {
 		t.Fatal(err)
 	}
 	// ch08 (one PDF) and slides (no audio, fails as before) start now.
@@ -83,7 +83,7 @@ func TestConfirmWithoutPDFsStoresEmptyChoice(t *testing.T) {
 	}
 	folder := filepath.Join(ta.dir, "ch07")
 	writeFiles(t, folder, "1강.wav", "a.pdf", "b.pdf")
-	if err := ta.app.AddPaths([]string{folder}); err != nil {
+	if err := ta.app.addPaths([]string{folder}); err != nil {
 		t.Fatal(err)
 	}
 	pending := ta.app.PendingPDFChoices()
@@ -105,7 +105,7 @@ func TestNoKeysDoesNotHoldPDFFolders(t *testing.T) {
 	ta := newTestApp(t)
 	folder := filepath.Join(ta.dir, "ch07")
 	writeFiles(t, folder, "1강.m4a", "a.pdf", "b.pdf")
-	_ = ta.app.AddPaths([]string{folder})
+	_ = ta.app.addPaths([]string{folder})
 	if len(ta.app.PendingPDFChoices()) != 0 {
 		t.Error("held a folder with no keys")
 	}

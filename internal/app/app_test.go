@@ -49,8 +49,8 @@ func TestAddPathsCreatesFailedItems(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ta.app.AddPaths([]string{"  " + file + "  ", folder}); err != nil {
-		t.Fatalf("AddPaths: %v", err)
+	if err := ta.app.addPaths([]string{"  " + file + "  ", folder}); err != nil {
+		t.Fatalf("addPaths: %v", err)
 	}
 
 	items := ta.app.ListItems("")
@@ -84,21 +84,21 @@ func TestAddPathsCreatesFailedItems(t *testing.T) {
 		t.Fatalf("case-insensitive search = %+v", got)
 	}
 
-	if err := ta.app.AddPaths(nil); err == nil {
-		t.Fatal("AddPaths accepted an empty list")
+	if err := ta.app.addPaths(nil); err == nil {
+		t.Fatal("addPaths accepted an empty list")
 	}
 }
 
 func TestModePersists(t *testing.T) {
 	ta := newTestApp(t)
 
-	if got := ta.app.GetMode(); got != "free" {
+	if got := ta.app.currentMode(); got != "free" {
 		t.Fatalf("default mode = %q", got)
 	}
 	if err := ta.app.SetMode("batch"); err != nil {
 		t.Fatalf("SetMode: %v", err)
 	}
-	if got := ta.app.GetMode(); got != "batch" {
+	if got := ta.app.currentMode(); got != "batch" {
 		t.Fatalf("mode = %q, want batch", got)
 	}
 	if err := ta.app.SetMode("turbo"); err == nil {
@@ -133,8 +133,8 @@ func TestModeStateFollowsKeysWithoutChangingPreference(t *testing.T) {
 	if state.Mode != "batch" || state.Free || !state.Paid {
 		t.Fatalf("paid-only ModeState = %+v", state)
 	}
-	if got := ta.app.GetMode(); got != "batch" {
-		t.Fatalf("GetMode = %q, want batch", got)
+	if got := ta.app.currentMode(); got != "batch" {
+		t.Fatalf("currentMode = %q, want batch", got)
 	}
 	reloaded, err := config.LoadFrom(ta.cfgPath)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestModeStateFollowsKeysWithoutChangingPreference(t *testing.T) {
 	if got := reloaded.Mode(); got != "free" {
 		t.Fatalf("stored preference = %q, want free", got)
 	}
-	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+	if err := ta.app.addPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
 		t.Fatal(err)
 	}
 	if got := ta.app.ListItems("")[0].Mode; got != "batch" {
@@ -284,7 +284,7 @@ func TestValidateKeyHookBlocksSave(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	ta := newTestApp(t)
-	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+	if err := ta.app.addPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
 		t.Fatal(err)
 	}
 	items := ta.app.ListItems("")
@@ -362,7 +362,7 @@ func TestRemoveTellsRunnerBeforeDroppingItem(t *testing.T) {
 
 func TestStubStateTransitions(t *testing.T) {
 	ta := newTestApp(t)
-	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+	if err := ta.app.addPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
 		t.Fatal(err)
 	}
 	id := ta.app.ListItems("")[0].ID
@@ -393,7 +393,7 @@ func TestStubStateTransitions(t *testing.T) {
 
 func TestOutputActionsReportMissingFile(t *testing.T) {
 	ta := newTestApp(t)
-	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+	if err := ta.app.addPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
 		t.Fatal(err)
 	}
 	id := ta.app.ListItems("")[0].ID

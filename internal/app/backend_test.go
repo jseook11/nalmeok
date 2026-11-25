@@ -45,8 +45,8 @@ func TestRetiredBackendSettingsBehaveAsGemini(t *testing.T) {
 	if err := st.Add(store.Item{ID: "old", Name: "a.m4a", Mode: "free", Backend: "codex", State: "failed"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SetItemKey("old", "p1"); err != nil {
-		t.Fatalf("SetItemKey: %v", err)
+	if err := a.setItemKey("old", "p1"); err != nil {
+		t.Fatalf("setItemKey: %v", err)
 	}
 	item, _ := st.Get("old")
 	if item.KeyID != "p1" || item.Mode != "batch" {

@@ -152,7 +152,7 @@ func (a *App) Startup(ctx context.Context) {
 		if len(paths) == 0 {
 			return
 		}
-		if err := a.AddPaths(paths); err != nil {
+		if err := a.addPaths(paths); err != nil {
 			// A drop has no caller to return to; the window says why.
 			wailsruntime.EventsEmit(ctx, "items:addFailed", err.Error(), !a.hasKeys())
 		}
@@ -312,10 +312,10 @@ func (a *App) findKeyLocked(id string) (config.Key, bool) {
 	return config.Key{}, false
 }
 
-// AddPaths hands dropped or picked paths to the runner using the saved mode
+// addPaths hands dropped or picked paths to the runner using the saved mode
 // and the toolbar's key choice (see SetNewItemKey).
-func (a *App) AddPaths(paths []string) error {
-	return a.AddPathsWithKey(paths, a.NewItemKey())
+func (a *App) addPaths(paths []string) error {
+	return a.addPathsWithKey(paths, a.NewItemKey())
 }
 
 // SetNewItemKey sets the toolbar key picker: files dropped or picked from now
@@ -346,9 +346,9 @@ func (a *App) NewItemKey() string {
 	return a.newItemKey
 }
 
-// AddPathsWithKey is AddPaths pinned to one key. An empty keyID is automatic.
+// addPathsWithKey is addPaths pinned to one key. An empty keyID is automatic.
 // A pinned key's tier decides the mode: free key → free, paid key → Batch.
-func (a *App) AddPathsWithKey(paths []string, keyID string) error {
+func (a *App) addPathsWithKey(paths []string, keyID string) error {
 	if a.runner == nil {
 		return errNotReady
 	}
@@ -371,7 +371,7 @@ func (a *App) AddPathsWithKey(paths []string, keyID string) error {
 			return errPinnedKey
 		}
 	}
-	mode := a.GetMode()
+	mode := a.currentMode()
 	// Folders with several PDFs wait for the PDF sheet; the rest start now.
 	cleaned = a.holdPDFChoices(cleaned, mode, keyID)
 	if len(cleaned) == 0 {
@@ -380,11 +380,12 @@ func (a *App) AddPathsWithKey(paths []string, keyID string) error {
 	return a.runner.Add(cleaned, mode, keyID)
 }
 
-// SetItemKey pins a finished-with-error, canceled or free_exhausted item to
+// setItemKey pins a finished-with-error, canceled or free_exhausted item to
 // one key (empty = automatic). It takes effect on the next Retry. Pinning
 // also sets the item's mode from the key's tier so the row shows the right
-// badge before the retry.
-func (a *App) SetItemKey(id, keyID string) error {
+// badge before the retry. The UI does not offer a per-item key yet; it stays
+// unexported so Wails does not bind it until one does.
+func (a *App) setItemKey(id, keyID string) error {
 	if a.store == nil {
 		return store.ErrNotFound
 	}
@@ -419,12 +420,12 @@ func (a *App) SetItemKey(id, keyID string) error {
 // PickFiles opens the OS file picker and adds the selection with the
 // toolbar's key choice.
 func (a *App) PickFiles() error {
-	return a.PickFilesWithKey(a.NewItemKey())
+	return a.pickFilesWithKey(a.NewItemKey())
 }
 
-// PickFilesWithKey opens the OS file picker and adds the selection pinned to
+// pickFilesWithKey opens the OS file picker and adds the selection pinned to
 // keyID ("" = automatic).
-func (a *App) PickFilesWithKey(keyID string) error {
+func (a *App) pickFilesWithKey(keyID string) error {
 	ctx := a.context()
 	if ctx == nil {
 		return errNotReady
@@ -441,7 +442,7 @@ func (a *App) PickFilesWithKey(keyID string) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	return a.AddPathsWithKey(paths, keyID)
+	return a.addPathsWithKey(paths, keyID)
 }
 
 // Cancel stops an in-flight item.
@@ -598,8 +599,8 @@ func isFile(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// GetMode returns the mode the next drop will use.
-func (a *App) GetMode() string {
+// currentMode returns the mode the next drop will use.
+func (a *App) currentMode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cfg == nil {

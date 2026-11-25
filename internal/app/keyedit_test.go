@@ -132,10 +132,10 @@ func TestPinnedItemsAndKeyLabel(t *testing.T) {
 	f1, _, p1 := addKeys(t, ta)
 	path := filepath.Join(ta.dir, "a.m4a")
 
-	if err := ta.app.AddPathsWithKey([]string{path}, "missing"); err == nil {
-		t.Fatal("AddPathsWithKey accepted an unknown key")
+	if err := ta.app.addPathsWithKey([]string{path}, "missing"); err == nil {
+		t.Fatal("addPathsWithKey accepted an unknown key")
 	}
-	if err := ta.app.AddPathsWithKey([]string{path}, f1); err != nil {
+	if err := ta.app.addPathsWithKey([]string{path}, f1); err != nil {
 		t.Fatal(err)
 	}
 	item := ta.app.ListItems("")[0]
@@ -166,25 +166,25 @@ func TestPinnedItemsAndKeyLabel(t *testing.T) {
 		t.Fatalf("KeyLabel after rename = %q", got)
 	}
 
-	// SetItemKey repins a failed item and sets its mode from the key's tier.
-	if err := ta.app.SetItemKey(item.ID, p1); err != nil {
+	// setItemKey repins a failed item and sets its mode from the key's tier.
+	if err := ta.app.setItemKey(item.ID, p1); err != nil {
 		t.Fatal(err)
 	}
 	if got := ta.app.ListItems("")[0]; got.KeyID != p1 || got.Mode != "batch" {
-		t.Fatalf("after SetItemKey: %+v", got)
+		t.Fatalf("after setItemKey: %+v", got)
 	}
-	if err := ta.app.SetItemKey(item.ID, ""); err != nil {
+	if err := ta.app.setItemKey(item.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := ta.app.ListItems("")[0]; got.KeyID != "" || got.KeyLabel != "" {
 		t.Fatalf("after unpin: %+v", got)
 	}
-	if err := ta.app.SetItemKey(item.ID, "missing"); err == nil {
-		t.Error("SetItemKey accepted an unknown key")
+	if err := ta.app.setItemKey(item.ID, "missing"); err == nil {
+		t.Error("setItemKey accepted an unknown key")
 	}
 
 	// A deleted key leaves KeyID with an empty label.
-	if err := ta.app.SetItemKey(item.ID, p1); err != nil {
+	if err := ta.app.setItemKey(item.ID, p1); err != nil {
 		t.Fatal(err)
 	}
 	if err := ta.app.DeleteKey(p1); err != nil {
@@ -202,8 +202,8 @@ func TestSetItemKeyRejectsActiveItems(t *testing.T) {
 		if err := ta.app.store.Add(store.Item{ID: state, Name: state, State: state}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ta.app.SetItemKey(state, f1); err == nil {
-			t.Errorf("SetItemKey on %s accepted", state)
+		if err := ta.app.setItemKey(state, f1); err == nil {
+			t.Errorf("setItemKey on %s accepted", state)
 		}
 	}
 }
@@ -220,7 +220,7 @@ func TestNewItemKeyAppliesToAddPaths(t *testing.T) {
 	if err := ta.app.SetNewItemKey(f1); err != nil {
 		t.Fatal(err)
 	}
-	if err := ta.app.AddPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
+	if err := ta.app.addPaths([]string{filepath.Join(ta.dir, "a.m4a")}); err != nil {
 		t.Fatal(err)
 	}
 	if got := ta.app.ListItems("")[0].KeyID; got != f1 {
