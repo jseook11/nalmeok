@@ -36,6 +36,7 @@ dist/
 !CLAUDE.md
 !docs/**/*.md
 !scripts/README.md
+!.claude/skills/**/SKILL.md
 
 # Command Code 세션 설정
 .commandcode/
