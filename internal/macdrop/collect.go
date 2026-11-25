@@ -16,13 +16,13 @@
 package macdrop
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jseook11/nalmeok/internal/output"
 )
 
 // folderName is the last part of Dir. It is a file path, not interface text,
@@ -59,34 +59,19 @@ func newStageDir(dest string) (string, error) {
 
 // place moves a received file from its stage folder into dest under the
 // promised name. When that name is taken, " (2)", " (3)", … go before the
-// extension, the same style as transcripts (output.UniquePath). UniquePath
-// only checks for existence, so the numbering is mirrored here with each
-// candidate claimed by an exclusive create: two files received at once never
-// take the same name, and the rename then replaces the empty claim.
+// extension, the same style as transcripts: output.Reserve claims the name,
+// so two files received at once never take the same one, and the rename then
+// replaces the empty claim.
 func place(staged, dest string) (string, error) {
-	name := filepath.Base(staged)
-	ext := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	for n := 1; n <= 10000; n++ {
-		candidate := filepath.Join(dest, name)
-		if n > 1 {
-			candidate = filepath.Join(dest, fmt.Sprintf("%s (%d)%s", stem, n, ext))
-		}
-		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		f.Close()
-		if err := os.Rename(staged, candidate); err != nil {
-			os.Remove(candidate)
-			return "", err
-		}
-		return candidate, nil
+	candidate, err := output.Reserve(filepath.Join(dest, filepath.Base(staged)))
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("no free name for %s in %s", name, dest)
+	if err := os.Rename(staged, candidate); err != nil {
+		os.Remove(candidate)
+		return "", err
+	}
+	return candidate, nil
 }
 
 // removeStageDir drops a stage folder once its files are moved out. A folder

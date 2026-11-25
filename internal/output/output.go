@@ -128,10 +128,27 @@ func Write(path, text string) error {
 }
 
 // WriteNew writes text to path, or to "name (2).md", "name (3).md"... when
-// that name is taken, and returns the path it used. The name is reserved with
-// an exclusive create before the text goes in, so two writers never pick the
-// same file and an existing file is never replaced.
+// that name is taken, and returns the path it used. The name is reserved
+// first (Reserve), so two writers never pick the same file and an existing
+// file is never replaced.
 func WriteNew(path, text string) (string, error) {
+	candidate, err := Reserve(path)
+	if err != nil {
+		return "", err
+	}
+	// The reserved empty file is replaced atomically by the full text.
+	if err := Write(candidate, text); err != nil {
+		_ = os.Remove(candidate)
+		return "", err
+	}
+	return candidate, nil
+}
+
+// Reserve claims path, or "name (2).ext", "name (3).ext"... when that name is
+// taken, by creating it empty with an exclusive create, and returns the name
+// it claimed. The caller then replaces the empty file (a write or a rename).
+// Unlike UniquePath, two callers at once never get the same name.
+func Reserve(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
@@ -150,11 +167,6 @@ func WriteNew(path, text string) (string, error) {
 			return "", err
 		}
 		if err := f.Close(); err != nil {
-			_ = os.Remove(candidate)
-			return "", err
-		}
-		// The reserved empty file is replaced atomically by the full text.
-		if err := Write(candidate, text); err != nil {
 			_ = os.Remove(candidate)
 			return "", err
 		}

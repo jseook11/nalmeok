@@ -164,25 +164,6 @@ func FolderPDFs(dir string) []string {
 	return pdfs
 }
 
-// HasFormat reports whether path is an audio file of format, or a folder
-// with one directly inside it. It reads names only, not the files.
-func HasFormat(path, format string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	if !info.IsDir() {
-		return FormatOf(path) == format
-	}
-	audio, _, _ := listFolder(path)
-	for _, p := range audio {
-		if FormatOf(p) == format {
-			return true
-		}
-	}
-	return false
-}
-
 // listFolder returns the audio files and PDFs directly inside dir, as Scan
 // sees them: hidden files and anything that is not a regular file are
 // skipped, subfolders are not searched. PDFs come in natural order; audio in
@@ -213,13 +194,14 @@ func listFolder(dir string) (audio, pdfs []string, err error) {
 	return audio, pdfs, nil
 }
 
+// videoExt are the video formats an .m4a of the same name replaces.
+var videoExt = map[string]bool{".mp4": true, ".mov": true, ".m4v": true, ".3gp": true}
+
 // dropConvertedMP4 removes a video (.mp4, .mov, .m4v, .3gp) when an .m4a
 // with the same name sits next to it: the .m4a is the audio already taken
 // out of that video, and sending both would transcribe (and bill) the
-// lecture twice. The Python app did the same for .mp4. Names compare
-// case-insensitively, as on macOS and Windows disks.
-var videoExt = map[string]bool{".mp4": true, ".mov": true, ".m4v": true, ".3gp": true}
-
+// lecture twice. Names compare case-insensitively, as on macOS and Windows
+// disks.
 func dropConvertedMP4(paths []string) []string {
 	m4a := make(map[string]bool)
 	for _, p := range paths {
@@ -377,7 +359,7 @@ func SortNatural(paths []string) {
 	})
 }
 
-// NaturalLess mirrors Python natural_key: runs of ASCII digits compare as
+// NaturalLess orders names as people read them: runs of ASCII digits compare as
 // numbers, everything else compares case-insensitively.
 func NaturalLess(a, b string) bool {
 	ka, kb := naturalKey(a), naturalKey(b)

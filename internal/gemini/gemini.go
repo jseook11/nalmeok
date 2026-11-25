@@ -53,7 +53,7 @@ const thinkingLevel = genai.ThinkingLevelMedium
 const inlineLimit = 20 << 20
 
 // requestTimeout bounds one HTTP request. A 130-minute live request can take
-// several minutes, so this matches the Python app's 30-minute timeout.
+// several minutes before the first byte comes back.
 const requestTimeout = 30 * time.Minute
 
 // Normalized Batch states returned by BatchStatus.
@@ -142,8 +142,7 @@ type Result struct {
 	Model string
 }
 
-// UsageOf reads a response's usageMetadata the way the Python app did: audio
-// prompt tokens apart from the rest of the prompt (text, PDF), answer and
+// UsageOf reads a response's usageMetadata: audio prompt tokens apart from the rest of the prompt (text, PDF), answer and
 // thinking tokens apart.
 func UsageOf(resp *genai.GenerateContentResponse) store.Usage {
 	if resp == nil || resp.UsageMetadata == nil {
@@ -362,7 +361,7 @@ func (c *client) SubmitBatch(ctx context.Context, reqs []BatchRequest, displayNa
 	return job.Name, nil
 }
 
-// jsonlLine mirrors the Python app's request file rows.
+// jsonlLine is one row of a Batch request file.
 type jsonlLine struct {
 	Key     string `json:"key"`
 	Request struct {
