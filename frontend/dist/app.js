@@ -99,6 +99,7 @@
   const keyList = $("key-list");
   const keyCaption = $("key-caption");
   const keyPicker = $("key-picker");
+  const groupButton = $("group-button");
   const keyPickerLabel = $("key-picker-label");
   const keyForm = $("key-form");
   const keyTier = $("key-tier");
@@ -165,6 +166,7 @@
     openKey: "", // key whose settings panel is expanded
     pane: false, // transcript pane shown
     selected: "", // item shown in the pane
+    group: "date", // list grouping: "date" (day added), "course", "week"
   };
 
   const GLYPHS = {
@@ -876,14 +878,20 @@
       case "canceled":
         return { tone: "quiet", dot: false, text: t("status.canceled") };
       case "done": {
-        // The day header already says when it was added: the row gives the
-        // lecture it was sorted into, the audio length, and the finish time
-        // only when it finished on another day. A .md moved outside the app
-        // is noted quietly.
+        // The row gives what its section header does not. By date: the
+        // lecture, the audio length, and the finish time only when it
+        // finished on another day. By course: length and finish time. By
+        // week: lecture, length and finish time. A .md moved outside the
+        // app is noted quietly.
         const stamp = finishStamp(item);
-        const otherDay = dayKey({ CreatedAt: stamp }) !== dayKey(item);
         const length = audioLength(item.AudioSec);
-        const parts = [item.Course, length, otherDay || !length ? finishedAt(stamp) : ""];
+        let parts;
+        if (state.group === "date") {
+          const otherDay = dayKey({ CreatedAt: stamp }) !== dayKey(item);
+          parts = [item.Course, length, otherDay || !length ? finishedAt(stamp) : ""];
+        } else {
+          parts = [state.group === "week" ? item.Course : "", length, finishedAt(stamp)];
+        }
         if (item.OutputMissing) parts.push(t("row.moved"));
         return { tone: "", dot: false, text: parts.filter(Boolean).join(" · ") };
       }
@@ -949,8 +957,37 @@
   // aria-activedescendant, so focus stays on the list while rows are patched.
   const rowDomID = (id) => `row-${id}`;
 
+  // The list order: newest first, or, grouped by course or week, the groups
+  // in order with newest first inside each. Keyboard moves follow it.
   function visibleItems() {
-    return state.items.filter((item) => !hidden.has(item.ID));
+    const items = state.items.filter((item) => !hidden.has(item.ID));
+    if (state.group === "date") return items;
+    const at = new Map(items.map((item, i) => [item.ID, i]));
+    const byWeek = (a, b) => (b.Week || -1) - (a.Week || -1);
+    const byCourse = (a, b) => courseRank(a) - courseRank(b);
+    const first = state.group === "course" ? [byCourse, byWeek] : [byWeek, byCourse];
+    return items.sort((a, b) => first[0](a, b) || first[1](a, b) || at.get(a.ID) - at.get(b.ID));
+  }
+
+  // Not yet sorted first (new and running items are there), then the
+  // lectures in the settings order, then lectures no longer listed.
+  function courseRank(item) {
+    if (!item.Course) return -1;
+    const i = state.courses.findIndex((c) => c.name === item.Course);
+    return i < 0 ? state.courses.length : i;
+  }
+
+  // The section a row sits under, or null for none. By date, headers appear
+  // only once the list spans more than one day.
+  function sectionOf(item, multiDay) {
+    switch (state.group) {
+      case "course":
+        return { key: `c:${item.Course || ""}`, label: item.Course || t("group.unsorted") };
+      case "week":
+        return { key: `w:${item.Week || 0}`, label: item.Week ? t("course.week", { week: item.Week }) : t("group.noWeek") };
+      default:
+        return multiDay ? { key: dayKey(item), label: dayLabel(item) } : null;
+    }
   }
 
   // The search field gets a hairline only while the list is scrolled; the
@@ -983,7 +1020,7 @@
     const note = list.querySelector(".list-note");
     if (note) note.remove();
 
-    const multiDay = new Set(items.map(dayKey)).size > 1;
+    const multiDay = state.group === "date" && new Set(items.map(dayKey)).size > 1;
     const keep = new Set();
     const keepSections = new Set();
     let previous = null;
@@ -994,23 +1031,21 @@
       previous = el;
     };
     for (const item of items) {
-      if (multiDay) {
-        const day = dayKey(item);
-        if (day !== lastDay) {
-          lastDay = day;
-          let header = sectionCache.get(day);
-          if (!header) {
-            header = document.createElement("div");
-            header.className = "list-section";
-            // A visual divider: the rows are the only options.
-            header.setAttribute("role", "presentation");
-            sectionCache.set(day, header);
-          }
-          const label = dayLabel(item);
-          if (header.textContent !== label) header.textContent = label;
-          keepSections.add(day);
-          place(header);
+      const section = sectionOf(item, multiDay);
+      if (section && section.key !== lastDay) {
+        const day = section.key;
+        lastDay = day;
+        let header = sectionCache.get(day);
+        if (!header) {
+          header = document.createElement("div");
+          header.className = "list-section";
+          // A visual divider: the rows are the only options.
+          header.setAttribute("role", "presentation");
+          sectionCache.set(day, header);
         }
+        if (header.textContent !== section.label) header.textContent = section.label;
+        keepSections.add(day);
+        place(header);
       }
       keep.add(item.ID);
       const html = rowHTML(item);
@@ -1836,6 +1871,7 @@
   function setMenuRow(el) {
     menuRow = el;
     keyPicker.setAttribute("aria-expanded", String(el === keyPicker));
+    groupButton.setAttribute("aria-expanded", String(el === groupButton));
   }
 
   // The whole list, with a rule before rename and delete.
@@ -2292,6 +2328,46 @@
     }
   }
 
+  function openGroupMenu() {
+    if (menuRow === groupButton) {
+      closeMenu();
+      return;
+    }
+    closeMenu();
+    const entry = (group, label) => {
+      const selected = state.group === group;
+      return `<button type="button" role="menuitemradio" aria-checked="${selected}"
+        data-group="${group}"><span class="menu-check">${selected ? GLYPHS.check : ""}</span>${esc(label)}</button>`;
+    };
+    menu.innerHTML = entry("date", t("group.date")) + entry("course", t("group.course"))
+      + entry("week", t("group.week"));
+    menu.classList.add("has-checks");
+    delete menu.dataset.id;
+    openSurface(menu, { trap: false });
+    setMenuRow(groupButton);
+    groupButton.classList.add("is-menu");
+
+    const anchor = groupButton.getBoundingClientRect();
+    const rect = menu.getBoundingClientRect();
+    const x = Math.min(anchor.right - rect.width + 6, window.innerWidth - rect.width - 6);
+    menu.style.left = `${Math.max(6, x)}px`;
+    menu.style.top = `${anchor.bottom + 4}px`;
+  }
+
+  async function setGroup(group) {
+    const previous = state.group;
+    if (group === previous) return;
+    state.group = group;
+    renderItems();
+    try {
+      await call("SetListGroup", group);
+    } catch (error) {
+      state.group = previous;
+      renderItems();
+      showToast(errorText(error));
+    }
+  }
+
   function openPickerMenu() {
     if (menuRow === keyPicker) {
       closeMenu();
@@ -2584,6 +2660,7 @@
       setMode(button.dataset.mode);
     });
     keyPicker.addEventListener("click", openPickerMenu);
+    groupButton.addEventListener("click", openGroupMenu);
 
     for (const anchor of [healthDot, healthRow]) {
       anchor.addEventListener("click", onHealthAnchorClick);
@@ -2674,6 +2751,12 @@
     });
 
     menu.addEventListener("click", (event) => {
+      const groupPick = event.target.closest("button[data-group]");
+      if (groupPick) {
+        closeMenu();
+        setGroup(groupPick.dataset.group);
+        return;
+      }
       const pick = event.target.closest("button[data-pick]");
       if (pick) {
         closeMenu();
@@ -2896,6 +2979,12 @@
       showToast(errorText(error));
     }
     await loadCourses();
+    try {
+      const group = await call("ListGroup");
+      if (["date", "course", "week"].includes(group)) state.group = group;
+    } catch (_) {
+      // The default (by date) stays.
+    }
 
     try {
       await refreshItems();

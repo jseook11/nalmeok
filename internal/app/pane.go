@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
@@ -284,6 +285,26 @@ func (a *App) PaneOpen() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.cfg != nil && a.cfg.Pane()
+}
+
+// ListGroup is how the history list is grouped: "date", "course" or "week".
+func (a *App) ListGroup() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return config.GroupDate
+	}
+	return a.cfg.ListGroup()
+}
+
+// SetListGroup remembers the list grouping.
+func (a *App) SetListGroup(group string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return errNoConfig
+	}
+	return a.cfg.SetListGroup(group)
 }
 
 // SetPane shows or hides the transcript pane: it remembers the choice and
