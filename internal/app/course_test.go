@@ -101,7 +101,7 @@ func TestSortCoursesMovesIntoLectureFolder(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	base := course.FileBase(11, "부분공간과 생성")
+	base := course.FileBase(11, "부분공간과 생성", "선형대수학")
 	want := filepath.Join(ta.dir, "선형대수학", base+".md")
 	if got.Output != want || got.Name != base || got.Course != "선형대수학" || got.Sorted != sortedMatched {
 		t.Fatalf("item = %q %q %q %q", got.Output, got.Name, got.Course, got.Sorted)
@@ -148,7 +148,7 @@ func TestSortCourseAgainMovesBetweenLectures(t *testing.T) {
 	}
 	// Week counts from the set start (Monday 2026-09-07): 2026-11-10 is week 10.
 	first, _ := ta.app.store.Get(item.ID)
-	if filepath.Base(first.Output) != course.FileBase(10, "부분공간")+".md" {
+	if filepath.Base(first.Output) != course.FileBase(10, "부분공간", "선형대수학")+".md" {
 		t.Fatalf("first = %s", first.Output)
 	}
 	answers["부분공간"] = `{"course":"알고리즘","confident":true,"topic":"정렬"}`
@@ -156,7 +156,7 @@ func TestSortCourseAgainMovesBetweenLectures(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "알고리즘", course.FileBase(10, "정렬")+".md"); again.Output != want {
+	if want := filepath.Join(ta.dir, "알고리즘", course.FileBase(10, "정렬", "알고리즘")+".md"); again.Output != want {
 		t.Fatalf("again = %s, want %s", again.Output, want)
 	}
 }
@@ -208,5 +208,30 @@ func TestSetCoursesRejectsBadInput(t *testing.T) {
 	got := ta.app.Courses()
 	if len(got.Courses) != 2 || got.Courses[0].Name != "선형대수학" || got.Courses[1].Hint != "김교수" {
 		t.Fatalf("Courses = %+v", got)
+	}
+}
+
+func TestSortUsesTheRecordingName(t *testing.T) {
+	ta, item := sortFixture(t, "오늘은 출석만 부르고 끝")
+	ta.setCourses(t, "", "프로그래밍", "프로그래밍언어론")
+	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
+		t.Fatal(err)
+	}
+	// The name reaches the classifier, and its week beats the recording
+	// time (week 11).
+	src := filepath.Join(ta.dir, "프로그래밍언어론 9주차-2.m4a")
+	if err := os.Rename(item.Source, src); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Source = src }); err != nil {
+		t.Fatal(err)
+	}
+	ta.withSorter(t, map[string]string{"File name: 프로그래밍언어론 9주차-2\n": `{"course":"프로그래밍언어론","confident":true,"topic":"자료형"}`}, nil)
+	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 {
+		t.Fatalf("SortCourses = %+v, %v", sum, err)
+	}
+	got, _ := ta.app.store.Get(item.ID)
+	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(9, "자료형", "프로그래밍언어론")+".md"); got.Output != want {
+		t.Fatalf("output = %s, want %s", got.Output, want)
 	}
 }

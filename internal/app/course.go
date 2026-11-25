@@ -149,7 +149,8 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if err != nil {
 		return false, err
 	}
-	res, err := clients.classify(ctx, text, courses)
+	name := strings.TrimSuffix(filepath.Base(item.Source), filepath.Ext(item.Source))
+	res, err := clients.classify(ctx, text, name, courses)
 	if err != nil {
 		return false, err
 	}
@@ -159,11 +160,13 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if !isFile(item.Output) {
 		return false, errNoOutput
 	}
-	week := 0
-	if at, ok := media.RecordedAt(item.Source); ok {
-		week = course.Week(at, course.SemesterStart(at, start))
+	week := course.WeekFromName(name)
+	if week == 0 {
+		if at, ok := media.RecordedAt(item.Source); ok {
+			week = course.Week(at, course.SemesterStart(at, start))
+		}
 	}
-	base := course.FileBase(week, res.Topic)
+	base := course.FileBase(week, res.Topic, res.Course)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
@@ -224,7 +227,7 @@ type classifierKeys struct {
 
 func (c *classifierKeys) exhausted() bool { return c.next >= len(c.keys) }
 
-func (c *classifierKeys) classify(ctx context.Context, text string, courses []config.Course) (course.Result, error) {
+func (c *classifierKeys) classify(ctx context.Context, text, name string, courses []config.Course) (course.Result, error) {
 	var last error
 	for !c.exhausted() {
 		if c.client == nil {
@@ -236,7 +239,7 @@ func (c *classifierKeys) classify(ctx context.Context, text string, courses []co
 			}
 			c.client = client
 		}
-		res, err := course.Classify(ctx, c.client, text, courses)
+		res, err := course.Classify(ctx, c.client, text, name, courses)
 		if err == nil {
 			return res, nil
 		}

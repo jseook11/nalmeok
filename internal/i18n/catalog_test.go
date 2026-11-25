@@ -19,8 +19,9 @@ import (
 // asked for, and no new Hangul text sneaks into code outside the catalog.
 
 var (
-	// Go: i18n.T("key", ...), i18n.Error("key", ...), i18n.Wrap("key", ...).
-	goCallRe = regexp.MustCompile(`\bi18n\.(?:T|Error|Wrap)\(`)
+	// Go: i18n.T("key", ...), i18n.Error("key", ...), i18n.Wrap("key", ...),
+	// i18n.TIn(lang, "key", ...).
+	goCallRe = regexp.MustCompile(`\bi18n\.(?:(?:T|Error|Wrap)\(|TIn\([^,()]+,)`)
 	// JS: t("key") or t("key", { ... }).
 	jsCallRe = regexp.MustCompile(`(?:^|[^\w.$])t\(`)
 	// HTML: data-i18n="key", data-i18n-aria-label="key" and so on.
