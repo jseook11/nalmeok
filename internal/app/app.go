@@ -213,7 +213,7 @@ func (a *App) ConfirmQuit() {
 // liveRunning reports whether a free item is in progress.
 func liveRunning(items []store.Item) bool {
 	for _, item := range items {
-		if item.State == "running" && item.Mode == "free" {
+		if item.State == "running" && item.Mode == config.ModeFree {
 			return true
 		}
 	}
@@ -401,10 +401,7 @@ func (a *App) SetItemKey(id, keyID string) error {
 		if !ok {
 			return errPinnedKey
 		}
-		mode = "batch"
-		if key.Tier == "free" {
-			mode = "free"
-		}
+		mode = config.ModeForTier(key.Tier)
 	}
 	switch item.State {
 	case "failed", "canceled", "free_exhausted":
@@ -601,30 +598,14 @@ func isFile(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// effectiveMode picks the mode new items use: the only available tier wins,
-// otherwise the stored preference.
-func effectiveMode(stored string, free, paid bool) string {
-	switch {
-	case free && !paid:
-		return "free"
-	case paid && !free:
-		return "batch"
-	}
-	if stored == "batch" {
-		return "batch"
-	}
-	return "free"
-}
-
 // GetMode returns the mode the next drop will use.
 func (a *App) GetMode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cfg == nil {
-		return "free"
+		return config.ModeFree
 	}
-	free, paid := a.cfg.Tiers()
-	return effectiveMode(a.cfg.Mode(), free, paid)
+	return a.cfg.EffectiveMode()
 }
 
 // ModeState reports the effective mode and which tiers are usable.
@@ -632,10 +613,10 @@ func (a *App) ModeState() ModeState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cfg == nil {
-		return ModeState{Mode: "free"}
+		return ModeState{Mode: config.ModeFree}
 	}
 	free, paid := a.cfg.Tiers()
-	return ModeState{Mode: effectiveMode(a.cfg.Mode(), free, paid), Free: free, Paid: paid}
+	return ModeState{Mode: a.cfg.EffectiveMode(), Free: free, Paid: paid}
 }
 
 // hasKeys reports whether any tier has a key.
@@ -651,7 +632,7 @@ func (a *App) SetMode(mode string) error {
 	if a.cfg == nil {
 		return errNoConfig
 	}
-	if mode != "free" && mode != "batch" {
+	if !config.IsMode(mode) {
 		return i18n.Error("error.badMode")
 	}
 	return a.cfg.SetMode(mode)
@@ -731,7 +712,7 @@ func (a *App) Keys() []KeyView {
 // ValidateKey is set.
 func (a *App) AddKey(label, tier, key string) error {
 	tier = strings.ToLower(strings.TrimSpace(tier))
-	if tier != "free" && tier != "paid" {
+	if !config.IsTier(tier) {
 		return i18n.Error("error.badTier")
 	}
 	key = strings.TrimSpace(key)
@@ -769,7 +750,7 @@ func (a *App) AddKey(label, tier, key string) error {
 // smallest number not already used. Re-adding a saved key keeps its label.
 func (a *App) autoLabelLocked(tier, key string) string {
 	prefix := i18n.T("tier.free")
-	if tier == "paid" {
+	if tier == config.TierPaid {
 		prefix = i18n.T("tier.paid")
 	}
 	used := make(map[string]bool)
@@ -855,7 +836,7 @@ func (a *App) RenameKey(id, label string) error {
 	return nil
 }
 
-// SetKeyTier switches a saved key between "free" and "paid". The effective
+// SetKeyTier switches a saved key between config.TierFree and config.TierPaid. The effective
 // mode follows the new tiers (see ModeState); the stored preference is kept.
 func (a *App) SetKeyTier(id, tier string) error {
 	if a.cfg == nil {

@@ -18,12 +18,14 @@ Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode·signals·courses·semester_start)
+internal/config     설정 폴더, config.json(키·gui.mode·signals·courses·semester_start), 모드·등급 상수
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
 internal/gemini     genai SDK 래퍼: live, Batch / 이어 올리기 되는 파일 업로드(upload.go)
-internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개
+internal/runner     실행기: Gemini 무료 키 순환·Batch, 한도 소진 전환, 재개. 파일은 단계별:
+                    lanes(줄·작업자) prepare(조각) free(live) batch(제출·확인) finish(.md)
+                    keys(키·모드 고르기) upload answer(응답 검사) signal(상태 신호)
 internal/output     결과 병합, .md 쓰기
 internal/course     강의별 정리: 학기 주차 계산, 전사본 일부로 강의·주제 판별(JSON 응답)
 internal/app        Wails 바인딩

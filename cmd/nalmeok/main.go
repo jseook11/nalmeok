@@ -409,9 +409,9 @@ func runCLI(args []string) int {
 
 	mode := cfg.EffectiveMode()
 	if *batch {
-		mode = "batch"
+		mode = config.ModeBatch
 	} else if *free {
-		mode = "free"
+		mode = config.ModeFree
 	}
 
 	// Remember what existed before Add so only the new items decide the exit
@@ -585,7 +585,7 @@ func runDoctor() int {
 
 	free, paid := 0, 0
 	for _, key := range cfg.AllKeys() {
-		if key.Tier == "free" {
+		if key.Tier == config.TierFree {
 			free++
 		} else {
 			paid++
