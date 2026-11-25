@@ -935,7 +935,7 @@
       <div class="row-main">
         ${item.Kind === "folder" ? GLYPHS.folder : GLYPHS.file}
         <div class="row-body">
-          <div class="name" title="${esc(item.Source || item.Name)}">${esc(displayName(item))}</div>
+          <div class="name" title="${esc(item.Source || item.Name)}">${esc(rowName(item))}</div>
           <div class="status${s.tone ? ` tone-${s.tone}` : ""}">${s.dot ? `<i class="dot"></i>` : ""}<span
             ${s.title ? `title="${esc(s.title)}"` : ""}>${esc(s.text)}</span></div>
         </div>
@@ -949,7 +949,7 @@
   const rowCache = new Map(); // id -> { el, html }
   const sectionCache = new Map(); // day key -> header element
   const hidden = new Set(); // ids removed from view while undo is possible
-  let renaming = null; // { id, input }
+  let renaming = null; // { id, input, original, save }: the inline field
   let shownOrder = []; // ids as last rendered, for picking a neighbour
   let shownQuery = ""; // the search those ids were rendered for
 
@@ -958,7 +958,8 @@
   const rowDomID = (id) => `row-${id}`;
 
   // The list order: newest first, or, grouped by course or week, the groups
-  // in order with newest first inside each. Keyboard moves follow it.
+  // in order. Inside a course and week the latest recording comes first;
+  // items without a recording time follow, by name. Keyboard moves follow it.
   function visibleItems() {
     const items = state.items.filter((item) => !hidden.has(item.ID));
     if (state.group === "date") return items;
@@ -966,7 +967,29 @@
     const byWeek = (a, b) => (b.Week || -1) - (a.Week || -1);
     const byCourse = (a, b) => courseRank(a) - courseRank(b);
     const first = state.group === "course" ? [byCourse, byWeek] : [byWeek, byCourse];
-    return items.sort((a, b) => first[0](a, b) || first[1](a, b) || at.get(a.ID) - at.get(b.ID));
+    return items.sort((a, b) => first[0](a, b) || first[1](a, b) || byRecording(a, b)
+      || at.get(a.ID) - at.get(b.ID));
+  }
+
+  function byRecording(a, b) {
+    const ra = parseDate(a.Recorded);
+    const rb = parseDate(b.Recorded);
+    if (ra && rb) return rb - ra;
+    if (ra || rb) return ra ? -1 : 1;
+    return NAME_ORDER.compare(displayName(a), displayName(b));
+  }
+
+  const NAME_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+  // rowName is the name a row shows. Under a week header the week the name
+  // starts with ("Week 12 - ", "12주차 - ") is the header's, so it is left
+  // out; a name that is only the week stays whole.
+  function rowName(item) {
+    const name = displayName(item);
+    if (state.group !== "week" || !item.Week) return name;
+    const lead = new RegExp(`^\\s*(?:week\\s*0*${item.Week}|0*${item.Week}\\s*\\uC8FC\\uCC28)(?![0-9])\\s*(?:[-–—:·]\\s*)?`, "i");
+    const rest = name.replace(lead, "");
+    return rest && rest !== name ? rest : name;
   }
 
   // Not yet sorted first (new and running items are there), then the
@@ -1665,8 +1688,38 @@
 
   function startRename(id) {
     const item = itemByID(id);
+    if (!item) return;
+    startInlineEdit(id, {
+      value: renameValue(item),
+      label: t("field.name"),
+      save: (value, original) => (value && value !== original ? call("Rename", id, value) : null),
+    });
+  }
+
+  // The week field takes a number; empty goes back to the counted week.
+  function startWeekEdit(id) {
+    const item = itemByID(id);
+    if (!item) return;
+    startInlineEdit(id, {
+      value: item.Week ? String(item.Week) : "",
+      label: t("field.week"),
+      placeholder: t("field.weekPlaceholder"),
+      numeric: true,
+      save: (value, original) => {
+        if (value === original) return null;
+        // Anything but digits goes as -1, which SetWeek rejects with the range.
+        const week = value === "" ? 0 : /^\d+$/.test(value) ? Number(value) : -1;
+        return call("SetWeek", id, week);
+      },
+    });
+  }
+
+  // startInlineEdit puts a field in place of the row's name. Enter or a blur
+  // saves through save(value, original), which returns a promise or null
+  // for nothing to do; Escape cancels.
+  function startInlineEdit(id, { value, label, placeholder = "", numeric = false, save }) {
     const entry = rowCache.get(id);
-    if (!item || !entry) return;
+    if (!entry) return;
     finishRename(false);
     closeRow(entry.el, false);
 
@@ -1675,10 +1728,12 @@
     input.className = "name-input";
     input.type = "text";
     input.spellcheck = false;
-    input.value = renameValue(item);
-    input.setAttribute("aria-label", t("field.name"));
+    if (numeric) input.inputMode = "numeric";
+    input.value = value;
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", label);
     nameEl.replaceWith(input);
-    renaming = { id, input, original: input.value };
+    renaming = { id, input, original: input.value, save };
     input.focus();
     input.select();
 
@@ -1706,9 +1761,9 @@
     const value = current.input.value.trim();
     const entry = rowCache.get(current.id);
     if (entry) entry.html = ""; // force a fresh row on the next render
-    if (save && value && value !== current.original) {
+    if (save) {
       try {
-        await call("Rename", current.id, value);
+        await current.save(value, current.original);
       } catch (error) {
         showToast(errorText(error));
       }
@@ -1781,6 +1836,7 @@
     }
     // Renaming a finished item renames its .md, which a moved one lacks.
     if (!(item.State === "done" && item.OutputMissing)) add("rename", t("action.rename"), "edit");
+    add("week", t("action.setWeek"), "edit");
     add("delete", t("action.delete"), "edit", { danger: true });
     return actions;
   }
@@ -1828,6 +1884,9 @@
           break;
         case "rename":
           startRename(id);
+          return;
+        case "week":
+          startWeekEdit(id);
           return;
         case "sort":
           await runSort(id);

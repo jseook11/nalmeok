@@ -333,3 +333,32 @@ func TestListGroupIsRemembered(t *testing.T) {
 		t.Fatalf("group = %q", g)
 	}
 }
+
+func TestSetWeekOverridesTheCountedWeek(t *testing.T) {
+	ta, item := sortFixture(t, "부분공간")
+	got := ta.app.ListItems("")[0]
+	if got.Week != 11 || got.Recorded.IsZero() {
+		t.Fatalf("counted Week = %d, Recorded = %v; want 11 and a time", got.Week, got.Recorded)
+	}
+	if err := ta.app.SetWeek(item.ID, 3); err != nil {
+		t.Fatal(err)
+	}
+	if got := ta.app.ListItems("")[0].Week; got != 3 {
+		t.Fatalf("Week after SetWeek = %d, want 3", got)
+	}
+	for _, bad := range []int{-1, MaxWeek + 1} {
+		if err := ta.app.SetWeek(item.ID, bad); err == nil {
+			t.Errorf("SetWeek(%d) accepted", bad)
+		}
+	}
+	if err := ta.app.SetWeek("missing", 2); err == nil {
+		t.Error("SetWeek on an unknown item accepted")
+	}
+	// 0 goes back to the counted week.
+	if err := ta.app.SetWeek(item.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := ta.app.ListItems("")[0].Week; got != 11 {
+		t.Fatalf("Week after reset = %d, want 11", got)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
@@ -48,6 +49,9 @@ type Item struct {
 	// Week is the semester week the recording belongs to (0 = unknown), for
 	// grouping the list by week and naming sorted transcripts.
 	Week int `json:"Week"`
+	// Recorded is when the recording was made (zero when unknown), for
+	// ordering items within a week.
+	Recorded time.Time `json:"Recorded,omitzero"`
 }
 
 // KeyView is a key as shown in settings. It never contains the full API key.
@@ -277,8 +281,9 @@ func (a *App) ListItems(query string) []Item {
 	stored := a.store.List(query)
 	items := make([]Item, len(stored))
 	for i, it := range stored {
+		week, recorded := a.weeks.of(it, start)
 		items[i] = Item{Item: it, OutputMissing: it.State == "done" && it.Output != "" && !isFile(it.Output),
-			Week: a.weeks.of(it, start)}
+			Week: week, Recorded: recorded}
 		if it.KeyID != "" {
 			items[i].KeyLabel = labels[it.KeyID]
 		}
