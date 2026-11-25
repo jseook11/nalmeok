@@ -1,9 +1,10 @@
 name: Windows
 
+# CI runs only before a release: on a release PR (branch release/*) or by
+# hand. Everyday PRs merge after the local checks (docs/code-review.md).
 on:
-  push:
-    branches: [master]
   pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +17,7 @@ concurrency:
 jobs:
   test:
     name: Test (Windows)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release/')
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -49,7 +51,7 @@ jobs:
       - name: Upload executables
         uses: actions/upload-artifact@v4
         with:
-          name: nalmeok-windows-unsigned-${{ github.sha }}
+          name: nalmeok-windows-unsigned
           path: |
             build/windows/Nalmeok.exe
             build/windows/Nalmeok-arm64.exe
@@ -66,7 +68,7 @@ jobs:
       - name: Download executables
         uses: actions/download-artifact@v4
         with:
-          name: nalmeok-windows-unsigned-${{ github.sha }}
+          name: nalmeok-windows-unsigned
           path: build/windows
       - name: Package MSIX
         shell: powershell
@@ -74,7 +76,7 @@ jobs:
       - name: Upload MSIX bundle
         uses: actions/upload-artifact@v4
         with:
-          name: nalmeok-windows-msix-unsigned-${{ github.sha }}
+          name: nalmeok-windows-msix-unsigned
           path: dist/*.msixbundle
           if-no-files-found: error
           retention-days: 14

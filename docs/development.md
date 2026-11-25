@@ -104,7 +104,7 @@ scripts/build_windows_app.sh  # build/windows/Nalmeok.exe(amd64)·Nalmeok-arm64.
 
 Windows용 실행 파일은 macOS·Linux에서 크로스 빌드한다. Wails의 Windows 백엔드는 순수 Go라 cgo가 필요 없다. exe의 아이콘과 애플리케이션 매니페스트는 `cmd/nalmeok/rsrc_windows_amd64.syso`·`rsrc_windows_arm64.syso`에 들어 있다. `GOOS=windows`로 빌드하면 Go 링커가 이 파일을 알아서 넣고, 다른 OS 빌드는 무시한다. `assets/nalmeok.ico`나 `scripts/winres/nalmeok.exe.manifest`를 바꾸면 저장소 루트에서 `go run ./scripts/winres`로 다시 만들어 커밋한다. 표준 라이브러리만 쓰는 작은 생성기라 따로 설치할 도구는 없다. 아이콘 그룹 ID는 3이다. Wails가 창 아이콘을 이 번호로 읽는다. 매니페스트는 asInvoker, Common Controls v6, PerMonitorV2 DPI, Windows 10·11, UTF-8 코드 페이지를 지정한다. `go test ./scripts/winres`는 커밋된 `.syso`가 지금 아이콘·매니페스트와 다르면 실패한다.
 
-CI는 `.github/workflows/`에서 돈다. macOS·Windows에서 `gofmt`·`go vet`·`go test ./...`를 돌리고, macOS는 `.app`, Windows는 amd64·arm64 exe를 빌드해 아티팩트로 올린다. CI는 서명·공증을 하지 않는다.
+CI는 `.github/workflows/`에서 릴리스 전에만 돈다. `release/`로 시작하는 브랜치에서 master로 연 PR이나 손으로 돌린 실행(`workflow_dispatch`)뿐이고, 다른 PR과 master push에서는 돌지 않는다. macOS·Windows에서 `go vet`·`go test ./...`를 돌리고(macOS는 `gofmt`도), Windows는 amd64·arm64 exe와 unsigned `.msixbundle`을 아티팩트(`nalmeok-windows-unsigned`, `nalmeok-windows-msix-unsigned`)로 올린다. Store 제출물은 릴리스 PR 실행의 MSIX 아티팩트를 쓴다. macOS 배포 ZIP은 이 Mac에서 서명·공증해 만들므로 CI는 `.app`을 빌드하지 않는다. CI는 서명·공증을 하지 않는다.
 
 서명·공증은 환경변수가 있을 때만 한다. `NALMEOK_SIGN_IDENTITY="Developer ID Application: ..."`, `NALMEOK_NOTARY_PROFILE=nalmeok-notary`. 둘 다 있으면 공증·staple 뒤 `ditto -c -k --keepParent`로 `dist/Nalmeok-<version>-macos-universal.zip`을 만들고, `dist/SHA256SUMS.txt`의 macOS ZIP 줄도 갱신한다(Windows 실행 파일 줄은 유지). 없으면 임시 서명(ad-hoc)한 `.app`만 만들고 `dist/`에는 쓰지 않는다.
 
