@@ -5,31 +5,35 @@ import (
 	"testing"
 )
 
-// The transcript pane reads paragraphs; a one-paragraph transcript is a wall
-// of text. Keep the explicit paragraph rule in both prompts.
-func TestPromptAsksForParagraphs(t *testing.T) {
+// Each rule below answers a failure seen in practice; keep it in both
+// prompts. The transcript pane reads paragraphs (a single paragraph is a wall
+// of text), the model sometimes wrote its plan or a slide outline before the
+// transcript, attached documents must not leak into it, and spoken math is
+// wanted as LaTeX.
+func TestPromptKeepsTheRules(t *testing.T) {
+	rules := map[string]string{
+		"paragraphs":        "Separate paragraphs with one blank line",
+		"start with speech": "Begin with the first spoken words",
+		"documents":         "Attached documents only help recognize terms",
+		"spoken only":       "Write only what is spoken",
+		"LaTeX":             "in LaTeX: $...$ inline",
+	}
 	for name, p := range map[string]string{"Prompt": Prompt, "LivePrompt": LivePrompt} {
-		if !strings.Contains(p, "Separate paragraphs with one blank line") {
-			t.Errorf("%s lost the paragraph rule", name)
-		}
-		if !strings.Contains(p, "must not add, drop, or reorder any words") {
-			t.Errorf("%s lost the fidelity guard on paragraph breaks", name)
+		for rule, text := range rules {
+			if !strings.Contains(p, text) {
+				t.Errorf("%s lost the %s rule", name, rule)
+			}
 		}
 	}
 }
 
-// The model sometimes wrote its plan, a timestamped draft or a slide outline
-// before the transcript; spoken math is wanted as LaTeX.
-func TestPromptStartsWithSpeechAndUsesLaTeX(t *testing.T) {
+// Restating one restriction several ways made Gemini refuse more often.
+func TestPromptDoesNotStackProhibitions(t *testing.T) {
 	for name, p := range map[string]string{"Prompt": Prompt, "LivePrompt": LivePrompt} {
-		if !strings.Contains(p, "Begin the response with the first spoken words") {
-			t.Errorf("%s lost the start-with-speech rule", name)
-		}
-		if !strings.Contains(p, "in LaTeX: inline as $...$") {
-			t.Errorf("%s lost the LaTeX rule", name)
-		}
-		if !strings.Contains(p, "Write only what is spoken") {
-			t.Errorf("%s lost the fidelity guard on math", name)
+		lower := strings.ToLower(p)
+		n := strings.Count(lower, "do not") + strings.Count(lower, "never") + strings.Count(lower, "must not")
+		if n > 1 {
+			t.Errorf("%s has %d prohibitions; state each rule once, positively where possible", name, n)
 		}
 	}
 }

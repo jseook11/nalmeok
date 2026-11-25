@@ -121,8 +121,8 @@ func TestInlinedResult(t *testing.T) {
 }
 
 func TestPrompts(t *testing.T) {
-	if !strings.HasPrefix(Prompt, "Transcribe the following spoken audio") ||
-		!strings.HasSuffix(Prompt, "from the reference documents that are not spoken.") {
+	if !strings.HasPrefix(Prompt, "Transcribe this lecture audio") ||
+		!strings.HasSuffix(Prompt, "do not break after every sentence.") {
 		t.Error("Prompt boundaries changed")
 	}
 	if !strings.HasPrefix(LivePrompt, Prompt+"\n\nThe audio parts are in chronological order.") {
