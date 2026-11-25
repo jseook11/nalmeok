@@ -37,6 +37,12 @@
 
   "course.weekTopic": "Week {week} - {topic}",
   "course.week": "Week {week}",
+  "group.label": "Group list",
+  "group.date": "By Date",
+  "group.course": "By Course",
+  "group.week": "By Week",
+  "group.unsorted": "Not Sorted",
+  "group.noWeek": "Week Unknown",
   "courses.label": "Lectures",
   "courses.about": "About lectures",
   "courses.body": "Files finished transcripts under one of these lectures, only when you click the button at the bottom left. A small part of the transcript goes to Gemini to pick the lecture and topic; the week comes from when it was recorded. Transcripts that fit none stay put.",

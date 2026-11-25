@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/course"
@@ -166,13 +167,7 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if !isFile(item.Output) {
 		return false, errNoOutput
 	}
-	week := course.WeekFromName(name)
-	if week == 0 {
-		if at, ok := media.RecordedAt(item.Source); ok {
-			week = course.Week(at, course.SemesterStart(at, start))
-		}
-	}
-	base := course.FileBase(week, res.Topic)
+	base := course.FileBase(a.weeks.of(item, start), res.Topic)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
@@ -208,6 +203,54 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 		}
 	}
 	return nil
+}
+
+// weekOf is the semester week item's recording belongs to, or 0: counted
+// from when it was recorded, or, when that cannot be read (a folder whose
+// audio is gone), the week written in its name ("9주차", "week 9").
+func weekOf(item store.Item, start string) int {
+	if at, ok := media.RecordedAt(item.Source); ok {
+		return course.Week(at, course.SemesterStart(at, start))
+	}
+	return course.WeekFromName(recordingName(item))
+}
+
+// weekCache remembers weekOf per item. An entry holds while the item's
+// source and the semester start are the same.
+type weekCache struct {
+	mu sync.Mutex
+	m  map[string]weekEntry
+}
+
+type weekEntry struct {
+	source, start string
+	week          int
+}
+
+func (c *weekCache) of(item store.Item, start string) int {
+	c.mu.Lock()
+	e, ok := c.m[item.ID]
+	c.mu.Unlock()
+	if ok && e.source == item.Source && e.start == start {
+		return e.week
+	}
+	week := weekOf(item, start)
+	c.mu.Lock()
+	if c.m == nil {
+		c.m = make(map[string]weekEntry)
+	}
+	c.m[item.ID] = weekEntry{source: item.Source, start: start, week: week}
+	c.mu.Unlock()
+	return week
+}
+
+func (a *App) semesterStart() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return ""
+	}
+	return a.cfg.SemesterStart()
 }
 
 // recordingName is the name the user gave the recording: a file's name

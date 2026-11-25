@@ -45,6 +45,9 @@ type Item struct {
 	// OutputMissing is set on a finished item whose .md is no longer where
 	// Output says (moved, renamed or deleted outside the app).
 	OutputMissing bool `json:"OutputMissing"`
+	// Week is the semester week the recording belongs to (0 = unknown), for
+	// grouping the list by week and naming sorted transcripts.
+	Week int `json:"Week"`
 }
 
 // KeyView is a key as shown in settings. It never contains the full API key.
@@ -98,6 +101,10 @@ type App struct {
 	// listWidth is the window width before the transcript pane widened it,
 	// restored when the pane closes. Guarded by mu.
 	listWidth int
+
+	// weeks caches each item's semester week, which reading a recording's
+	// header for every list refresh would otherwise redo.
+	weeks weekCache
 
 	// paneShown is whether the window is currently sized for the pane. It
 	// starts from the saved choice, since main opens the window at that
@@ -266,10 +273,12 @@ func (a *App) ListItems(query string) []Item {
 		return []Item{}
 	}
 	labels := a.keyLabels()
+	start := a.semesterStart()
 	stored := a.store.List(query)
 	items := make([]Item, len(stored))
 	for i, it := range stored {
-		items[i] = Item{Item: it, OutputMissing: it.State == "done" && it.Output != "" && !isFile(it.Output)}
+		items[i] = Item{Item: it, OutputMissing: it.State == "done" && it.Output != "" && !isFile(it.Output),
+			Week: a.weeks.of(it, start)}
 		if it.KeyID != "" {
 			items[i].KeyLabel = labels[it.KeyID]
 		}

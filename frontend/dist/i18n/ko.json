@@ -37,6 +37,12 @@
 
   "course.weekTopic": "{week}주차 - {topic}",
   "course.week": "{week}주차",
+  "group.label": "목록 묶기",
+  "group.date": "날짜별",
+  "group.course": "과목별",
+  "group.week": "주차별",
+  "group.unsorted": "정리 전",
+  "group.noWeek": "주차 모름",
   "courses.label": "강의 목록",
   "courses.about": "강의 목록 설명",
   "courses.body": "끝난 전사본을 이 강의 중 하나로 정리. 왼쪽 아래 버튼을 누를 때만 실행. 전사본 가운데 일부만 Gemini로 보내 강의와 주제를 고르고, 녹음 시각으로 주차를 셈. 맞는 강의가 없으면 그대로 둠.",

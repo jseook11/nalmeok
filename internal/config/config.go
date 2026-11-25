@@ -337,19 +337,55 @@ func (c *Config) Pane() bool {
 
 // SetPane stores whether the transcript pane is shown. Other gui fields are
 // kept as they are.
-func (c *Config) SetPane(open bool) error {
+func (c *Config) SetPane(open bool) error { return c.setGUI("pane", open) }
+
+// List groupings (gui.group).
+const (
+	GroupDate   = "date"
+	GroupCourse = "course"
+	GroupWeek   = "week"
+)
+
+// ListGroup is how the history list is grouped: by the day an item was added
+// (the default), by course, or by semester week.
+func (c *Config) ListGroup() string {
+	var gui map[string]json.RawMessage
+	if err := json.Unmarshal(c.raw["gui"], &gui); err != nil {
+		return GroupDate
+	}
+	var group string
+	_ = json.Unmarshal(gui["group"], &group)
+	switch group {
+	case GroupCourse, GroupWeek:
+		return group
+	}
+	return GroupDate
+}
+
+// SetListGroup stores the list grouping.
+func (c *Config) SetListGroup(group string) error {
+	switch group {
+	case GroupDate, GroupCourse, GroupWeek:
+	default:
+		return fmt.Errorf("unknown list group %q", group)
+	}
+	return c.setGUI("group", group)
+}
+
+// setGUI stores one gui field, keeping the others as they are.
+func (c *Config) setGUI(name string, v any) error {
 	c.reload()
 	var gui map[string]json.RawMessage
 	_ = json.Unmarshal(c.raw["gui"], &gui)
 	if gui == nil {
 		gui = make(map[string]json.RawMessage)
 	}
-	value, err := json.Marshal(open)
+	value, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	previous, had := c.raw["gui"]
-	gui["pane"] = value
+	gui[name] = value
 	data, err := json.Marshal(gui)
 	if err != nil {
 		return err

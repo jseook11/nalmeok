@@ -217,8 +217,8 @@ func TestSortUsesTheRecordingName(t *testing.T) {
 	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
 		t.Fatal(err)
 	}
-	// The name reaches the classifier, and its week beats the recording
-	// time (week 11).
+	// The name reaches the classifier. The week still comes from when it
+	// was recorded (week 11), not from the name.
 	src := filepath.Join(ta.dir, "프로그래밍언어론 9주차-2.m4a")
 	if err := os.Rename(item.Source, src); err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestSortUsesTheRecordingName(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(9, "자료형")+".md"); got.Output != want {
+	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(11, "자료형")+".md"); got.Output != want {
 		t.Fatalf("output = %s, want %s", got.Output, want)
 	}
 }
@@ -285,5 +285,51 @@ func TestSortFolderGoesNextToTheFolder(t *testing.T) {
 	}
 	if n := ta.app.SortableCount(); n != 0 {
 		t.Errorf("SortableCount after = %d", n)
+	}
+}
+
+func TestWeekFallsBackToTheName(t *testing.T) {
+	ta, item := sortFixture(t, "부분공간")
+	// Recorded in week 11.
+	if got := ta.app.ListItems("")[0].Week; got != 11 {
+		t.Fatalf("Week = %d, want 11", got)
+	}
+	// A folder whose audio is gone has no recording time; its name has a week.
+	folder := filepath.Join(ta.dir, "알고리즘 9주차")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source = "folder", folder }); err != nil {
+		t.Fatal(err)
+	}
+	if got := ta.app.ListItems("")[0].Week; got != 9 {
+		t.Fatalf("Week = %d, want 9", got)
+	}
+	// A new semester start counts again.
+	if err := os.Remove(folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source = "file", filepath.Join(ta.dir, "녹음 23.m4a") }); err != nil {
+		t.Fatal(err)
+	}
+	ta.setCourses(t, "2026-09-07", "선형대수학")
+	if got := ta.app.ListItems("")[0].Week; got != 10 {
+		t.Fatalf("Week after a new start = %d, want 10", got)
+	}
+}
+
+func TestListGroupIsRemembered(t *testing.T) {
+	ta := newTestApp(t)
+	if g := ta.app.ListGroup(); g != "date" {
+		t.Fatalf("default group = %q", g)
+	}
+	if err := ta.app.SetListGroup("course"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.SetListGroup("bogus"); err == nil {
+		t.Error("unknown group was accepted")
+	}
+	if g := ta.app.ListGroup(); g != "course" {
+		t.Fatalf("group = %q", g)
 	}
 }
