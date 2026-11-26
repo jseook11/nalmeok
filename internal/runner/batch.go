@@ -247,6 +247,7 @@ func (r *Runner) poller(ctx context.Context) {
 		case <-ticker.C:
 		case <-r.pollNow:
 		}
+		r.resumeDue()
 		r.PollOnce(ctx)
 	}
 }

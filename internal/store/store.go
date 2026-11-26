@@ -60,6 +60,10 @@ type Item struct {
 	// unlike UpdatedAt. Older items lack it; the window falls back to
 	// UpdatedAt.
 	FinishedAt time.Time `json:"FinishedAt,omitzero"`
+	// ExhaustedDay is the free-tier quota day (YYYY-MM-DD, US Pacific) a
+	// free_exhausted item ran out in; the runner resumes it once that day
+	// is over. Older items lack it; UpdatedAt stands in.
+	ExhaustedDay string `json:"ExhaustedDay,omitempty"`
 	// EstimateKRW is what the whole audio would cost on the paid Batch tier,
 	// rounded to won. Free items cost nothing, so the window shows it only
 	// for paid items. 0 until the audio length is known.

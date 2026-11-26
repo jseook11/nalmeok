@@ -550,8 +550,8 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	item := h.addOne(h.source("lec.m4a"), "free")
 
 	ex := h.wait(item.ID, StateFreeExhausted)
-	if ex.Detail != i18n.T("status.minutesLeft", "minutes", 1) {
-		t.Errorf("Detail = %q", ex.Detail)
+	if want := i18n.T("status.exhaustedResume", "minutes", 1, "time", nextQuotaReset(time.Now()).Format("15:04")); ex.Detail != want {
+		t.Errorf("Detail = %q, want %q", ex.Detail, want)
 	}
 	if ex.Progress != 0.5 {
 		t.Errorf("Progress = %v", ex.Progress)
@@ -583,6 +583,56 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	h.r.PollOnce(h.ctx)
 	done := h.wait(item.ID, StateDone)
 	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nBT(lec.m4a.002.m4a)\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestFreeExhaustedResumesNextQuotaDay(t *testing.T) {
+	h := newHarness(t, freeKey("f1"), paidKey("p1"))
+	var clockMu sync.Mutex
+	clock := time.Date(2026, 11, 25, 20, 0, 0, 0, time.UTC) // 12:00 Pacific
+	now := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	}
+	var fresh atomic.Bool
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 || fresh.Load() {
+			return answer(parts), gemini.FinishStop, nil
+		}
+		return "", "", err429()
+	}
+	h.r.opts.Now = now
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+
+	ex := h.wait(item.ID, StateFreeExhausted)
+	if want := i18n.T("status.exhaustedResume", "minutes", 1, "time", "08:00"); ex.Detail != want {
+		t.Errorf("Detail = %q, want %q", ex.Detail, want)
+	}
+	h.r.resumeDue() // same quota day: stays parked
+	if it, _ := h.st.Get(item.ID); it.State != StateFreeExhausted {
+		t.Fatalf("state on the same quota day = %s", it.State)
+	}
+
+	// The next morning the app starts again after the reset.
+	clockMu.Lock()
+	clock = clock.Add(13 * time.Hour)
+	clockMu.Unlock()
+	fresh.Store(true)
+	h.cancel()
+	h.ctx, h.cancel = context.WithCancel(context.Background())
+	h.t.Cleanup(h.cancel)
+	h.r = h.newRunner()
+	h.r.opts.Now = now
+	h.r.Start(h.ctx)
+
+	done := h.wait(item.ID, StateDone)
+	if done.Mode != config.ModeFree {
+		t.Errorf("resumed item must stay free, mode = %s", done.Mode)
+	}
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nT(lec.m4a.002.m4a)\n" {
 		t.Fatalf("output = %q", got)
 	}
 }

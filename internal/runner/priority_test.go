@@ -111,8 +111,8 @@ func TestPinnedFreeKey429IsExhaustedWithoutRotation(t *testing.T) {
 	item := h.addPinned(h.source("lec.m4a"), "free", "f1")
 
 	ex := h.wait(item.ID, StateFreeExhausted)
-	if ex.Detail != i18n.T("status.minutesLeft", "minutes", 2) {
-		t.Errorf("Detail = %q", ex.Detail)
+	if want := i18n.T("status.exhaustedResume", "minutes", 2, "time", nextQuotaReset(time.Now()).Format("15:04")); ex.Detail != want {
+		t.Errorf("Detail = %q, want %q", ex.Detail, want)
 	}
 	if got := h.world.client("AIza-f2").generatesNow(); got != 0 {
 		t.Fatalf("pinned item rotated to f2 (%d calls)", got)

@@ -261,7 +261,7 @@
 
   "pane.empty": "No item selected",
   "pane.emptyText": "Empty transcript",
-  "pane.exhaustedNote": "The rest can continue as paid",
+  "pane.exhaustedNote": "Resumes by itself once the free quota resets, while the app is open. Continue as paid to finish now",
   "pane.label": "Transcript",
   "pane.moved": "Original file not found; showing archived copy",
   "pane.otherModels": "Partly {models}",
@@ -309,7 +309,7 @@
   "status.busyFallback": "Gemini busy · retrying with a lighter model",
   "status.busyWaiting": "Gemini busy · trying again in {minutes} min",
   "status.fallback": "Gemini refused · retrying with another model",
-  "status.minutesLeft": "{minutes} min left",
+  "status.exhaustedResume": "{minutes} min left · resumes free at {time}",
   "status.preparing": "Preparing",
   "status.preparingAudio": "Preparing audio",
   "status.queued": "Queued",

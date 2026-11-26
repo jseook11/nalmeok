@@ -300,8 +300,11 @@ func (r *Runner) Start(ctx context.Context) {
 	items := r.opts.Store.List("")
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	for _, item := range items {
-		if item.State == StateRunning {
+		switch item.State {
+		case StateRunning:
 			r.enqueue(item.ID, item.Mode)
+		case StateFreeExhausted:
+			r.resumeExhausted([]store.Item{item})
 		}
 	}
 	for _, l := range r.lanes {
