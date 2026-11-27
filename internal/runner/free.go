@@ -124,23 +124,23 @@ func (r *Runner) freeExhausted(id string, units []store.Unit) error {
 			return
 		}
 		it.State = StateFreeExhausted
-		it.ExhaustedDay = quotaDay(now)
-		it.Detail = i18n.T("status.exhaustedResume", "minutes", minutes, "time", nextQuotaReset(now).Format("15:04"))
+		it.ResumeAt = nextQuotaReset(now)
+		it.Detail = i18n.T("status.minutesLeft", "minutes", minutes)
 		it.Progress = doneRatio(it.Units)
 	})
 }
 
-// exhaustedDue reports whether a free_exhausted item ran out in an earlier
-// quota day than now's, so its free keys have a fresh quota.
+// exhaustedDue reports whether a free_exhausted item's free quota has reset
+// since it ran out.
 func exhaustedDue(item store.Item, now time.Time) bool {
 	if item.State != StateFreeExhausted || item.Mode == config.ModeBatch {
 		return false
 	}
-	day := item.ExhaustedDay
-	if day == "" {
-		day = quotaDay(item.UpdatedAt)
+	at := item.ResumeAt
+	if at.IsZero() {
+		at = nextQuotaReset(item.UpdatedAt)
 	}
-	return day < quotaDay(now)
+	return !now.Before(at)
 }
 
 // resumeExhausted queues, oldest first, every free_exhausted item whose quota
@@ -174,7 +174,7 @@ func (r *Runner) resumeExhausted(items []store.Item) {
 				return
 			}
 			it.State = StateRunning
-			it.ExhaustedDay = ""
+			it.ResumeAt = time.Time{}
 			it.Detail = i18n.T("status.queued")
 			it.Progress = doneRatio(it.Units)
 			resumed = true
