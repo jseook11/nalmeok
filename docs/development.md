@@ -18,7 +18,7 @@ Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode·signals·courses·semester_start), 모드·등급 상수
+internal/config     설정 폴더·전사본 폴더(OutputDir)·수신 폴더, config.json(키·gui.mode·signals·courses·semester_start), 모드·등급 상수
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
@@ -37,11 +37,11 @@ frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
 frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 ```
 
-전사 결과는 원본 옆이 아니라 전사본 폴더 `config.OutputDir`(`~/Nalmeok`, `%USERPROFILE%\Nalmeok`)에 `<녹음 이름>.md`로 쓴다(`output.TargetPath`). 홈 폴더 자체는 macOS가 권한을 묻는 폴더(데스크탑·문서·다운로드)가 아니고, Store판의 가상화된 AppData 밖이라 탐색기에서도 보인다. `NALMEOK_OUTPUT_DIR`가 있으면 그 폴더, `NALMEOK_CONFIG_DIR`만 있으면 `<그 폴더>/Nalmeok`을 쓴다. 미리보기 모드(`NALMEOK_UI_PREVIEW`)는 전사본 폴더를 비워 둔다(심어 둔 목록이 실제 폴더로 복사되지 않게). 같은 `.md`는 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`).
+전사 결과는 원본 옆이 아니라 전사본 폴더 `config.OutputDir`(`~/Nalmeok`, `%USERPROFILE%\Nalmeok`)에 `<녹음 이름>.md`로 쓴다(`output.TargetPath`). 홈 폴더 자체는 macOS가 권한을 묻는 폴더(데스크탑·문서·다운로드)가 아니고, Store판의 가상화된 AppData 밖이라 탐색기에서도 보인다. `NALMEOK_OUTPUT_DIR`가 있으면 그 폴더, `NALMEOK_CONFIG_DIR`만 있으면 `<그 폴더>/Nalmeok`을 쓴다. 미리보기 모드(`NALMEOK_UI_PREVIEW`)는 전사본 폴더를 비워 둔다(심어 둔 목록이 실제 폴더로 복사되지 않게). 같은 `.md`는 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`). 화면은 `Output`의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`, 전사본 폴더에 번호를 붙여 씀)을 낸다. 목록에서 지우면 보관본도 지운다.
 
-앱을 켤 때 `App.tidyFinished`가 끝난 항목을 한 번 훑는다. 전사본 폴더 밖의 `.md`(0.11까지 원본 옆에 쓴 것, "다시 찾기…"로 가리킨 파일)는 보관본에서(없으면 그 `.md`에서) 전사본 폴더로 복사하고 항목을 복사본으로 돌린다. 정리된 항목은 `<강의>/` 아래로 간다. 같은 `.md`를 가리키던 항목은 복사본 하나를 같이 쓴다. 예전 파일은 지우지 않는다. 녹음 시각(`store.Item.RecordedFrom`/`RecordedTo`)이 없는 항목은 이때 음성에서 읽어 둔다. 새 항목은 실행기가 끝낼 때(`finish`) 저장한다. 주차와 강의 정리는 저장된 시각을 먼저 쓰므로, 원본이 지워지거나 권한이 필요한 폴더에 있어도 음성을 다시 읽지 않는다. 예전 버전은 이 두 필드를 모르므로 되돌렸다가 다시 올리면 원본이 남은 항목만 다시 채워진다.
+앱을 켤 때 `App.tidyFinished`가 끝난 항목을 한 번 훑는다. 전사본 폴더 밖의 `.md`(원본 옆에 쓰던 버전의 결과, "다시 찾기…"로 가리킨 파일)는 보관본에서(없으면 그 `.md`에서) 전사본 폴더로 복사하고 항목을 복사본으로 돌린다. 정리된 항목은 `<강의>/` 아래로 간다. 같은 `.md`를 가리키던 항목은 복사본 하나를 같이 쓴다. 원래 파일은 지우지 않는다(원본 폴더를 건드리면 권한을 묻는다). 보관본이 없는 항목은 이때 보관본도 만든다. 녹음 시각(`store.Item.RecordedFrom`/`RecordedTo`)이 없는 항목은 이때 음성에서 읽어 둔다. 새 항목은 실행기가 끝낼 때(`finish`) 저장한다. 주차와 강의 정리는 저장된 시각을 먼저 쓰므로, 원본이 지워지거나 권한이 필요한 폴더에 있어도 음성을 다시 읽지 않는다. 이 두 필드를 모르는 버전이 `items.json`을 다시 쓰면 필드가 빠지고, 원본이 남은 항목만 다음 실행에서 다시 채워진다.
 
-macOS 음성 메모에서 끈 녹음(`internal/macdrop`)은 `config.ReceivedDir`(`<설정 폴더>/received`)에 받는다. 이 폴더와 0.11까지 쓰던 `~/Documents/Nalmeok/Voice Memos`(`config.LegacyReceivedDir`) 안의 원본은 앱 소유라서(`runner.Options.ReceivedDirs`), 전사본을 저장한 뒤나 항목을 지울 때 실행기가 지운다(`removeReceived`). 같은 파일을 쓰는 끝나지 않은 다른 항목이 있으면 남긴다. 화면은 원래 위치의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`)을 낸다. 보관본이 생기기 전 항목은 처음 읽을 때와 앱을 켤 때 옮겨 두고, 목록에서 지우면 보관본도 지운다.
+macOS 음성 메모에서 끈 녹음(`internal/macdrop`)은 `config.ReceivedDir`(`<설정 폴더>/received`)에 받는다. 이 폴더와 이전 수신 폴더 `~/Documents/Nalmeok/Voice Memos`(`config.LegacyReceivedDir`) 안의 원본은 앱 소유라서(`runner.Options.ReceivedDirs`), 전사본을 저장한 뒤나 항목을 지울 때 실행기가 지운다(`removeReceived`). 같은 파일을 쓰는 끝나지 않은 다른 항목이 있으면 남긴다. 사용자가 고른 녹음은 지우지 않는다.
 
 ### 미디어 형식
 

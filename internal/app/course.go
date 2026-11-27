@@ -374,13 +374,9 @@ func (a *App) semesterStart() string {
 
 // recordingName is the name the user gave the recording: a file's name
 // without extension, or a folder's name as it is ("algorithm_09.1" keeps
-// its ".1").
+// its ".1"). A new transcript gets the same name (output.TargetPath).
 func recordingName(item store.Item) string {
-	name := filepath.Base(item.Source)
-	if item.Kind != "folder" {
-		name = strings.TrimSuffix(name, filepath.Ext(name))
-	}
-	return name
+	return output.Name(item.Source, item.Kind)
 }
 
 // recordedSpan is when item's recording ran: kept on the item, or read from

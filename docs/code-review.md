@@ -32,7 +32,7 @@
 
 - **같은 단어가 이미 다른 뜻인가.** 새 이름마다 저장소 전체를 grep 한다. 예: `Sorted`는 "강의별 정리를 했는가"
   (`matched`/`none`/빈 값)이고 목록 정렬과 상관없다. 목록을 묶는 방식은 `group`(`config.ListGroup`)이다. `mode`는
-  무료·유료 선택(`config.Mode`)이고 화면 상태가 아니다. `Output`은 사용자 폴더의 `.md`, 보관본은 `ArchivePath`다.
+  무료·유료 선택(`config.Mode`)이고 화면 상태가 아니다. `Output`은 전사본 폴더(`config.OutputDir`)의 `.md`, 보관본은 `ArchivePath`다.
 - **같은 일을 하는 것이 이미 있는가.** 있으면 그것을 쓴다.
 
   | 하려는 일 | 이미 있는 것 |
@@ -40,15 +40,16 @@
   | 사용자 문구, 문구를 메시지로 한 오류, 오류 감싸기 | `i18n.T`, `i18n.Error`, `i18n.Wrap`. 카탈로그 문구 오류인지 보기는 `i18n.IsText` |
   | 정리 실패를 짧은 문장으로 | `internal/app` `errorMessage` |
   | Gemini 오류 가르기 | `gemini.Is429`, `IsAuth`, `IsTransient`, `IsUnavailable`, `IsNotFound`, `IsEmptyResponse`, `StatusCode` |
-  | 전사본 위치, 보관본 위치 | `output.TargetPath(source, kind)`, `output.ArchivePath(dir, id)` |
+  | 전사본 위치, 보관본 위치, 폴더 안인가 | `output.TargetPath(root, source, kind)`, `output.ArchivePath(dir, id)`, `output.Inside(dir, path)`. 전사본 폴더는 `config.OutputDir`(`App.OutputDir`, `runner.Options.OutputDir`), 정리된 항목의 폴더는 `App.transcriptDir` |
   | 겹치지 않는 이름 (`name (2).md`) | 새로 쓸 때 `output.WriteNew`, 다른 프로세스와 겹칠 수 있는 옮기기는 `output.Reserve`(배타적 생성으로 이름을 잡음) 뒤 rename, 앱 안에서만 옮길 때 `output.UniquePath` |
   | 파일이 있는가 | `internal/app` `isFile` |
   | 끝난 항목 하나 꺼내기, 그 전사본 읽기 | `App.finishedItem`, `App.outputText` |
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
   | 모드·등급 값, 등급에서 모드, 값 검사 | `config.ModeFree`·`ModeBatch`·`TierFree`·`TierPaid`, `config.ModeForTier`, `IsMode`, `IsTier`. 다음 항목이 쓸 모드는 `Config.EffectiveMode`, runner의 키 고르기는 `resolveMode`·`availableMode`(`runner/keys.go`)와 `backend.candidates`. 문자열 `"free"`를 직접 쓰지 않는다 |
   | config 한 값 바꾸기 | 키는 `Config.editKey`, `gui` 아래 값은 `Config.setGUI`. 바꾸기 직전에 `reload`를 부른다(직접 고칠 때도) |
-  | 녹음 시각, 학기 주차 | `media.RecordedAt`, `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of` |
-  | 녹음 이름 (확장자 뺀 파일 이름, 폴더 이름 그대로) | Go `recordingName`, 화면 `displayName` |
+  | 녹음 시각, 학기 주차 | 항목에 저장된 `Item.RecordedFrom`/`RecordedTo`를 먼저 쓰는 `recordedSpan`(없을 때만 `media.RecordedSpan`), `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of` |
+  | 녹음 이름 (확장자 뺀 파일 이름, 폴더 이름 그대로) | Go `output.Name`(항목은 `recordingName`), 화면 `displayName` |
+  | 앱이 받아 둔 녹음인가, 지우기 | `runner.received`, `runner.removeReceived` |
   | 자연 순서 정렬 (`2`가 `10` 앞) | `media.SortNatural`, `media.NaturalLess` |
   | 화면에서 Go 부르기 | `app.js` `call("메서드", ...)`. 오류 문장은 `errorText` |
   | HTML에 값 넣기 | `esc` |
@@ -156,6 +157,7 @@
 - **Windows에서만 깨짐.** 콘솔 출력(한글), `explorer` 명령줄, 닫지 않은 파일 때문에 지워지지 않는 임시 폴더, 리소스
   파일 줄바꿈, 한글 경로. 파일을 열면 닫는가, 셸 명령을 직접 만들지 않는가. `GOOS=windows go vet ./...`를 돌리고,
   실기 확인을 못 했으면 보고에 적는다.
+- **macOS 한글 파일 이름(NFD).** 파일 이름의 한글은 자모로 풀려(NFD) 온다. 검색(`store` `matcher`)과 이름의 주차(`course.WeekFromName`)가 이것 때문에 맞지 않았다. 파일 이름을 비교하거나 정규식에 넣는 새 코드는 `norm.NFC`로 맞추는가 (`development.md` "강의별 정리").
 - **언어를 따라가지 않는 문구.** 메뉴바·알림처럼 시작할 때 한 번 만든 것, 카탈로그를 읽기 전에 쓰인 문구, 언어를
   박아 넣은 이름(전사본 파일 이름의 주차). 언어가 바뀌면 다시 만드는가, 앱 언어를 쓰는가.
 - **상태가 바뀌어도 화면이 그대로.** 키를 넣거나 지웠는데 빈 화면 안내·버튼이 늦게 바뀜, 무료 사용량이 끝난 항목의
