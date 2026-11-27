@@ -130,10 +130,26 @@
   const signalsSwitch = $("signals-switch");
   const signalsAbout = $("signals-about");
   const signalsBody = $("signals-body");
-  const coursesAbout = $("courses-about");
-  const coursesBody = $("courses-body");
-  const courseList = $("course-list");
-  const courseAdd = $("course-add");
+  const settingsTabs = $("settings-tabs");
+  const entryForm = $("entry-form");
+  const entryInput = $("entry");
+  const entryAdd = $("entry-add");
+  const entryAbout = $("entry-about");
+  const entryHelp = $("entry-help");
+  const ttLegend = $("tt-legend");
+  const timetable = $("timetable");
+  const slotLayer = $("slot-layer");
+  const slotPop = $("slot-pop");
+  const slotTitle = $("slot-title");
+  const slotCourse = $("slot-course");
+  const slotSuggest = $("slot-suggest");
+  const slotNewNote = $("slot-new-note");
+  const slotDays = $("slot-days");
+  const slotStart = $("slot-start");
+  const slotEnd = $("slot-end");
+  const slotError = $("slot-error");
+  const slotDelete = $("slot-delete");
+  const slotCancel = $("slot-cancel");
   const semesterStart = $("semester-start");
   const sortCourses = $("sort-courses");
 
@@ -157,7 +173,7 @@
     keys: [],
     mode: "free",
     available: { free: false, paid: false },
-    courses: [], // lecture list for sorting transcripts ({ name, hint }, as in config.json)
+    courses: [], // lectures and their class times ({ name, slots }, as in config.json)
     sortable: 0, // finished items never sorted into a lecture
     sorting: false,
     query: "",
@@ -1181,40 +1197,662 @@
     } catch (_) {
       state.courses = [];
     }
-    renderCourses();
+    renderTimetable();
     loadSortable();
   }
 
-  function renderCourses() {
-    courseList.innerHTML = state.courses.map((c, i) => `
-      <div class="course-item" data-index="${i}">
-        <input class="field course-name" type="text" value="${esc(c.name)}" spellcheck="false"
-          placeholder="${esc(t("courses.namePlaceholder"))}" aria-label="${esc(t("courses.namePlaceholder"))}">
-        <input class="field course-hint" type="text" value="${esc(c.hint || "")}" spellcheck="false"
-          placeholder="${esc(t("courses.hintPlaceholder"))}" aria-label="${esc(t("courses.hintPlaceholder"))}">
-        <button class="course-remove" type="button" aria-label="${esc(t("courses.remove"))}"
-          title="${esc(t("courses.remove"))}">−</button>
-      </div>`).join("");
+  // A copy of the lectures to change and hand to saveCourses.
+  function cloneCourses() {
+    return state.courses.map((c) => ({ ...c, slots: [...(c.slots || [])] }));
   }
 
-  // The list as typed, blank lines included, so a half-typed row survives a
-  // re-render; the backend drops blanks when saving.
-  function coursesFromFields() {
-    return [...courseList.querySelectorAll(".course-item")].map((row) => ({
-      name: row.querySelector(".course-name").value,
-      hint: row.querySelector(".course-hint").value,
-    }));
-  }
-
-  async function saveCourses() {
-    const typed = coursesFromFields();
+  // Saves list as the lectures. Returns "" or the error's text; on an error
+  // nothing changes, so a refused edit leaves the timetable as it was.
+  async function saveCourses(list = state.courses) {
     try {
-      await call("SetCourses", { Courses: typed, SemesterStart: semesterStart.value });
-      state.courses = typed.filter((c) => c.name.trim());
+      await call("SetCourses", { Courses: list, SemesterStart: semesterStart.value });
+      const settings = await call("Courses");
+      state.courses = Array.isArray(settings.Courses) ? settings.Courses : list;
+      return "";
     } catch (error) {
-      showToast(errorText(error));
+      return errorText(error);
+    } finally {
+      renderTimetable();
+      loadSortable();
     }
-    loadSortable();
+  }
+
+  // ── Adding class times by typing ──────────────────────────
+  //
+  // One line, "프로그래밍, 화 1500~1900": the backend reads the lecture and
+  // times (course.ParseEntry), adds the times to that lecture or a new one,
+  // and refuses times that overlap a class. A refused line stays in the
+  // field, marked, with the reason in a toast, to fix and send again.
+
+  let freshSlots = new Set(); // "name|day|start" just added: they flash once
+
+  function slotsText(slots) {
+    const names = weekdayNames();
+    return slots.map((s) => `${names[s.day - 1]} ${s.start}–${s.end}`).join(", ");
+  }
+
+  async function addEntry() {
+    const text = entryInput.value.trim();
+    if (!text) {
+      entryInput.focus();
+      return;
+    }
+    entryAdd.disabled = true;
+    try {
+      const added = await call("AddClassTimes", text);
+      state.courses = added.Settings.Courses || [];
+      for (const s of added.Slots) freshSlots.add(`${added.Name}|${s.day}|${s.start}`);
+      lastSlotCourse = added.Name;
+      entryInput.value = "";
+      entryInput.removeAttribute("aria-invalid");
+      renderTimetable();
+      loadSortable();
+      showToast(added.New
+        ? t("timetable.addedNew", { name: added.Name, times: slotsText(added.Slots) })
+        : t("timetable.added", { name: added.Name, times: slotsText(added.Slots) }));
+    } catch (error) {
+      entryInput.setAttribute("aria-invalid", "true");
+      showToast(errorText(error), { duration: 5000 });
+    } finally {
+      entryAdd.disabled = false;
+      entryInput.focus();
+    }
+  }
+
+  // Removing a lecture takes its times with it; the toast can undo it.
+  // Undo puts that one lecture back into the list as it is then, so an
+  // edit made while the toast was up stays.
+  async function removeCourse(index) {
+    const rows = cloneCourses();
+    const removed = rows[index];
+    if (!removed?.name) return;
+    rows.splice(index, 1);
+    const error = await saveCourses(rows);
+    if (error) {
+      showToast(error);
+      return;
+    }
+    showToast(t("timetable.removed", { name: removed.name }), {
+      duration: 5000,
+      onAction: async () => {
+        const now = cloneCourses();
+        if (now.some((c) => flatName(c.name) === flatName(removed.name))) return;
+        now.splice(Math.min(index, now.length), 0, removed);
+        const undoError = await saveCourses(now);
+        if (undoError) showToast(undoError);
+      },
+    });
+  }
+
+  // ── Timetable ─────────────────────────────────────────────
+  //
+  // A week grid of the lectures' class times, like a phone timetable: drag
+  // down an empty column to add a time, click a block to change it. The
+  // times live on the lectures (slots: { day 1–7, start "10:30", end }), so
+  // the grid, the one-line entry and the legend edit one list, saved together.
+
+  const HOUR_PX = 44;
+  const SNAP_MIN = 10; // drags and the end list; a typed time keeps its minute
+  const CLICK_MIN = 20; // a drag shorter than this is a click
+  const DEFAULT_LEN = 75; // a click without a drag: one 75-minute class
+  const COURSE_COLORS = 10; // a colour per lecture; past ten they repeat
+
+  let slotEditing = null; // { course, slot } being changed, or null for a new time
+  let slotAnchor = null; // the block or drag the editor opened from
+  // The lecture last given a time: the next new time starts on it, so a
+  // lecture split over days at different times (화 11–13, 목 12–13) is two
+  // drags and two Enters.
+  let lastSlotCourse = "";
+
+  const weekdayNames = () => t("timetable.weekdays").split(",");
+  const minutesOf = (clock) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(clock || "").trim());
+    return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+  };
+  const clockOf = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+  // The lectures, each with its index in state.courses and its colour.
+  function namedCourses() {
+    const out = [];
+    state.courses.forEach((c, index) => {
+      if (c.name.trim()) out.push({ ...c, index, color: out.length % COURSE_COLORS });
+    });
+    return out;
+  }
+
+  // Monday to Friday, plus a weekend day that has a class. Hours 9 to 18,
+  // widened to fit every class.
+  function timetableFrame(courses) {
+    const days = [1, 2, 3, 4, 5];
+    let first = 9 * 60;
+    let last = 18 * 60;
+    for (const c of courses) {
+      for (const s of c.slots || []) {
+        if (s.day > 5 && !days.includes(s.day)) days.push(s.day);
+        first = Math.min(first, minutesOf(s.start));
+        last = Math.max(last, minutesOf(s.end));
+      }
+    }
+    days.sort((a, b) => a - b);
+    return { days, firstHour: Math.floor(first / 60), lastHour: Math.ceil(last / 60) };
+  }
+
+  let frame = { days: [], firstHour: 9, lastHour: 18 };
+
+  function renderTimetable() {
+    if (!timetable) return;
+    const courses = namedCourses();
+    frame = timetableFrame(courses);
+    const names = weekdayNames();
+    const hours = frame.lastHour - frame.firstHour;
+    timetable.style.setProperty("--tt-days", frame.days.length);
+    timetable.style.setProperty("--tt-hour", `${HOUR_PX}px`);
+    const head = frame.days.map((d) => `<div class="tt-day">${esc(names[d - 1])}</div>`).join("");
+    const gutter = Array.from({ length: hours }, (_, i) =>
+      `<div class="tt-hour">${frame.firstHour + i}</div>`).join("");
+    const columns = frame.days.map((day) => {
+      const blocks = [];
+      for (const c of courses) {
+        (c.slots || []).forEach((s, slot) => {
+          if (s.day !== day) return;
+          const start = minutesOf(s.start);
+          const end = minutesOf(s.end);
+          const top = ((start - frame.firstHour * 60) / 60) * HOUR_PX;
+          const height = Math.max(((end - start) / 60) * HOUR_PX, 18);
+          const label = t("timetable.slotLabel", { course: c.name, day: names[day - 1], start: s.start, end: s.end });
+          const fresh = freshSlots.has(`${c.name.trim()}|${s.day}|${s.start}`) ? " is-new" : "";
+          const short = end - start < 80 ? " is-short" : ""; // room for one line of name
+          blocks.push(`<button class="tt-block${fresh}${short}" type="button" data-course="${c.index}" data-slot="${slot}"
+            data-color="${c.color}" style="top:${top}px;height:${height}px" aria-label="${esc(label)}">
+            <span class="tt-handle is-top" data-edge="start" aria-hidden="true"></span>
+            <span class="tt-name">${esc(c.name)}</span><span class="tt-time">${esc(s.start)}–${esc(s.end)}</span>
+            <span class="tt-handle is-bottom" data-edge="end" aria-hidden="true"></span></button>`);
+        });
+      }
+      return `<div class="tt-col" data-day="${day}">${blocks.join("")}</div>`;
+    }).join("");
+    if (freshSlots.size) setTimeout(() => { freshSlots = new Set(); }, 2000);
+    timetable.innerHTML = `
+      <div class="tt-head"><div class="tt-corner"></div>${head}</div>
+      <div class="tt-body" style="height:${hours * HOUR_PX}px">
+        <div class="tt-gutter">${gutter}</div>${columns}
+      </div>`;
+    // The lectures under the grid: colour, name, remove. A lecture with no
+    // times yet shows here only.
+    ttLegend.innerHTML = courses.map((c) => `
+      <span class="tt-chip${(c.slots || []).length ? "" : " is-empty"}" data-color="${c.color}">
+        <span class="tt-chip-dot" aria-hidden="true"></span>${esc(c.name)}
+        <button class="tt-chip-remove" type="button" data-course="${c.index}"
+          aria-label="${esc(t("timetable.removeCourse", { name: c.name }))}"
+          title="${esc(t("timetable.removeCourse", { name: c.name }))}">×</button>
+      </span>`).join("");
+  }
+
+  // Minutes after midnight at y inside a column, snapped.
+  function columnMinutes(col, clientY) {
+    const y = clientY - col.getBoundingClientRect().top;
+    const raw = frame.firstHour * 60 + (y / HOUR_PX) * 60;
+    const snapped = Math.round(raw / SNAP_MIN) * SNAP_MIN;
+    return Math.min(Math.max(snapped, frame.firstHour * 60), frame.lastHour * 60);
+  }
+
+  // Dragging down (or up) an empty column draws a ghost block; letting go
+  // opens the editor on that time. A click is one DEFAULT_LEN class.
+  function onTimetableDown(event) {
+    if (event.button !== 0) return;
+    const handle = event.target.closest(".tt-handle");
+    if (handle) {
+      startResize(event, handle);
+      return;
+    }
+    if (event.target.closest(".tt-block")) return;
+    const col = event.target.closest(".tt-col");
+    if (!col) return;
+    event.preventDefault();
+    const day = Number(col.dataset.day);
+    const from = columnMinutes(col, event.clientY);
+    const ghost = document.createElement("div");
+    ghost.className = "tt-ghost";
+    col.appendChild(ghost);
+    let range = [from, from];
+    const paint = () => {
+      const [a, b] = range;
+      ghost.style.top = `${((a - frame.firstHour * 60) / 60) * HOUR_PX}px`;
+      ghost.style.height = `${Math.max(((b - a) / 60) * HOUR_PX, 4)}px`;
+    };
+    paint();
+    const move = (e) => {
+      const at = columnMinutes(col, e.clientY);
+      range = at < from ? [at, from] : [from, at];
+      paint();
+      ghost.classList.toggle("is-clash", clashes(day, range[0], range[1]));
+    };
+    const up = () => {
+      col.removeEventListener("pointermove", move);
+      col.removeEventListener("pointerup", up);
+      col.removeEventListener("pointercancel", up);
+      let [start, end] = range;
+      if (end - start < CLICK_MIN) {
+        // A click: one class from the half hour, fitted into the gap
+        // between the classes around it.
+        const times = state.courses.flatMap((c) => (c.slots || []).filter((s) => s.day === day))
+          .map((s) => [minutesOf(s.start), minutesOf(s.end)]);
+        const before = Math.max(0, ...times.filter(([, e]) => e <= from).map(([, e]) => e));
+        const after = Math.min(24 * 60 - SNAP_MIN, ...times.filter(([b]) => b > from).map(([b]) => b));
+        start = Math.max(Math.floor(from / 30) * 30, before);
+        end = Math.min(start + DEFAULT_LEN, after);
+        range = [start, end];
+        paint();
+      }
+      if (end - start < SNAP_MIN || clashes(day, start, end)) {
+        // Only the new time is dropped; what is there stays.
+        ghost.remove();
+        showToast(t("timetable.clash"));
+        return;
+      }
+      openSlotEditor(null, { day, start: clockOf(start), end: clockOf(end) }, ghost);
+    };
+    col.setPointerCapture(event.pointerId);
+    col.addEventListener("pointermove", move);
+    col.addEventListener("pointerup", up);
+    col.addEventListener("pointercancel", up);
+  }
+
+  // Whether start–end on day overlaps a class already there.
+  function clashes(day, start, end) {
+    return state.courses.some((c) => (c.slots || []).some((s) =>
+      s.day === day && start < minutesOf(s.end) && minutesOf(s.start) < end));
+  }
+
+  // ── Resizing a block by its top or bottom edge ──
+  //
+  // Like a calendar: the edge follows the pointer on the 10-minute grid,
+  // stops at the classes before and after and leaves at least SNAP_MIN.
+  // Letting go saves at once, so the toast offers an undo.
+
+  let resizeClick = false; // the click that ends a resize must not open the editor
+
+  function startResize(event, handle) {
+    const block = handle.closest(".tt-block");
+    const col = block.closest(".tt-col");
+    const course = Number(block.dataset.course);
+    const index = Number(block.dataset.slot);
+    const slot = state.courses[course]?.slots?.[index];
+    if (!slot) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const edge = handle.dataset.edge;
+    const day = slot.day;
+    const start0 = minutesOf(slot.start);
+    const end0 = minutesOf(slot.end);
+    // Neighbours on the same day bound the edge.
+    const others = state.courses.flatMap((c, ci) => (c.slots || [])
+      .filter((s, si) => s.day === day && !(ci === course && si === index))
+      .map((s) => [minutesOf(s.start), minutesOf(s.end)]));
+    const floor = Math.max(frame.firstHour * 60, ...others.filter(([, e]) => e <= start0).map(([, e]) => e));
+    const ceil = Math.min(frame.lastHour * 60, ...others.filter(([b]) => b >= end0).map(([b]) => b));
+    let start = start0;
+    let end = end0;
+    const time = block.querySelector(".tt-time");
+    block.classList.add("is-resizing");
+    const paint = () => {
+      block.style.top = `${((start - frame.firstHour * 60) / 60) * HOUR_PX}px`;
+      block.style.height = `${Math.max(((end - start) / 60) * HOUR_PX, 18)}px`;
+      time.textContent = `${clockOf(start)}–${clockOf(end)}`;
+    };
+    const move = (e) => {
+      const at = columnMinutes(col, e.clientY);
+      if (edge === "start") start = Math.min(Math.max(at, floor), end - SNAP_MIN);
+      else end = Math.max(Math.min(at, ceil), start + SNAP_MIN);
+      paint();
+    };
+    const up = async () => {
+      col.removeEventListener("pointermove", move);
+      col.removeEventListener("pointerup", up);
+      col.removeEventListener("pointercancel", up);
+      block.classList.remove("is-resizing");
+      resizeClick = true;
+      setTimeout(() => { resizeClick = false; }, 0);
+      if (start === start0 && end === end0) return;
+      const rows = cloneCourses();
+      const old = rows[course].slots[index];
+      const resized = { day, start: clockOf(start), end: clockOf(end) };
+      rows[course].slots[index] = resized;
+      const name = rows[course].name;
+      const error = await saveCourses(rows);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      showToast(t("timetable.resized", { name, times: slotsText([resized]) }), {
+        duration: 5000,
+        // Undo sets that one time back, wherever it is now (the backend
+        // sorts the times), and leaves every other edit alone.
+        onAction: async () => {
+          const now = cloneCourses();
+          const c = now.find((x) => flatName(x.name) === flatName(name));
+          const at = c ? c.slots.findIndex((x) => x.day === resized.day && x.start === resized.start && x.end === resized.end) : -1;
+          if (at < 0) return;
+          c.slots[at] = old;
+          const undoError = await saveCourses(now);
+          if (undoError) showToast(undoError);
+        },
+      });
+    };
+    col.setPointerCapture(event.pointerId);
+    col.addEventListener("pointermove", move);
+    col.addEventListener("pointerup", up);
+    col.addEventListener("pointercancel", up);
+  }
+
+  function onTimetableClick(event) {
+    if (resizeClick) return;
+    const block = event.target.closest(".tt-block");
+    if (!block) return;
+    const course = Number(block.dataset.course);
+    const slot = Number(block.dataset.slot);
+    const s = state.courses[course]?.slots?.[slot];
+    if (s) openSlotEditor({ course, slot }, s, block);
+  }
+
+  // The editor: lecture, days, start and end. A new time may go on several
+  // days at once (Tuesday and Thursday); changing a time keeps it on one day
+  // unless more are picked.
+  function openSlotEditor(editing, slot, anchor) {
+    slotEditing = editing;
+    slotAnchor = anchor;
+    const courses = namedCourses();
+    slotTitle.textContent = editing ? t("timetable.editTitle") : t("timetable.newTitle");
+    const last = courses.find((c) => c.name.trim() === lastSlotCourse);
+    const preset = editing ? courses.find((c) => c.index === editing.course) : last;
+    slotCourse.value = preset ? preset.name.trim() : "";
+    closeSuggest();
+    slotNewNote.hidden = true;
+    const names = weekdayNames();
+    slotDays.innerHTML = names.map((name, i) =>
+      `<button type="button" class="slot-day" data-day="${i + 1}" aria-pressed="${i + 1 === slot.day}">${esc(name)}</button>`).join("");
+    slotStart.value = slot.start;
+    slotLength = minutesOf(slot.end) - minutesOf(slot.start) || DEFAULT_LEN;
+    fillEnd(minutesOf(slot.start), minutesOf(slot.end));
+    slotError.hidden = true;
+    slotDelete.hidden = !editing;
+    openSurface(slotLayer, { focus: slotCourse });
+    slotCourse.select(); // typing replaces the preset lecture
+    placeSlotPop();
+  }
+
+  // ── Lecture field: type part of a name, Enter takes the suggestion ──
+  //
+  // "논리" then Enter fills in 논리회로. Matches are lectures whose name holds
+  // the text, those starting with it first. A name that matches none is a
+  // new lecture, added on save. With Korean input the Enter that ends the
+  // syllable being composed also takes the suggestion.
+
+  let suggestions = []; // names shown
+  let suggestActive = -1;
+
+  // Lecture names match ignoring case and spaces, as the backend's
+  // AddClassTimes does: "Data Structures" is "datastructures".
+  const flatName = (n) => n.toLowerCase().replace(/\s+/g, "");
+
+  function matchCourses(query) {
+    const q = flatName(query);
+    const names = namedCourses().map((c) => c.name.trim());
+    if (!q) return names;
+    return names.filter((n) => flatName(n).includes(q))
+      .sort((a, b) => Number(!flatName(a).startsWith(q)) - Number(!flatName(b).startsWith(q)));
+  }
+
+  function showSuggest() {
+    const query = slotCourse.value.trim();
+    suggestions = matchCourses(query);
+    const exact = suggestions.some((n) => flatName(n) === flatName(query));
+    // Under the field, in the flow: a name that is no lecture yet is added.
+    slotNewNote.hidden = !query || exact;
+    if (!slotNewNote.hidden) slotNewNote.textContent = t("timetable.newCourseNote", { name: query });
+    // Nothing to offer: no match, or the text is already the only match.
+    if (!suggestions.length || (exact && suggestions.length === 1)) return closeSuggest();
+    suggestActive = query ? 0 : -1;
+    paintSuggest();
+  }
+
+  function paintSuggest() {
+    slotSuggest.innerHTML = suggestions.map((name, i) =>
+      `<div class="slot-option" role="option" id="slot-option-${i}" data-name="${esc(name)}"
+        aria-selected="${i === suggestActive}">${esc(name)}</div>`).join("");
+    slotSuggest.hidden = false;
+    slotCourse.setAttribute("aria-expanded", "true");
+    if (suggestActive >= 0) slotCourse.setAttribute("aria-activedescendant", `slot-option-${suggestActive}`);
+    else slotCourse.removeAttribute("aria-activedescendant");
+  }
+
+  function closeSuggest() {
+    suggestions = [];
+    suggestActive = -1;
+    slotSuggest.hidden = true;
+    slotCourse.setAttribute("aria-expanded", "false");
+    slotCourse.removeAttribute("aria-activedescendant");
+  }
+
+  // Takes the highlighted suggestion. False when there was none to take,
+  // or the field already says it.
+  function takeSuggestion() {
+    const name = suggestions[suggestActive];
+    if (!name || name === slotCourse.value.trim()) return false;
+    slotCourse.value = name;
+    closeSuggest();
+    slotNewNote.hidden = true;
+    return true;
+  }
+
+  function onCourseKey(event) {
+    const composing = event.isComposing || event.keyCode === 229;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (slotSuggest.hidden || !suggestions.length) showSuggest();
+      if (!suggestions.length) return;
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      suggestActive = (suggestActive + step + suggestions.length) % suggestions.length;
+      paintSuggest();
+    } else if (event.key === "Enter") {
+      if (composing) {
+        // The IME finishes the syllable first; take the match after it.
+        setTimeout(() => {
+          showSuggest();
+          takeSuggestion();
+        }, 0);
+        return;
+      }
+      if (takeSuggestion()) event.preventDefault();
+    } else if (event.key === "Tab" && !event.shiftKey && suggestions.length && !slotSuggest.hidden) {
+      takeSuggestion();
+    }
+    // Escape closes the whole editor (modalKeys), list and all.
+  }
+
+  // Beside the block like a calendar popover: to its right, else its left,
+  // else centred; kept inside the window.
+  function placeSlotPop() {
+    const pop = slotPop.getBoundingClientRect();
+    const margin = 10;
+    let left = (window.innerWidth - pop.width) / 2;
+    let top = (window.innerHeight - pop.height) / 2;
+    const at = slotAnchor?.isConnected ? slotAnchor.getBoundingClientRect() : null;
+    if (at) {
+      if (at.right + margin + pop.width <= window.innerWidth - margin) left = at.right + margin;
+      else if (at.left - margin - pop.width >= margin) left = at.left - margin - pop.width;
+      top = at.top + at.height / 2 - pop.height / 2;
+    }
+    left = Math.min(Math.max(left, margin), window.innerWidth - pop.width - margin);
+    top = Math.min(Math.max(top, margin), window.innerHeight - pop.height - margin);
+    slotPop.style.left = `${left}px`;
+    slotPop.style.top = `${top}px`;
+  }
+
+  // Clock text in the window's language and the system's 12/24-hour habit,
+  // as the start field shows it ("오후 6:00").
+  const clockFormat = new Intl.DateTimeFormat(LANG, { hour: "numeric", minute: "2-digit" });
+  const clockText = (min) => clockFormat.format(new Date(2000, 0, 1, Math.floor(min / 60), min % 60));
+
+  function durationText(min) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (!h) return t("timetable.durM", { m });
+    if (!m) return t("timetable.durH", { h });
+    return t("timetable.durHM", { h, m });
+  }
+
+  // The end is picked from times after the start, as in Calendar, each with
+  // the class length beside it, so it can never come before the start and
+  // follows it into the afternoon.
+  function fillEnd(start, end) {
+    const last = 24 * 60 - SNAP_MIN;
+    const options = [];
+    const first = Math.floor(start / SNAP_MIN) * SNAP_MIN + SNAP_MIN; // next 10-minute mark
+    for (let m = first; m <= Math.min(Math.max(start + 6 * 60, end), last); m += SNAP_MIN) options.push(m);
+    // The slot's own end stays selectable and selected, also off the
+    // 10-minute marks or after the last one (23:55).
+    const want = end > start && end < 24 * 60 ? end : Math.min(start + DEFAULT_LEN, last);
+    if (want > start && !options.includes(want)) options.push(want);
+    options.sort((a, b) => a - b);
+    slotEnd.innerHTML = options.map((m) =>
+      `<option value="${clockOf(m)}">${esc(clockText(m))} (${esc(durationText(m - start))})</option>`).join("");
+    slotEnd.value = clockOf(want);
+  }
+
+  // A new start moves the end with it, keeping the class length.
+  let slotLength = DEFAULT_LEN;
+  function onStartChange() {
+    const start = minutesOf(slotStart.value);
+    if (!Number.isFinite(start)) return;
+    const at = Math.min(start, 24 * 60 - SNAP_MIN * 2);
+    if (at !== start) slotStart.value = clockOf(at);
+    fillEnd(at, at + slotLength);
+  }
+
+  function closeSlotEditor() {
+    if (slotLayer.hidden) return;
+    closeSuggest();
+    closeSurface(slotLayer);
+    slotEditing = null;
+    slotAnchor = null;
+    renderTimetable(); // drops a ghost left by a drag
+  }
+
+  function slotFail(message) {
+    slotError.textContent = message;
+    slotError.hidden = false;
+  }
+
+  async function saveSlot() {
+    const days = [...slotDays.querySelectorAll('.slot-day[aria-pressed="true"]')].map((b) => Number(b.dataset.day));
+    const start = minutesOf(slotStart.value);
+    const end = minutesOf(slotEnd.value);
+    if (!days.length) return slotFail(t("timetable.needDay"));
+    if (!(end > start)) return slotFail(t("timetable.badTime"));
+    const name = slotCourse.value.trim();
+    if (!name) {
+      slotCourse.focus();
+      return slotFail(t("timetable.needName"));
+    }
+    const rows = cloneCourses();
+    let target = rows.findIndex((c) => flatName(c.name) === flatName(name));
+    if (target < 0) {
+      rows.push({ name, slots: [] });
+      target = rows.length - 1;
+    }
+    if (slotEditing) removeSlot(rows, slotEditing);
+    const course = rows[target];
+    lastSlotCourse = course.name.trim();
+    course.slots = [...course.slots, ...days.map((day) => ({ day, start: clockOf(start), end: clockOf(end) }))];
+    await commitRows(rows);
+  }
+
+  function removeSlot(rows, { course, slot }) {
+    const c = rows[course];
+    if (c) c.slots = c.slots.filter((_, i) => i !== slot);
+  }
+
+  async function deleteSlot() {
+    if (!slotEditing) return;
+    const rows = cloneCourses();
+    removeSlot(rows, slotEditing);
+    await commitRows(rows);
+  }
+
+  // Saves the changed lectures. A refusal (an overlap) keeps the editor
+  // open with the reason, so only the new edit is dropped.
+  async function commitRows(rows) {
+    const error = await saveCourses(rows);
+    if (error) {
+      slotFail(error);
+      return;
+    }
+    closeSlotEditor();
+  }
+
+  function bindTimetable() {
+    timetable.addEventListener("pointerdown", onTimetableDown);
+    timetable.addEventListener("click", onTimetableClick);
+    entryForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      addEntry();
+    });
+    entryInput.addEventListener("input", () => entryInput.removeAttribute("aria-invalid"));
+    entryAbout.addEventListener("click", () => {
+      const open = entryHelp.hidden;
+      entryHelp.hidden = !open;
+      entryAbout.setAttribute("aria-expanded", String(open));
+    });
+    ttLegend.addEventListener("click", (event) => {
+      const remove = event.target.closest(".tt-chip-remove");
+      if (remove) removeCourse(Number(remove.dataset.course));
+    });
+    slotStart.addEventListener("change", onStartChange);
+    slotStart.addEventListener("focus", () => {
+      const length = minutesOf(slotEnd.value) - minutesOf(slotStart.value);
+      if (length > 0) slotLength = length;
+    });
+    slotEnd.addEventListener("change", () => {
+      const length = minutesOf(slotEnd.value) - minutesOf(slotStart.value);
+      if (length > 0) slotLength = length;
+    });
+    slotCourse.addEventListener("input", showSuggest);
+    slotCourse.addEventListener("focus", showSuggest);
+    slotCourse.addEventListener("blur", () => closeSuggest());
+    slotCourse.addEventListener("keydown", onCourseKey);
+    // pointerdown, not click: the field keeps focus while an option is taken.
+    slotSuggest.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const option = event.target.closest(".slot-option");
+      if (!option) return;
+      slotCourse.value = option.dataset.name;
+      closeSuggest();
+      slotNewNote.hidden = true;
+    });
+    slotDays.addEventListener("click", (event) => {
+      const day = event.target.closest(".slot-day");
+      if (day) day.setAttribute("aria-pressed", String(day.getAttribute("aria-pressed") !== "true"));
+    });
+    slotPop.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveSlot();
+    });
+    slotCancel.addEventListener("click", closeSlotEditor);
+    slotDelete.addEventListener("click", deleteSlot);
+    // A click on the window around the popover closes it, as in Calendar.
+    slotLayer.addEventListener("pointerdown", (event) => {
+      if (event.target === slotLayer) closeSlotEditor();
+    });
+    window.addEventListener("resize", () => {
+      if (!slotLayer.hidden) placeSlotPop();
+    });
+    trackHover(timetable, ".tt-block");
   }
 
   let itemsLoading = null; // the load in flight, shared by every refreshItems
@@ -2475,6 +3113,34 @@
 
   // ── Sheets ────────────────────────────────────────────────
 
+  // Settings has two tabs: the timetable, used every week, and API keys,
+  // set once. It opens on keys when there is none or when a key is what was
+  // asked for (a tier given); otherwise on the tab last shown.
+  const SETTINGS_TAB_KEY = "nalmeok.settingsTab";
+
+  function showSettingsTab(tab, remember = false) {
+    for (const button of settingsTabs.querySelectorAll("[data-tab]")) {
+      const on = button.dataset.tab === tab;
+      button.setAttribute("aria-selected", String(on));
+      button.tabIndex = on ? 0 : -1;
+      $(button.getAttribute("aria-controls")).hidden = !on;
+    }
+    if (!remember) return;
+    try {
+      localStorage.setItem(SETTINGS_TAB_KEY, tab);
+    } catch (_) {
+      // Storage off: the tab is just not remembered.
+    }
+  }
+
+  function lastSettingsTab() {
+    try {
+      return localStorage.getItem(SETTINGS_TAB_KEY) === "keys" ? "keys" : "timetable";
+    } catch (_) {
+      return "timetable";
+    }
+  }
+
   function openKeys(tier) {
     closeMenu();
     if (tier) state.keyTier = tier;
@@ -2483,6 +3149,8 @@
     renderKeys();
     loadSignals();
     loadCourses();
+    const needKey = Boolean(tier) || state.keys.length === 0;
+    showSettingsTab(needKey ? "keys" : lastSettingsTab());
     // With no key yet the field is the only thing to do; otherwise the sheet
     // itself takes focus and Tab walks it from the top.
     openSurface(keysSheet, { focus: state.keys.length === 0 ? keyValue : keysSheet });
@@ -2649,6 +3317,15 @@
       return;
     }
     if (event.key !== "Escape") return;
+    // The class time editor floats over the settings sheet: Escape closes
+    // only the editor, never the sheet under it.
+    if (!slotLayer.hidden) {
+      if (event.isComposing) return; // the IME cancels its syllable first
+      event.preventDefault();
+      event.stopPropagation();
+      closeSlotEditor();
+      return;
+    }
     if (!keysSheet.hidden && collapseKeyPanel()) return;
     closeSheets();
   }
@@ -2919,29 +3596,28 @@
     trackHover(keyList, ".key-row");
     trackHover(list, ".row");
     // Buttons outside the list get the same JS hover (see trackHover).
-    trackHover(document.body, ".tool-button, .foot-button, .foot-text, .picker-button, .row-action, .plain-button, .text-button, .empty, .health-row, .info-button, .course-remove");
+    trackHover(document.body, ".tool-button, .foot-button, .foot-text, .picker-button, .row-action, .plain-button, .text-button, .empty, .health-row, .info-button, .tt-chip-remove");
 
     signalsSwitch.addEventListener("change", () => setSignals(signalsSwitch.checked));
-    coursesAbout.addEventListener("click", () => {
-      const open = coursesBody.hidden;
-      coursesBody.hidden = !open;
-      coursesAbout.setAttribute("aria-expanded", String(open));
+    settingsTabs.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-tab]");
+      if (tab) showSettingsTab(tab.dataset.tab, true);
     });
-    courseAdd.addEventListener("click", () => {
-      state.courses = coursesFromFields();
-      state.courses.push({ name: "", hint: "" });
-      renderCourses();
-      courseList.querySelector(".course-item:last-child .course-name")?.focus();
+    settingsTabs.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...settingsTabs.querySelectorAll("[data-tab]")];
+      const at = tabs.findIndex((b) => b.getAttribute("aria-selected") === "true");
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+        : (at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      showSettingsTab(tabs[next].dataset.tab, true);
+      tabs[next].focus();
     });
-    courseList.addEventListener("click", (event) => {
-      const remove = event.target.closest(".course-remove");
-      if (!remove) return;
-      remove.closest(".course-item").remove();
-      saveCourses();
+    bindTimetable();
+    semesterStart.addEventListener("change", async () => {
+      const error = await saveCourses();
+      if (error) showToast(error);
     });
-    // Saved when a field is left, not on every key.
-    courseList.addEventListener("change", saveCourses);
-    semesterStart.addEventListener("change", saveCourses);
     sortCourses.addEventListener("click", () => runSort(""));
     signalsAbout.addEventListener("click", () => {
       const open = signalsBody.hidden;

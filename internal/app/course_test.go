@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,12 +202,12 @@ func TestSetCoursesRejectsBadInput(t *testing.T) {
 	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{{Name: "a/b"}}}); err == nil {
 		t.Error("slash in a lecture name accepted")
 	}
-	err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{{Name: " 선형대수학 "}, {Name: "선형대수학"}, {Name: ""}, {Name: "알고리즘", Hint: "김교수"}}})
+	err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{{Name: " 선형대수학 "}, {Name: "선형대수학"}, {Name: ""}, {Name: "알고리즘"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := ta.app.Courses()
-	if len(got.Courses) != 2 || got.Courses[0].Name != "선형대수학" || got.Courses[1].Hint != "김교수" {
+	if len(got.Courses) != 2 || got.Courses[0].Name != "선형대수학" || got.Courses[1].Name != "알고리즘" {
 		t.Fatalf("Courses = %+v", got)
 	}
 }
@@ -360,5 +361,137 @@ func TestSetWeekOverridesTheCountedWeek(t *testing.T) {
 	}
 	if got := ta.app.ListItems("")[0].Week; got != 11 {
 		t.Fatalf("Week after reset = %d, want 11", got)
+	}
+}
+
+func TestSetCoursesKeepsSlots(t *testing.T) {
+	ta := newTestApp(t)
+	slots := []config.Slot{{Day: 4, Start: "9:00", End: "10:15"}, {Day: 2, Start: "09:00", End: "10:15"}, {Day: 2, Start: "09:00", End: "10:15"}}
+	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{{Name: "선형대수학", Slots: slots}}}); err != nil {
+		t.Fatal(err)
+	}
+	got := ta.app.Courses().Courses[0].Slots
+	want := []config.Slot{{Day: 2, Start: "09:00", End: "10:15"}, {Day: 4, Start: "09:00", End: "10:15"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Slots = %+v", got)
+	}
+	for _, bad := range []config.Slot{{Day: 8, Start: "09:00", End: "10:00"}, {Day: 1, Start: "10:00", End: "09:00"}, {Day: 1, Start: "9시", End: "10:00"}} {
+		if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{{Name: "a", Slots: []config.Slot{bad}}}}); err == nil {
+			t.Errorf("bad slot %+v accepted", bad)
+		}
+	}
+}
+
+// A recording made during a class on the timetable goes to that class even
+// when the classifier is unsure; the classifier only names the topic, and
+// is shown only that class.
+func TestSortUsesTheTimetable(t *testing.T) {
+	ta, item := sortFixture(t, "오늘은 출석만 부르고 끝") // Tuesday 13:00
+	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{
+		{Name: "선형대수학", Slots: []config.Slot{{Day: 2, Start: "10:30", End: "11:45"}}},
+		{Name: "알고리즘", Slots: []config.Slot{{Day: 2, Start: "12:00", End: "13:15"}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
+		t.Fatal(err)
+	}
+	var prompts []string
+	ta.app.NewClient = func(string) (gemini.Client, error) {
+		return &promptRecorder{prompts: &prompts, answer: `{"course":"NONE","confident":false,"topic":"정렬 알고리즘"}`}, nil
+	}
+	sum, err := ta.app.SortCourses()
+	if err != nil || sum.Matched != 1 {
+		t.Fatalf("SortCourses = %+v, %v", sum, err)
+	}
+	got, _ := ta.app.store.Get(item.ID)
+	want := filepath.Join(ta.dir, "알고리즘", course.FileBase(11, "정렬 알고리즘")+".md")
+	if got.Course != "알고리즘" || got.Output != want {
+		t.Fatalf("item = %q %q", got.Course, got.Output)
+	}
+	if len(prompts) != 1 || strings.Contains(prompts[0], "선형대수학") {
+		t.Errorf("classifier saw other courses: %q", prompts)
+	}
+}
+
+type promptRecorder struct {
+	gemini.Client
+	prompts *[]string
+	answer  string
+}
+
+func (p *promptRecorder) Generate(_ context.Context, req gemini.Request) (gemini.Result, error) {
+	*p.prompts = append(*p.prompts, req.Parts[0].Text)
+	return gemini.Result{Text: p.answer}, nil
+}
+
+func TestAddClassTimes(t *testing.T) {
+	ta := newTestApp(t)
+	got, err := ta.app.AddClassTimes("프로그래밍 언어론, 화 1100-1300")
+	if err != nil || !got.New || got.Name != "프로그래밍 언어론" || len(got.Slots) != 1 {
+		t.Fatalf("first add = %+v, %v", got, err)
+	}
+	// Same lecture, written without the space: the time joins it.
+	got, err = ta.app.AddClassTimes("프로그래밍언어론 목12001300")
+	if err != nil || got.New || got.Name != "프로그래밍 언어론" {
+		t.Fatalf("second add = %+v, %v", got, err)
+	}
+	courses := ta.app.Courses().Courses
+	if len(courses) != 1 || len(courses[0].Slots) != 2 {
+		t.Fatalf("Courses = %+v", courses)
+	}
+	if _, err := ta.app.AddClassTimes("프로그래밍 언어론 화 11:00-13:00"); err == nil {
+		t.Error("a time already there was added again")
+	}
+	// Overlaps are refused, across lectures and within one; back-to-back
+	// classes are fine.
+	if _, err := ta.app.AddClassTimes("논리회로 화 12:00-14:00"); err == nil || !strings.Contains(err.Error(), "프로그래밍 언어론") {
+		t.Errorf("overlap across lectures: %v", err)
+	}
+	if _, err := ta.app.AddClassTimes("프로그래밍 언어론 화 12:30-13:30"); err == nil {
+		t.Error("overlap within a lecture accepted")
+	}
+	if _, err := ta.app.AddClassTimes("논리회로 화 13:00-15:00"); err != nil {
+		t.Errorf("back-to-back class refused: %v", err)
+	}
+	if _, err := ta.app.AddClassTimes("논리회로"); err == nil {
+		t.Error("a line without times accepted")
+	}
+}
+
+// SetCourses refuses an overlap. One written into the config by hand is
+// dropped on reading, both times of it, and the lectures stay.
+func TestCoursesOverlaps(t *testing.T) {
+	ta := newTestApp(t)
+	slot := func(day int, start, end string) []config.Slot {
+		return []config.Slot{{Day: day, Start: start, End: end}}
+	}
+	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{
+		{Name: "a", Slots: slot(1, "09:00", "11:00")},
+		{Name: "b", Slots: slot(1, "10:00", "12:00")},
+	}}); err == nil {
+		t.Fatal("overlap accepted")
+	}
+	// Nothing was saved, so the config is written from scratch.
+	raw := map[string]json.RawMessage{}
+	raw["courses"] = json.RawMessage(`[{"name":"a","slots":[{"day":1,"start":"09:00","end":"11:00"},{"day":3,"start":"09:00","end":"11:00"}]},{"name":"b","slots":[{"day":1,"start":"10:00","end":"12:00"}]}]`)
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ta.cfgPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(ta.cfgPath) // as the app reads it at start
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Courses()
+	if len(got) != 2 || len(got[0].Slots) != 1 || got[0].Slots[0].Day != 3 || len(got[1].Slots) != 0 {
+		t.Fatalf("Courses = %+v", got)
+	}
+	// What is read back saves without complaint.
+	if err := cfg.SetCourses(got, ""); err != nil {
+		t.Errorf("saving the cleaned list: %v", err)
 	}
 }

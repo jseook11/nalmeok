@@ -62,7 +62,7 @@ frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 
 사용자가 누를 때만 돈다(`App.SortCourses`, `App.SortCourse`, CLI `nalmeok sort`). 대상은 끝났고 `.md`가 있으며 `Item.Sorted`가 빈 항목이다.
 
-- 강의 목록: `config.json`의 `"courses": [{"name": "...", "hint": "..."}]`, 개강일 `"semester_start": "2026-09-01"`(없으면 자동). 설정 시트에서 편집한다.
+- 강의와 시간표: `config.json`의 `"courses": [{"name": "...", "slots": [{"day": 2, "start": "15:00", "end": "19:00"}]}]`(day는 1=월 … 7=일), 개강일 `"semester_start": "2026-09-01"`(없으면 자동). 설정 시트의 시간표에서 편집한다. 한 줄 입력은 `course.ParseEntry`가 읽고, 같은 요일에 겹치는 시간은 저장하지 않는다(파일을 직접 고쳐 겹치면 읽을 때 둘 다 버림).
 - 분류(`course.Classify`): 녹음 파일 이름(확장자 제외)과 전사본 20·35·50·65·80% 지점의 약 400자씩(`course.Sample`, 단어 경계, 모두 2000자)을 `gemini-4-hydrogen`(`course.Model`)에 보내 `{course, confident, topic}` JSON 스키마로 받는다. `course`는 목록 이름 또는 `NONE` enum이고, `confident`가 false면 맞는 강의 없음으로 본다. 가운데 1000자 한 군데만 보냈을 때 프로그래밍언어론의 수 표현 부분이 컴퓨터구조로 분류됐고, 세 군데로 바꾸자 실제 전사본 10개가 모두 맞았다(2026-11-24). 그래도 파일 이름 없이는 `프로그래밍언어론 9주차-2`가 프로그래밍으로 갔고, lite 모델의 주제는 "기저와 행렬식"처럼 장 제목 수준이라 핵심이 안 보였다. 파일 이름을 함께 보내고, 2000자·Gemini 4로 올렸다(2026-11-25). 주제는 교수님이 말한 용어 그대로 쓰게 한다. 영어로 말한 용어는 전사본이 한글 소리로 적었어도 영어로 쓰고, 교과서식 번역어(고유벡터)로 바꾸지 않는다.
 - 키: 무료 키 먼저, 그다음 유료. 429·인증 오류면 그 키를 버리고 다음 키. 모든 키가 막히면 남은 항목은 묻지 않고 멈춘다.
 - 주차(`weekOf`): 녹음 시각으로 `course.SemesterStart`, `course.Week`로 센다. 녹음 시각을 못 읽을 때만 이름의 `9주차`·`week 9`·`w9`(`course.WeekFromName`)를 쓴다. 사용자가 행 메뉴로 넣은 주차(`App.SetWeek`, `store.Item.WeekSet`, 1–`MaxWeek`, 0은 해제)가 있으면 그것이 이긴다. 같은 `.md`를 쓰는 항목에도 함께 넣는다. 세어 낸 주차는 저장하지 않고 `ListItems`가 항목마다 계산해 `Item.Week`로 내보낸다. 개강일 설정이 바뀌면 바로 다시 세기 위해서다. 목록 갱신마다 녹음 헤더를 읽지 않도록 항목 ID별로 (원본 경로, 개강일)이 같으면 값을 재사용한다(`weekCache`). 녹음 시각도 같이 기억해 `Item.Recorded`로 내보낸다.

@@ -30,8 +30,10 @@ var (
 
 // hangulAllowed lists source files whose Hangul string literals are not
 // user-interface text. The transcription prompt is model input, not UI; the
-// search matcher's jamo tables are data.
+// search matcher's jamo tables and the timetable entry parser's day and time
+// words (화요일, 오후, 시간) are data it reads.
 var hangulAllowed = map[string]bool{
+	"internal/course/entry.go":  true,
 	"internal/gemini/prompt.go": true,
 	"internal/store/match.go":   true,
 }

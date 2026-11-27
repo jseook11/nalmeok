@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -458,11 +459,134 @@ func (c *Config) SetSignalsEnabled(on bool) error {
 }
 
 // Course is one lecture transcripts can be sorted into (top-level
-// "courses"). Hint is optional context for the classifier: the professor,
-// key topics, the course code.
+// "courses"). Slots are its weekly class times, from the timetable. An older
+// version's hand-written "hint" is dropped on the next save.
 type Course struct {
-	Name string `json:"name"`
-	Hint string `json:"hint,omitempty"`
+	Name  string `json:"name"`
+	Slots []Slot `json:"slots,omitempty"`
+}
+
+// Slot is one weekly class time: Day is the ISO weekday (1 Monday … 7
+// Sunday), Start and End are "15:00" in local time.
+type Slot struct {
+	Day   int    `json:"day"`
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// Minutes is the slot's start and end as minutes after midnight. ok is
+// false for a day out of range, a malformed time, or an end not after the
+// start.
+func (s Slot) Minutes() (start, end int, ok bool) {
+	start, okStart := clockMinutes(s.Start)
+	end, okEnd := clockMinutes(s.End)
+	return start, end, okStart && okEnd && s.Day >= 1 && s.Day <= 7 && end > start
+}
+
+func clockMinutes(clock string) (int, bool) {
+	t, err := time.Parse("15:04", strings.TrimSpace(clock))
+	if err != nil {
+		return 0, false
+	}
+	return t.Hour()*60 + t.Minute(), true
+}
+
+// Overlap is two class times on the same day that share time: in one
+// lecture or across two. Back-to-back classes (one ends as the next starts)
+// do not overlap.
+type Overlap struct {
+	A, B   string // lecture names
+	SA, SB Slot
+	// ia/ja and ib/jb: lecture and slot indices of SA and SB.
+	ia, ja, ib, jb int
+}
+
+func (o Overlap) err() error {
+	days := strings.Split(i18n.T("timetable.weekdays"), ",")
+	day := ""
+	if o.SA.Day >= 1 && o.SA.Day <= len(days) {
+		day = days[o.SA.Day-1]
+	}
+	return i18n.Error("error.slotOverlap", "a", o.A, "b", o.B, "day", day,
+		"atime", o.SA.Start+"–"+o.SA.End, "btime", o.SB.Start+"–"+o.SB.End)
+}
+
+// Overlaps lists every pair of overlapping class times, in list order.
+func Overlaps(courses []Course) []Overlap {
+	type placed struct {
+		i, j       int
+		start, end int
+	}
+	var all []placed
+	for i, c := range courses {
+		for j, s := range c.Slots {
+			if start, end, ok := s.Minutes(); ok {
+				all = append(all, placed{i, j, start, end})
+			}
+		}
+	}
+	var out []Overlap
+	for x := range all {
+		for y := x + 1; y < len(all); y++ {
+			a, b := all[x], all[y]
+			sa, sb := courses[a.i].Slots[a.j], courses[b.i].Slots[b.j]
+			if sa.Day == sb.Day && a.start < b.end && b.start < a.end {
+				out = append(out, Overlap{A: courses[a.i].Name, B: courses[b.i].Name, SA: sa, SB: sb, ia: a.i, ja: a.j, ib: b.i, jb: b.j})
+			}
+		}
+	}
+	return out
+}
+
+// dropOverlaps removes both times of every overlap. SetCourses never saves
+// one; this keeps a config edited by hand from breaking the timetable or
+// sorting: the clashing times are simply gone and the lectures stay.
+func dropOverlaps(courses []Course) []Course {
+	overlaps := Overlaps(courses)
+	if len(overlaps) == 0 {
+		return courses
+	}
+	drop := map[[2]int]bool{}
+	for _, o := range overlaps {
+		drop[[2]int{o.ia, o.ja}] = true
+		drop[[2]int{o.ib, o.jb}] = true
+	}
+	out := make([]Course, len(courses))
+	for i, c := range courses {
+		out[i] = c
+		out[i].Slots = nil
+		for j, s := range c.Slots {
+			if !drop[[2]int{i, j}] {
+				out[i].Slots = append(out[i].Slots, s)
+			}
+		}
+	}
+	return out
+}
+
+// cleanSlots returns slots with times written as "09:00", ordered by day and
+// start, without repeats. bad is true when a slot was dropped as invalid.
+func cleanSlots(slots []Slot) (out []Slot, bad bool) {
+	seen := map[Slot]bool{}
+	for _, s := range slots {
+		start, end, ok := s.Minutes()
+		if !ok {
+			bad = true
+			continue
+		}
+		s = Slot{Day: s.Day, Start: fmt.Sprintf("%02d:%02d", start/60, start%60), End: fmt.Sprintf("%02d:%02d", end/60, end%60)}
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Day != out[j].Day {
+			return out[i].Day < out[j].Day
+		}
+		return out[i].Start < out[j].Start
+	})
+	return out, bad
 }
 
 // Courses returns the lectures to sort transcripts into, in the user's
@@ -475,12 +599,12 @@ func (c *Config) Courses() []Course {
 	out := list[:0]
 	for _, course := range list {
 		course.Name = strings.TrimSpace(course.Name)
-		course.Hint = strings.TrimSpace(course.Hint)
+		course.Slots, _ = cleanSlots(course.Slots)
 		if course.Name != "" {
 			out = append(out, course)
 		}
 	}
-	return out
+	return dropOverlaps(out)
 }
 
 // SemesterStart is the first day of week 1 the user set ("2026-09-01"), or
@@ -506,7 +630,6 @@ func (c *Config) SetCourses(courses []Course, semesterStart string) error {
 	clean := []Course{}
 	for _, course := range courses {
 		course.Name = strings.TrimSpace(course.Name)
-		course.Hint = strings.TrimSpace(course.Hint)
 		key := strings.ToLower(course.Name)
 		if course.Name == "" || seen[key] {
 			continue
@@ -514,10 +637,17 @@ func (c *Config) SetCourses(courses []Course, semesterStart string) error {
 		if strings.ContainsAny(course.Name, `/\:`) {
 			return i18n.Error("error.nameBadChars")
 		}
+		var bad bool
+		if course.Slots, bad = cleanSlots(course.Slots); bad {
+			return i18n.Error("error.badSlot")
+		}
 		seen[key] = true
 		clean = append(clean, course)
 	}
 	c.reload()
+	if o := Overlaps(clean); len(o) > 0 {
+		return o[0].err()
+	}
 	list, err := json.Marshal(clean)
 	if err != nil {
 		return err

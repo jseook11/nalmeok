@@ -77,3 +77,53 @@ func mp4CreationTime(path string) (time.Time, bool) {
 	}
 	return t, true
 }
+
+// RecordedSpan is when the audio at path started and stopped: the MP4
+// creation time plus the length when the file has one, otherwise the
+// modification time (when the recorder stopped) minus the length. For a
+// folder it runs from its first file's start to its last file's end. When
+// the length cannot be read, start and end are the same moment, the one
+// RecordedAt gives.
+func RecordedSpan(path string) (start, end time.Time, ok bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	if !info.IsDir() {
+		start, end = fileRecordedSpan(path, info)
+		return start, end, true
+	}
+	audio, _, err := listFolder(path)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	for _, p := range dropConvertedMP4(audio) {
+		st, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		s, e := fileRecordedSpan(p, st)
+		if start.IsZero() || s.Before(start) {
+			start = s
+		}
+		if e.After(end) {
+			end = e
+		}
+	}
+	return start, end, !start.IsZero()
+}
+
+func fileRecordedSpan(path string, info os.FileInfo) (time.Time, time.Time) {
+	seconds, err := Duration(path)
+	length := time.Duration(seconds * float64(time.Second))
+	if err != nil || seconds <= 0 {
+		at := fileRecordedAt(path, info)
+		return at, at
+	}
+	if FormatOf(path) == FormatAACMP4 {
+		if t, ok := mp4CreationTime(path); ok && t.Before(info.ModTime().Add(time.Hour)) {
+			return t, t.Add(length)
+		}
+	}
+	return info.ModTime().Add(-length), info.ModTime()
+}

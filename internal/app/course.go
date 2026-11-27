@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,65 @@ func (a *App) SetCourses(settings CourseSettings) error {
 		return errNoConfig
 	}
 	return a.cfg.SetCourses(settings.Courses, settings.SemesterStart)
+}
+
+// ClassTimesAdded says what AddClassTimes did, for the toast.
+type ClassTimesAdded struct {
+	Settings CourseSettings `json:"Settings"`
+	Name     string         `json:"Name"`  // the lecture, as saved
+	Slots    []config.Slot  `json:"Slots"` // the times added
+	New      bool           `json:"New"`   // the lecture was added too
+}
+
+// AddClassTimes reads a typed line ("프로그래밍, 화 1500~1900") and adds its
+// class times to the lecture of that name, or to a new lecture. Names match
+// without regard to case or spaces, so "프로그래밍언어론" adds to "프로그래밍
+// 언어론". Times already there are skipped; a time that overlaps another
+// class is refused.
+func (a *App) AddClassTimes(text string) (ClassTimesAdded, error) {
+	entry, err := course.ParseEntry(text)
+	if err != nil {
+		return ClassTimesAdded{}, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg == nil {
+		return ClassTimesAdded{}, errNoConfig
+	}
+	list := a.cfg.Courses()
+	at := -1
+	for i, c := range list {
+		if sameCourseName(c.Name, entry.Name) {
+			at = i
+			break
+		}
+	}
+	added := ClassTimesAdded{Name: entry.Name, New: at < 0}
+	if at < 0 {
+		list = append(list, config.Course{Name: entry.Name})
+		at = len(list) - 1
+	}
+	added.Name = list[at].Name
+	for _, slot := range entry.Slots {
+		if !slices.Contains(list[at].Slots, slot) {
+			list[at].Slots = append(list[at].Slots, slot)
+			added.Slots = append(added.Slots, slot)
+		}
+	}
+	if len(added.Slots) == 0 {
+		return ClassTimesAdded{}, i18n.Error("error.entryExists", "name", added.Name)
+	}
+	if err := a.cfg.SetCourses(list, a.cfg.SemesterStart()); err != nil {
+		return ClassTimesAdded{}, err
+	}
+	added.Settings = CourseSettings{Courses: a.cfg.Courses(), SemesterStart: a.cfg.SemesterStart()}
+	return added, nil
+}
+
+// sameCourseName: equal ignoring case and spaces.
+func sameCourseName(a, b string) bool {
+	flat := func(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), "")) }
+	return flat(a) == flat(b)
 }
 
 // SortableCount is how many finished items "sort into lectures" would look
@@ -158,9 +218,25 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 		return false, err
 	}
 	name := recordingName(item)
-	res, err := clients.classify(ctx, text, name, courses)
+	week, _ := a.weeks.of(item, start)
+	// A recording made during a class on the timetable is that class (the
+	// one it shares the most time with): the classifier then only names the
+	// topic.
+	var slot config.Course
+	var timed bool
+	if from, to, ok := media.RecordedSpan(item.Source); ok {
+		slot, timed = course.ByTime(courses, from, to)
+	}
+	ask := courses
+	if timed {
+		ask = []config.Course{slot}
+	}
+	res, err := clients.classify(ctx, text, name, ask)
 	if err != nil {
 		return false, err
+	}
+	if timed {
+		res.Course = slot.Name
 	}
 	if res.Course == "" {
 		return false, a.updateTranscript(item, func(it *store.Item) { it.Sorted = sortedNone })
@@ -168,7 +244,6 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if !isFile(item.Output) {
 		return false, errNoOutput
 	}
-	week, _ := a.weeks.of(item, start)
 	base := course.FileBase(week, res.Topic)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
