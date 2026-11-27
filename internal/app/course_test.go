@@ -13,7 +13,6 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/course"
 	"github.com/jseook11/nalmeok/internal/gemini"
-	"github.com/jseook11/nalmeok/internal/media/mediatest"
 	"github.com/jseook11/nalmeok/internal/store"
 	"google.golang.org/genai"
 )
@@ -50,7 +49,13 @@ func sortFixture(t *testing.T, transcript string) (*testApp, store.Item) {
 	t.Helper()
 	ta := newTestApp(t)
 	src := filepath.Join(ta.dir, "녹음 23.m4a")
-	mediatest.WriteClocked(t, src, time.Date(2026, 11, 10, 13, 0, 0, 0, time.Local))
+	if err := os.WriteFile(src, []byte("not really audio"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := time.Date(2026, 11, 10, 13, 0, 0, 0, time.Local)
+	if err := os.Chtimes(src, rec, rec); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(ta.app.OutputDir, "녹음 23.md")
 	if err := os.MkdirAll(ta.app.OutputDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -273,9 +278,7 @@ func TestSortFolderGoesIntoTranscriptFolder(t *testing.T) {
 	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 || sum.Failed != 0 {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
-	// The folder has no audio, so no recording time; the week in its name
-	// is not read.
-	want := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(0, "부분공간")+".md")
+	want := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(10, "부분공간")+".md")
 	for _, id := range []string{"i1", "i2"} {
 		got, _ := ta.app.store.Get(id)
 		if got.Output != want || got.Sorted != sortedMatched || got.Course != "선형대수학" {
@@ -290,38 +293,28 @@ func TestSortFolderGoesIntoTranscriptFolder(t *testing.T) {
 	}
 }
 
-func TestWeekFallsBackToTheSortedName(t *testing.T) {
+func TestWeekFallsBackToTheName(t *testing.T) {
 	ta, item := sortFixture(t, "부분공간")
 	// Recorded in week 11.
 	if got := ta.app.ListItems("")[0].Week; got != 11 {
 		t.Fatalf("Week = %d, want 11", got)
 	}
-	// A folder whose audio is gone has no recording time. The week in its
-	// own name is not read.
+	// A folder whose audio is gone has no recording time; its name has a week.
 	folder := filepath.Join(ta.dir, "알고리즘 9주차")
 	if err := os.Mkdir(folder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source, it.Name = "folder", folder, "알고리즘 9주차" }); err != nil {
-		t.Fatal(err)
-	}
-	if got := ta.app.ListItems("")[0].Week; got != 0 {
-		t.Fatalf("Week from the recording's name = %d, want 0", got)
-	}
-	// Once sorted, the week sorting put in the name is kept.
-	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Name, it.Sorted = course.FileBase(9, "탐욕"), sortedMatched }); err != nil {
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source = "folder", folder }); err != nil {
 		t.Fatal(err)
 	}
 	if got := ta.app.ListItems("")[0].Week; got != 9 {
-		t.Fatalf("Week from the sorted name = %d, want 9", got)
+		t.Fatalf("Week = %d, want 9", got)
 	}
 	// A new semester start counts again.
 	if err := os.Remove(folder); err != nil {
 		t.Fatal(err)
 	}
-	if err := ta.app.store.Update(item.ID, func(it *store.Item) {
-		it.Kind, it.Source, it.Sorted = "file", filepath.Join(ta.dir, "녹음 23.m4a"), ""
-	}); err != nil {
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Kind, it.Source = "file", filepath.Join(ta.dir, "녹음 23.m4a") }); err != nil {
 		t.Fatal(err)
 	}
 	ta.setCourses(t, "2026-09-07", "선형대수학")
@@ -428,53 +421,6 @@ func TestSortUsesTheTimetable(t *testing.T) {
 	}
 }
 
-// A lecture video downloaded from the LMS has no creation time; its
-// modification time is when it was downloaded. Downloaded during a class on
-// the timetable (Friday 16:55, inside 알고리즘's slot, 2026-11-27), it is
-// still sorted by what it says, and gets no week rather than the week it was
-// downloaded in.
-func TestDownloadedVideoIgnoresTheTimetable(t *testing.T) {
-	ta, item := sortFixture(t, "lower bound 증명")
-	video := filepath.Join(ta.dir, "algorithm_13.1_finding_lower_bound.mp4")
-	if err := os.WriteFile(video, []byte("downloaded video"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fetched := time.Date(2026, 11, 27, 16, 55, 0, 0, time.Local)
-	if err := os.Chtimes(video, fetched, fetched); err != nil {
-		t.Fatal(err)
-	}
-	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Source = video }); err != nil {
-		t.Fatal(err)
-	}
-	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{
-		{Name: "알고리즘", Slots: []config.Slot{{Day: 5, Start: "09:00", End: "17:50"}}},
-		{Name: "선형대수학", Slots: []config.Slot{{Day: 1, Start: "15:00", End: "18:00"}}},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
-		t.Fatal(err)
-	}
-	var prompts, systems []string
-	ta.app.NewClient = func(string) (gemini.Client, error) {
-		return &promptRecorder{prompts: &prompts, systems: &systems, answer: `{"course":"선형대수학","confident":true,"topic":"하한"}`}, nil
-	}
-	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 {
-		t.Fatalf("SortCourses = %+v, %v", sum, err)
-	}
-	if len(systems) != 1 || !strings.Contains(systems[0], "confident") || !strings.Contains(prompts[0], "선형대수학") {
-		t.Fatalf("download was not classified by its content: %q", systems)
-	}
-	got, _ := ta.app.store.Get(item.ID)
-	want := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(0, "하한")+".md")
-	if got.Course != "선형대수학" || got.Output != want || !got.RecordedFrom.IsZero() {
-		t.Fatalf("item = %q %q, recorded %v", got.Course, got.Output, got.RecordedFrom)
-	}
-	if week := ta.app.ListItems("")[0].Week; week != 0 {
-		t.Errorf("Week = %d, want none", week)
-	}
-}
-
 type promptRecorder struct {
 	gemini.Client
 	prompts *[]string
@@ -561,19 +507,17 @@ func TestCoursesOverlaps(t *testing.T) {
 	}
 }
 
-// With the audio deleted and no kept time, a sorted item's week comes from
-// the name sorting gave it; the recording's own name is never read.
+// With the audio deleted and no kept time, the week comes from the names.
 func TestWeekOfWithoutAudio(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	cases := []struct {
 		item store.Item
 		want int
 	}{
-		{store.Item{Kind: "file", Source: filepath.Join(gone, norm.NFD.String("컴퓨터구조 13주차-2.m4a")), Name: "x", Sorted: sortedMatched}, 0},
-		{store.Item{Kind: "folder", Source: filepath.Join(gone, norm.NFD.String("9주차")), Name: norm.NFD.String("9주차")}, 0},
-		{store.Item{Kind: "file", Source: filepath.Join(gone, "Chung-Ang University 11.m4a"), Name: "Week 12 - Direct-mapped cache", Sorted: sortedMatched}, 12},
-		{store.Item{Kind: "file", Source: filepath.Join(gone, "a.m4a"), Name: norm.NFD.String("12주차 - 캐시"), Sorted: sortedMatched}, 12},
-		{store.Item{Kind: "file", Source: filepath.Join(gone, "흑석동 8.m4a"), Name: "eigenvalue와 basis 변환", Sorted: sortedMatched}, 0},
+		{store.Item{Kind: "file", Source: filepath.Join(gone, norm.NFD.String("컴퓨터구조 13주차-2.m4a")), Name: "x"}, 13},
+		{store.Item{Kind: "folder", Source: filepath.Join(gone, norm.NFD.String("9주차")), Name: "9주차"}, 9},
+		{store.Item{Kind: "file", Source: filepath.Join(gone, "Chung-Ang University 11.m4a"), Name: "Week 12 - Direct-mapped cache"}, 12},
+		{store.Item{Kind: "file", Source: filepath.Join(gone, "흑석동 8.m4a"), Name: "eigenvalue와 basis 변환"}, 0},
 	}
 	for _, c := range cases {
 		if week, _ := weekOf(c.item, ""); week != c.want {

@@ -9,22 +9,17 @@ import (
 // mp4Epoch is where MP4 creation times count from (1904-01-01 UTC).
 var mp4Epoch = time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// recordedAt is when the file at path was recorded: an MP4-family file's
-// movie header creation time, which Voice Memos and most recorders set,
-// when it is plausible. Nothing else is a recording time: a file without
-// one (a lecture video downloaded from the LMS, 2026-11-27) has only its
-// modification time, which is when it was downloaded or copied. Counted as
-// the recording, it put downloads in the week they were fetched and in the
-// class that was on then.
-func recordedAt(path string, info os.FileInfo) (time.Time, bool) {
-	if FormatOf(path) != FormatAACMP4 {
-		return time.Time{}, false
+// fileRecordedAt is when one file was recorded: an MP4-family file's movie
+// header creation time when it is plausible (Voice Memos and most recorders
+// set it), otherwise the modification time, which a recorder writes when it
+// stops.
+func fileRecordedAt(path string, info os.FileInfo) time.Time {
+	if FormatOf(path) == FormatAACMP4 {
+		if t, ok := mp4CreationTime(path); ok && t.Before(info.ModTime().Add(time.Hour)) {
+			return t
+		}
 	}
-	t, ok := mp4CreationTime(path)
-	if !ok || !t.Before(info.ModTime().Add(time.Hour)) {
-		return time.Time{}, false
-	}
-	return t, true
+	return info.ModTime()
 }
 
 // mp4CreationTime reads mvhd's creation time. Zero, pre-2010 and future
@@ -56,18 +51,24 @@ func mp4CreationTime(path string) (time.Time, bool) {
 	return t, true
 }
 
-// RecordedSpan is when the audio at path started and stopped, from its
-// creation time (recordedAt) to that plus its length. For a folder it runs
-// from its first file's start to its last file's end, over the files that
-// have a creation time. ok is false when no file has one. When the length
-// cannot be read, start and end are the same moment.
+// RecordedSpan is when the audio at path started and stopped: the MP4
+// creation time plus the length when the file has one, otherwise the
+// modification time (when the recorder stopped) minus the length. For a
+// folder it runs from its first file's start to its last file's end. When
+// the length cannot be read, start and end are the same moment, the one
+// fileRecordedAt gives. A video (hasVideo) has no recording time: ok is
+// false for it, and a folder leaves it out.
 func RecordedSpan(path string) (start, end time.Time, ok bool) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}, time.Time{}, false
 	}
 	if !info.IsDir() {
-		return fileRecordedSpan(path, info)
+		if hasVideo(path) {
+			return time.Time{}, time.Time{}, false
+		}
+		start, end = fileRecordedSpan(path, info)
+		return start, end, true
 	}
 	audio, _, err := listFolder(path)
 	if err != nil {
@@ -75,13 +76,10 @@ func RecordedSpan(path string) (start, end time.Time, ok bool) {
 	}
 	for _, p := range dropConvertedMP4(audio) {
 		st, err := os.Stat(p)
-		if err != nil {
+		if err != nil || hasVideo(p) {
 			continue
 		}
-		s, e, ok := fileRecordedSpan(p, st)
-		if !ok {
-			continue
-		}
+		s, e := fileRecordedSpan(p, st)
 		if start.IsZero() || s.Before(start) {
 			start = s
 		}
@@ -92,14 +90,50 @@ func RecordedSpan(path string) (start, end time.Time, ok bool) {
 	return start, end, !start.IsZero()
 }
 
-func fileRecordedSpan(path string, info os.FileInfo) (time.Time, time.Time, bool) {
-	at, ok := recordedAt(path, info)
-	if !ok {
-		return time.Time{}, time.Time{}, false
+// hasVideo reports whether the MP4-family file at path has a video track.
+// Such a file is a lecture video someone downloaded, not a class recorded
+// on a phone or laptop (nobody films a class to transcribe it), and its
+// times are when it was exported or downloaded (2026-11-27: e-class videos
+// got the week and the class of their download). It has no recording time.
+func hasVideo(path string) bool {
+	if FormatOf(path) != FormatAACMP4 {
+		return false
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	moov, _, err := readMoov(f)
+	if err != nil {
+		return false
+	}
+	traks, err := childBoxes(moov)
+	if err != nil {
+		return false
+	}
+	for _, trak := range traks {
+		if trak.typ != "trak" {
+			continue
+		}
+		if hdlr, ok := findBox(trak.body, "mdia", "hdlr"); ok && len(hdlr) >= 12 && string(hdlr[8:12]) == "vide" {
+			return true
+		}
+	}
+	return false
+}
+
+func fileRecordedSpan(path string, info os.FileInfo) (time.Time, time.Time) {
 	seconds, err := Duration(path)
+	length := time.Duration(seconds * float64(time.Second))
 	if err != nil || seconds <= 0 {
-		return at, at, true
+		at := fileRecordedAt(path, info)
+		return at, at
 	}
-	return at, at.Add(time.Duration(seconds * float64(time.Second))), true
+	if FormatOf(path) == FormatAACMP4 {
+		if t, ok := mp4CreationTime(path); ok && t.Before(info.ModTime().Add(time.Hour)) {
+			return t, t.Add(length)
+		}
+	}
+	return info.ModTime().Add(-length), info.ModTime()
 }

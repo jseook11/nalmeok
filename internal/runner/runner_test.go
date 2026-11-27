@@ -15,7 +15,6 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
-	"github.com/jseook11/nalmeok/internal/media/mediatest"
 	"github.com/jseook11/nalmeok/internal/plan"
 	"github.com/jseook11/nalmeok/internal/store"
 	"google.golang.org/genai"
@@ -1553,7 +1552,9 @@ func TestReceivedRecordingRemovedWhenDone(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(received), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mediatest.WriteClocked(t, received, time.Date(2026, 11, 10, 13, 0, 0, 0, time.Local))
+	if err := os.WriteFile(received, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	own := h.source("강의09.m4a")
 	h.r.Start(h.ctx)
 	a := h.addOne(received, "free")
