@@ -257,8 +257,7 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	}
 	target := filepath.Join(dir, base+".md")
 	if target != item.Output {
-		target = output.UniquePath(target)
-		if err := os.Rename(item.Output, target); err != nil {
+		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
 			return false, i18n.Wrap("error.renameFailed", err)
 		}
 	}
@@ -268,6 +267,28 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 		it.Course = res.Course
 		it.Sorted = sortedMatched
 	})
+}
+
+// placeSorted puts a sorted transcript at target, or a numbered name when
+// that is taken, and returns where it went. The name is claimed first
+// (output.Reserve), so the startup copy writing the same name meanwhile is
+// never replaced. A .md in the transcript folder moves. One outside it (an
+// older result the startup copy has not taken in, a file picked with
+// "locate") is written anew from text and left where it is: it may sit on
+// another drive, where a rename fails, or in a folder macOS guards.
+func placeSorted(root, from, target, text string) (string, error) {
+	if !output.Inside(root, from) {
+		return output.WriteNew(target, text)
+	}
+	claimed, err := output.Reserve(target)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(from, claimed); err != nil {
+		_ = os.Remove(claimed)
+		return "", err
+	}
+	return claimed, nil
 }
 
 // updateTranscript applies fn to item and to every other item writing to the
@@ -292,11 +313,9 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 // written in the recording's name ("9주차", "week 9"), else in the item's
 // name, which sorting set to "<n>주차 - <topic>".
 func weekOf(item store.Item, start string) (int, time.Time) {
-	at := item.RecordedFrom
-	if at.IsZero() {
-		at, _ = media.RecordedAt(item.Source)
-	}
-	if !at.IsZero() {
+	// The start, as sorting uses: a recording that runs past midnight on
+	// Sunday belongs to the week it began in.
+	if at, _, ok := recordedSpan(item); ok && !at.IsZero() {
 		return course.Week(at, course.SemesterStart(at, start)), at
 	}
 	if week := course.WeekFromName(recordingName(item)); week > 0 {
@@ -374,13 +393,9 @@ func (a *App) semesterStart() string {
 
 // recordingName is the name the user gave the recording: a file's name
 // without extension, or a folder's name as it is ("algorithm_09.1" keeps
-// its ".1").
+// its ".1"). A new transcript gets the same name (output.TargetPath).
 func recordingName(item store.Item) string {
-	name := filepath.Base(item.Source)
-	if item.Kind != "folder" {
-		name = strings.TrimSuffix(name, filepath.Ext(name))
-	}
-	return name
+	return output.Name(item.Source, item.Kind)
 }
 
 // recordedSpan is when item's recording ran: kept on the item, or read from

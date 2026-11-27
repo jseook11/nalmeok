@@ -56,7 +56,10 @@ func sortFixture(t *testing.T, transcript string) (*testApp, store.Item) {
 	if err := os.Chtimes(src, rec, rec); err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(ta.dir, "녹음 23.md")
+	out := filepath.Join(ta.app.OutputDir, "녹음 23.md")
+	if err := os.MkdirAll(ta.app.OutputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(out, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -513,5 +516,51 @@ func TestWeekOfWithoutAudio(t *testing.T) {
 		if week, _ := weekOf(c.item, ""); week != c.want {
 			t.Errorf("weekOf(%q, %q) = %d, want %d", c.item.Source, c.item.Name, week, c.want)
 		}
+	}
+}
+
+// A transcript outside the transcript folder (another drive, a guarded
+// folder) is written anew into the lecture folder; the old file stays.
+func TestSortCopiesTranscriptFromOutside(t *testing.T) {
+	ta, item := sortFixture(t, "부분공간 span basis")
+	ta.setCourses(t, "", "선형대수학")
+	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(ta.dir, "D", "녹음 23.md")
+	if err := os.MkdirAll(filepath.Dir(outside), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(item.Output, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.app.store.Update(item.ID, func(it *store.Item) { it.Output = outside }); err != nil {
+		t.Fatal(err)
+	}
+	// The lecture folder already holds that name.
+	taken := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(11, "부분공간")+".md")
+	if err := os.MkdirAll(filepath.Dir(taken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taken, []byte("다른 강의록\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ta.withSorter(t, map[string]string{"부분공간": `{"course":"선형대수학","confident":true,"topic":"부분공간"}`}, nil)
+	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 {
+		t.Fatalf("SortCourses = %+v, %v", sum, err)
+	}
+	got, _ := ta.app.store.Get(item.ID)
+	want := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(11, "부분공간")+" (2).md")
+	if got.Output != want {
+		t.Fatalf("Output = %q, want %q", got.Output, want)
+	}
+	if data, _ := os.ReadFile(want); string(data) != "부분공간 span basis" {
+		t.Fatalf("copy = %q", data)
+	}
+	if data, _ := os.ReadFile(taken); string(data) != "다른 강의록\n" {
+		t.Fatal("a file already in the lecture folder was replaced")
+	}
+	if !isFile(outside) {
+		t.Fatal("the transcript outside the folder must stay")
 	}
 }

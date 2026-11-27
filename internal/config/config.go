@@ -164,7 +164,7 @@ func ReceivedDir() (string, error) {
 	return filepath.Join(dir, "received"), nil
 }
 
-// LegacyReceivedDir is where 0.11 and earlier kept Voice Memos recordings:
+// LegacyReceivedDir is where earlier versions kept Voice Memos recordings:
 // ~/Documents/Nalmeok/Voice Memos. Recordings there are the app's own
 // copies too.
 func LegacyReceivedDir() (string, error) {

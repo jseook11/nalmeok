@@ -79,14 +79,15 @@ func (r *Runner) finish(id string) error {
 
 // removeReceived deletes source when the app saved it itself (a recording
 // dragged from Voice Memos, see Options.ReceivedDirs) and no other item still
-// needs it: one not finished yet that uses the same file. A user's own
-// recording is never touched.
+// needs it: one not finished yet that uses the same file or a folder holding
+// it. A user's own recording is never touched.
 func (r *Runner) removeReceived(id, source string) {
 	if !r.received(source) {
 		return
 	}
 	for _, other := range r.opts.Store.List("") {
-		if other.ID != id && other.Source == source && other.State != StateDone {
+		uses := other.Source == source || output.Inside(other.Source, source)
+		if other.ID != id && uses && other.State != StateDone {
 			return
 		}
 	}

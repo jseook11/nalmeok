@@ -18,7 +18,7 @@ Go + Wails 데스크톱 앱이다.
 
 ```text
 cmd/nalmeok/        진입점: 인자 없으면 GUI, 인자가 있으면 CLI
-internal/config     설정 폴더, config.json(키·gui.mode·signals·courses·semester_start), 모드·등급 상수
+internal/config     설정 폴더·전사본 폴더(OutputDir)·수신 폴더, config.json(키·gui.mode·signals·courses·semester_start), 모드·등급 상수
 internal/store      items.json(처리 목록), 검색
 internal/media      입력 스캔·길이, 다시 인코딩 없이 조각 만들기 (표준 라이브러리만, 아래 "미디어 형식")
 internal/plan       조각 계획(요청당 최대 Batch 65분·무료 40분, 균등 분할), 예상 비용
@@ -37,11 +37,11 @@ frontend/dist       화면 (HTML/CSS/JS, 빌드 단계 없음)
 frontend/dist/i18n  문구 카탈로그 (en.json 기준, ko.json 한국어)
 ```
 
-전사 결과는 원본 옆이 아니라 전사본 폴더 `config.OutputDir`(`~/Nalmeok`, `%USERPROFILE%\Nalmeok`)에 `<녹음 이름>.md`로 쓴다(`output.TargetPath`). 홈 폴더 자체는 macOS가 권한을 묻는 폴더(데스크탑·문서·다운로드)가 아니고, Store판의 가상화된 AppData 밖이라 탐색기에서도 보인다. `NALMEOK_OUTPUT_DIR`가 있으면 그 폴더, `NALMEOK_CONFIG_DIR`만 있으면 `<그 폴더>/Nalmeok`을 쓴다. 미리보기 모드(`NALMEOK_UI_PREVIEW`)는 전사본 폴더를 비워 둔다(심어 둔 목록이 실제 폴더로 복사되지 않게). 같은 `.md`는 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`).
+전사 결과는 원본 옆이 아니라 전사본 폴더 `config.OutputDir`(`~/Nalmeok`, `%USERPROFILE%\Nalmeok`)에 `<녹음 이름>.md`로 쓴다(`output.TargetPath`). 홈 폴더 자체는 macOS가 권한을 묻는 폴더(데스크탑·문서·다운로드)가 아니고, Store판의 가상화된 AppData 밖이라 탐색기에서도 보인다. `NALMEOK_OUTPUT_DIR`가 있으면 그 폴더, `NALMEOK_CONFIG_DIR`만 있으면 `<그 폴더>/Nalmeok`을 쓴다. 미리보기 모드(`NALMEOK_UI_PREVIEW`)는 전사본 폴더를 비워 둔다(심어 둔 목록이 실제 폴더로 복사되지 않게). 같은 `.md`는 설정 폴더의 `transcripts/<항목 ID>.md`에도 보관한다(`output.ArchivePath`). 화면은 `Output`의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`, 전사본 폴더에 번호를 붙여 씀)을 낸다. 목록에서 지우면 보관본도 지운다.
 
-앱을 켤 때 `App.tidyFinished`가 끝난 항목을 한 번 훑는다. 전사본 폴더 밖의 `.md`(0.11까지 원본 옆에 쓴 것, "다시 찾기…"로 가리킨 파일)는 보관본에서(없으면 그 `.md`에서) 전사본 폴더로 복사하고 항목을 복사본으로 돌린다. 정리된 항목은 `<강의>/` 아래로 간다. 같은 `.md`를 가리키던 항목은 복사본 하나를 같이 쓴다. 예전 파일은 지우지 않는다. 녹음 시각(`store.Item.RecordedFrom`/`RecordedTo`)이 없는 항목은 이때 음성에서 읽어 둔다. 새 항목은 실행기가 끝낼 때(`finish`) 저장한다. 주차와 강의 정리는 저장된 시각을 먼저 쓰므로, 원본이 지워지거나 권한이 필요한 폴더에 있어도 음성을 다시 읽지 않는다. 예전 버전은 이 두 필드를 모르므로 되돌렸다가 다시 올리면 원본이 남은 항목만 다시 채워진다.
+앱을 켤 때 `App.tidyFinished`가 끝난 항목을 한 번 훑는다. 전사본 폴더 밖의 `.md`(원본 옆에 쓰던 버전의 결과, "다시 찾기…"로 가리킨 파일)는 보관본에서(없으면 그 `.md`에서) 전사본 폴더로 복사하고 항목을 복사본으로 돌린다. 정리된 항목은 `<강의>/` 아래로 간다. 같은 `.md`를 가리키던 항목은 복사본 하나를 같이 쓴다. 원래 파일은 지우지 않는다(원본 폴더를 건드리면 권한을 묻는다). 보관본이 없는 항목은 이때 보관본도 만든다. 녹음 시각(`store.Item.RecordedFrom`/`RecordedTo`)이 없는 항목은 이때 음성에서 읽어 둔다. 새 항목은 실행기가 끝낼 때(`finish`) 저장한다. 주차와 강의 정리는 저장된 시각을 먼저 쓰므로, 원본이 지워지거나 권한이 필요한 폴더에 있어도 음성을 다시 읽지 않는다. 이 두 필드를 모르는 버전이 `items.json`을 다시 쓰면 필드가 빠지고, 원본이 남은 항목만 다음 실행에서 다시 채워진다.
 
-macOS 음성 메모에서 끈 녹음(`internal/macdrop`)은 `config.ReceivedDir`(`<설정 폴더>/received`)에 받는다. 이 폴더와 0.11까지 쓰던 `~/Documents/Nalmeok/Voice Memos`(`config.LegacyReceivedDir`) 안의 원본은 앱 소유라서(`runner.Options.ReceivedDirs`), 전사본을 저장한 뒤나 항목을 지울 때 실행기가 지운다(`removeReceived`). 같은 파일을 쓰는 끝나지 않은 다른 항목이 있으면 남긴다. 화면은 원래 위치의 `.md`를 먼저 읽고, 그 파일이 옮겨지거나 지워졌을 때만 보관본을 보여 주며 "다시 찾기…"(`LocateOutput`)·"다시 저장"(`RestoreOutput`)을 낸다. 보관본이 생기기 전 항목은 처음 읽을 때와 앱을 켤 때 옮겨 두고, 목록에서 지우면 보관본도 지운다.
+macOS 음성 메모에서 끈 녹음(`internal/macdrop`)은 `config.ReceivedDir`(`<설정 폴더>/received`)에 받는다. 이 폴더와 이전 수신 폴더 `~/Documents/Nalmeok/Voice Memos`(`config.LegacyReceivedDir`) 안의 원본은 앱 소유라서(`runner.Options.ReceivedDirs`), 전사본을 저장한 뒤나 항목을 지울 때 실행기가 지운다(`removeReceived`). 같은 파일을 쓰는 끝나지 않은 다른 항목이 있으면 남긴다. 사용자가 고른 녹음은 지우지 않는다.
 
 ### 미디어 형식
 
@@ -70,8 +70,8 @@ macOS 음성 메모에서 끈 녹음(`internal/macdrop`)은 `config.ReceivedDir`
 - 분류(`course.Classify`): 녹음 파일 이름(확장자 제외)과 전사본 20·35·50·65·80% 지점의 약 400자씩(`course.Sample`, 단어 경계, 모두 2000자)을 `gemini-4-hydrogen`(`course.Model`)에 보내 `{course, confident, topic}` JSON 스키마로 받는다. `course`는 목록 이름 또는 `NONE` enum이고, `confident`가 false면 맞는 강의 없음으로 본다. 가운데 1000자 한 군데만 보냈을 때 프로그래밍언어론의 수 표현 부분이 컴퓨터구조로 분류됐고, 세 군데로 바꾸자 실제 전사본 10개가 모두 맞았다(2026-11-24). 그래도 파일 이름 없이는 `프로그래밍언어론 9주차-2`가 프로그래밍으로 갔고, lite 모델의 주제는 "기저와 행렬식"처럼 장 제목 수준이라 핵심이 안 보였다. 파일 이름을 함께 보내고, 2000자·Gemini 4로 올렸다(2026-11-25). 주제는 교수님이 말한 용어 그대로 쓰게 한다. 영어로 말한 용어는 전사본이 한글 소리로 적었어도 영어로 쓰고, 교과서식 번역어(고유벡터)로 바꾸지 않는다.
 - 키: 무료 키 먼저, 그다음 유료. 429·인증 오류면 그 키를 버리고 다음 키. 모든 키가 막히면 남은 항목은 묻지 않고 멈춘다.
 - 주차(`weekOf`): 녹음 시각(저장된 `Item.RecordedFrom`, 없으면 음성에서 읽은 값)으로 `course.SemesterStart`, `course.Week`로 센다. 녹음 시각이 없을 때(저장 전에 음성을 지운 항목)만 녹음 이름의 `9주차`·`week 9`·`w9`(`course.WeekFromName`), 그것도 없으면 항목 이름(정리 때 붙인 `<n>주차 - <주제>`)에서 읽는다. 이름은 NFC로 맞춘 뒤 찾는다. macOS 파일 이름은 한글이 자모로 풀린 NFD라서 그대로는 `주차`에 맞지 않았다. 사용자가 행 메뉴로 넣은 주차(`App.SetWeek`, `store.Item.WeekSet`, 1–`MaxWeek`, 0은 해제)가 있으면 그것이 이긴다. 같은 `.md`를 쓰는 항목에도 함께 넣는다. 세어 낸 주차는 저장하지 않고 `ListItems`가 항목마다 계산해 `Item.Week`로 내보낸다. 개강일 설정이 바뀌면 바로 다시 세기 위해서다. 목록 갱신마다 녹음 헤더를 읽지 않도록 항목 ID별로 (원본 경로, 이름, 저장된 녹음 시각, 개강일)이 같으면 값을 재사용한다(`weekCache`). 녹음 시각도 같이 기억해 `Item.Recorded`로 내보낸다.
-- 목록 묶기: `gui.group`(`date`·`course`·`week`, `App.ListGroup`/`SetListGroup`). 프런트엔드 `visibleItems`가 묶음 순서로 정렬하고 `sectionOf`가 머리글을 정한다. 과목별은 정리 전 → 설정의 강의 순서 → 목록에 없는 강의, 안에서는 주차 내림차순. 주차별은 주차 내림차순(모름은 맨 아래), 안에서는 강의 순서. 같은 강의·주차 안에서는 `Item.Recorded` 내림차순, 녹음 시각이 없는 항목은 뒤에 이름 순(`byRecording`). 주차별로 볼 때 행 이름 앞의 그 주차(`Week 12 - `, `12주차 - `)는 빼고 보인다(`rowName`). 이름 전체가 주차면 그대로 둔다. 키보드 이동도 이 순서를 따른다. 녹음 시각은 MP4 계열의 `mvhd` 생성 시각(2010년 이후, 수정 시각보다 1시간 넘게 늦지 않을 때), 아니면 파일 수정 시각(`media.RecordedAt`). 폴더 항목은 오디오 중 가장 이른 시각. 개강일 설정이 그 시각이 속한 반년을 덮으면 그 날을, 아니면 3월 2일·9월 1일부터 첫 평일을 쓴다. 1·2월 녹음과 개강 전 녹음은 주차 없이 주제만 쓴다. 1주차는 개강일부터 7일.
-- 이동: `<전사본 폴더>/<강의>/<주차·주제>.md`(`course.FileBase`, 문구 `course.weekTopic`). 주차 문구는 앱의 다른 문구처럼 앱 언어를 따른다. 같은 `.md`를 쓰는 항목(같은 녹음을 두 번 넣은 경우)은 함께 갱신한다(`updateTranscript`). 하나만 옮기면 나머지가 사라진 파일을 가리켰다. `.md`가 없는 항목은 정리 대상이 아니다. `Item.Name`은 새 파일 이름, `Item.Course`는 강의, `Item.Sorted`는 `matched`/`none`. 원본 음성은 옮기지 않는다.
+- 목록 묶기: `gui.group`(`date`·`course`·`week`, `App.ListGroup`/`SetListGroup`). 프런트엔드 `visibleItems`가 묶음 순서로 정렬하고 `sectionOf`가 머리글을 정한다. 과목별은 정리 전 → 설정의 강의 순서 → 목록에 없는 강의, 안에서는 주차 내림차순. 주차별은 주차 내림차순(모름은 맨 아래), 안에서는 강의 순서. 같은 강의·주차 안에서는 `Item.Recorded` 내림차순, 녹음 시각이 없는 항목은 뒤에 이름 순(`byRecording`). 주차별로 볼 때 행 이름 앞의 그 주차(`Week 12 - `, `12주차 - `)는 빼고 보인다(`rowName`). 이름 전체가 주차면 그대로 둔다. 키보드 이동도 이 순서를 따른다. 녹음 시각은 녹음이 시작된 때다(`media.RecordedSpan`의 시작). MP4 계열은 `mvhd` 생성 시각(2010년 이후, 수정 시각보다 1시간 넘게 늦지 않을 때), 아니면 파일 수정 시각(녹음이 멈춘 때)에서 길이를 뺀 시각. 폴더 항목은 오디오 중 가장 이른 시각. 개강일 설정이 그 시각이 속한 반년을 덮으면 그 날을, 아니면 3월 2일·9월 1일부터 첫 평일을 쓴다. 1·2월 녹음과 개강 전 녹음은 주차 없이 주제만 쓴다. 1주차는 개강일부터 7일.
+- 이동: `<전사본 폴더>/<강의>/<주차·주제>.md`(`course.FileBase`, 문구 `course.weekTopic`). 이름은 `output.Reserve`로 먼저 잡고 옮긴다(시작 때 복사가 같은 이름을 쓸 수 있다). 전사본 폴더 밖의 `.md`(CLI `sort`는 시작 때 복사를 하지 않는다, 다른 드라이브면 rename이 실패한다)는 옮기지 않고 새로 쓰고 원래 파일은 둔다(`placeSorted`). 주차 문구는 앱의 다른 문구처럼 앱 언어를 따른다. 같은 `.md`를 쓰는 항목(같은 녹음을 두 번 넣은 경우)은 함께 갱신한다(`updateTranscript`). 하나만 옮기면 나머지가 사라진 파일을 가리켰다. `.md`가 없는 항목은 정리 대상이 아니다. `Item.Name`은 새 파일 이름, `Item.Course`는 강의, `Item.Sorted`는 `matched`/`none`. 원본 음성은 옮기지 않는다.
 
 ### 파일 업로드
 
