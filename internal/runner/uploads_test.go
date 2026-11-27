@@ -32,7 +32,8 @@ func exhaustAfterUpload(t *testing.T) (*harness, string, string) {
 }
 
 // restart stops the running runner and builds a new one on the same store,
-// as an app restart does, then retries id on it.
+// as an app restart does, then retries id on it unless Start already resumed
+// it (a later quota day).
 func (h *harness) restartAndRetry(id string, now func() time.Time) {
 	h.t.Helper()
 	h.cancel()
@@ -43,6 +44,9 @@ func (h *harness) restartAndRetry(id string, now func() time.Time) {
 		h.r.opts.Now = now
 	}
 	h.r.Start(h.ctx)
+	if it, _ := h.st.Get(id); it.State == StateRunning {
+		return
+	}
 	if err := h.r.Retry(id); err != nil {
 		h.t.Fatal(err)
 	}

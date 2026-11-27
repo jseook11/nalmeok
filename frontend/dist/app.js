@@ -1398,6 +1398,24 @@
     }).join("");
   }
 
+  // When a free_exhausted item goes back on free by itself: the runner
+  // resumes it at ResumeAt (the quota reset) if it can stay free, that is,
+  // its pinned key is still a free key or, unpinned, a free key is left.
+  // "" when it will not, or for an item from before ResumeAt existed.
+  function resumeNote(item) {
+    const at = parseDate(item.ResumeAt);
+    if (!at) return "";
+    if (item.KeyID) {
+      const key = keyByID(item.KeyID);
+      if (!key || key.Tier !== "free") return "";
+    } else if (!state.available.free) {
+      return "";
+    }
+    const time = `${pad2(at.getHours())}:${pad2(at.getMinutes())}`;
+    const tomorrow = new Date(startOfToday().getTime() + 86400000);
+    return at < tomorrow ? t("pane.resumesToday", { time }) : t("pane.resumesTomorrow", { time });
+  }
+
   // A non-finished item: its state line, then what else is known.
   function paneStateHTML(item) {
     const s = rowState(item);
@@ -1412,7 +1430,7 @@
         break;
       case "free_exhausted":
         if (item.Detail) notes.push(item.Detail);
-        notes.push(t("pane.exhaustedNote"));
+        notes.push(resumeNote(item) || t("pane.exhaustedNote"));
         break;
       default:
         break;
@@ -1819,8 +1837,9 @@
         add("cancel", t("action.cancel"), "stop", { lead: true });
         break;
       case "free_exhausted":
-        // Paid is the only way on, so it is offered even without a paid key:
-        // runAction then opens the key sheet to add one.
+        // Free goes on by itself after the quota reset; paid is the way on
+        // now, so it is offered even without a paid key: runAction then
+        // opens the key sheet to add one.
         add("batch", t("action.continuePaid"), "resume", { lead: true, primary: Boolean(paidHint(item)) });
         add("cancel", t("action.cancel"), "stop");
         break;

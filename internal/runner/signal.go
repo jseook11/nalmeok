@@ -65,6 +65,15 @@ func quotaDay(t time.Time) string {
 	return t.UTC().Add(-8 * time.Hour).Format("2006-01-02")
 }
 
+// nextQuotaReset is when the quota day after t's begins, in t's location.
+// On the same fixed UTC-8 as quotaDay, so during daylight saving it is an
+// hour after the real reset, never before it.
+func nextQuotaReset(t time.Time) time.Time {
+	shifted := t.UTC().Add(-8 * time.Hour)
+	day := time.Date(shifted.Year(), shifted.Month(), shifted.Day(), 0, 0, 0, 0, time.UTC)
+	return day.Add(24*time.Hour + 8*time.Hour).In(t.Location())
+}
+
 // freeUnderQuota reports whether keyID had sent fewer than
 // freeDailyRequestsFloor requests this quota day before this one; count adds
 // this request. It is this app's own count: another app using the same key

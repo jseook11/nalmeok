@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -116,15 +117,81 @@ func (r *Runner) freeExhausted(id string, units []store.Unit) error {
 		}
 	}
 	minutes := int(math.Ceil(remaining / 60))
+	now := r.opts.Now()
 	r.logf("item %s free keys exhausted, %d min left", id, minutes)
 	return r.update(id, func(it *store.Item) {
 		if it.State != StateRunning || it.Mode == config.ModeBatch {
 			return
 		}
 		it.State = StateFreeExhausted
+		it.ResumeAt = nextQuotaReset(now)
 		it.Detail = i18n.T("status.minutesLeft", "minutes", minutes)
 		it.Progress = doneRatio(it.Units)
 	})
+}
+
+// exhaustedDue reports whether a free_exhausted item's free quota has reset
+// since it ran out.
+func exhaustedDue(item store.Item, now time.Time) bool {
+	if item.State != StateFreeExhausted || item.Mode == config.ModeBatch {
+		return false
+	}
+	at := item.ResumeAt
+	if at.IsZero() {
+		at = nextQuotaReset(item.UpdatedAt)
+	}
+	return !now.Before(at)
+}
+
+// resumeExhausted queues, oldest first, every free_exhausted item whose quota
+// day is over, so work parked overnight goes on by itself. It stays on free:
+// an item whose pinned key is gone or no longer free, or with no free key
+// left, is left for the user.
+func (r *Runner) resumeExhausted(items []store.Item) {
+	now := r.opts.Now()
+	var free []config.Key
+	var keys []config.Key
+	loaded := false
+	for _, item := range items {
+		if !exhaustedDue(item, now) {
+			continue
+		}
+		if !loaded {
+			keys = r.opts.Keys()
+			free, _ = splitKeys(keys)
+			loaded = true
+		}
+		if item.KeyID != "" {
+			if key, ok := findKey(keys, item.KeyID); !ok || key.Tier != config.TierFree {
+				continue
+			}
+		} else if len(free) == 0 {
+			continue
+		}
+		resumed := false
+		if err := r.update(item.ID, func(it *store.Item) {
+			if !exhaustedDue(*it, now) {
+				return
+			}
+			it.State = StateRunning
+			it.ResumeAt = time.Time{}
+			it.Detail = i18n.T("status.queued")
+			it.Progress = doneRatio(it.Units)
+			resumed = true
+		}); err != nil || !resumed {
+			continue
+		}
+		r.logf("item %s resumed: free quota day changed", item.ID)
+		r.enqueue(item.ID, config.ModeFree)
+	}
+}
+
+// resumeDue resumes, oldest first, the parked items whose quota day is over
+// while the app keeps running past the reset.
+func (r *Runner) resumeDue() {
+	items := r.opts.Store.List("")
+	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
+	r.resumeExhausted(items)
 }
 
 // saveUnitText stores one finished unit and moves the item's progress. i is the

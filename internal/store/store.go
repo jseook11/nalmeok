@@ -60,6 +60,10 @@ type Item struct {
 	// unlike UpdatedAt. Older items lack it; the window falls back to
 	// UpdatedAt.
 	FinishedAt time.Time `json:"FinishedAt,omitzero"`
+	// ResumeAt is when a free_exhausted item's free quota resets; the runner
+	// puts it back on free then. It means nothing in other states. Older
+	// items lack it; the reset after UpdatedAt stands in.
+	ResumeAt time.Time `json:"ResumeAt,omitzero"`
 	// EstimateKRW is what the whole audio would cost on the paid Batch tier,
 	// rounded to won. Free items cost nothing, so the window shows it only
 	// for paid items. 0 until the audio length is known.

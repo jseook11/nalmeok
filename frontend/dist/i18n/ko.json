@@ -266,6 +266,8 @@
   "pane.moved": "원래 파일을 찾을 수 없어 보관본 표시",
   "pane.otherModels": "일부 구간 {models}",
   "pane.progress": "{percent}% 완료",
+  "pane.resumesToday": "오늘 {time} 무료로 자동 재개",
+  "pane.resumesTomorrow": "내일 {time} 무료로 자동 재개",
   "pane.toggle": "전사본 보기",
   "pane.truncated": "파일이 커서 앞부분만 표시",
   "pane.waitingNote": "결과까지 보통 10분~1시간 · 앱을 닫아도 계속 진행",

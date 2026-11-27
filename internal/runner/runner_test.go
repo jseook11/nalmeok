@@ -587,6 +587,103 @@ func TestAll429FreeExhaustedThenSendToBatch(t *testing.T) {
 	}
 }
 
+func TestFreeExhaustedResumesNextQuotaDay(t *testing.T) {
+	h := newHarness(t, freeKey("f1"), paidKey("p1"))
+	var clockMu sync.Mutex
+	clock := time.Date(2026, 11, 25, 20, 0, 0, 0, time.UTC) // 12:00 Pacific
+	now := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	}
+	var fresh atomic.Bool
+	h.world.client("AIza-f1").gen = func(call int, parts []gemini.Part) (string, string, error) {
+		if call == 1 || fresh.Load() {
+			return answer(parts), gemini.FinishStop, nil
+		}
+		return "", "", err429()
+	}
+	h.r.opts.Now = now
+	h.r.Start(h.ctx)
+	item := h.addOne(h.source("lec.m4a"), "free")
+
+	ex := h.wait(item.ID, StateFreeExhausted)
+	if want := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC); !ex.ResumeAt.Equal(want) {
+		t.Errorf("ResumeAt = %v, want %v (Pacific midnight)", ex.ResumeAt, want)
+	}
+	h.r.resumeDue() // same quota day: stays parked
+	if it, _ := h.st.Get(item.ID); it.State != StateFreeExhausted {
+		t.Fatalf("state on the same quota day = %s", it.State)
+	}
+
+	// The next morning the app starts again after the reset.
+	clockMu.Lock()
+	clock = clock.Add(13 * time.Hour)
+	clockMu.Unlock()
+	fresh.Store(true)
+	h.cancel()
+	h.ctx, h.cancel = context.WithCancel(context.Background())
+	h.t.Cleanup(h.cancel)
+	h.r = h.newRunner()
+	h.r.opts.Now = now
+	h.r.Start(h.ctx)
+
+	done := h.wait(item.ID, StateDone)
+	if done.Mode != config.ModeFree {
+		t.Errorf("resumed item must stay free, mode = %s", done.Mode)
+	}
+	if !done.ResumeAt.IsZero() {
+		t.Errorf("ResumeAt kept after resuming: %v", done.ResumeAt)
+	}
+	if got := readFile(t, done.Output); got != "T(lec.m4a.001.m4a)\n\nT(lec.m4a.002.m4a)\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+// Only items whose quota has reset and that can stay on free are resumed;
+// the rest are left for the user.
+func TestResumeExhaustedOnlyWhenFreeCanGoOn(t *testing.T) {
+	now := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC) // after the 08:00 UTC reset
+	park := func(h *harness, id, keyID string, resumeAt, updated time.Time) {
+		t.Helper()
+		item := store.Item{ID: id, State: StateFreeExhausted, Mode: config.ModeFree, KeyID: keyID,
+			ResumeAt: resumeAt, UpdatedAt: updated}
+		if err := h.st.Add(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past, future := now.Add(-time.Hour), now.Add(time.Hour)
+
+	h := newHarness(t, freeKey("f1"), paidKey("p1"))
+	h.r.opts.Now = func() time.Time { return now }
+	park(h, "due", "", past, past)
+	park(h, "pinned-free", "f1", past, past)
+	park(h, "early", "", future, past)
+	park(h, "legacy-old", "", time.Time{}, now.Add(-48*time.Hour))
+	park(h, "legacy-today", "", time.Time{}, now.Add(-30*time.Minute))
+	park(h, "pinned-paid", "p1", past, past)
+	park(h, "pinned-gone", "gone", past, past)
+	h.r.resumeExhausted(h.st.List(""))
+	want := map[string]string{
+		"due": StateRunning, "pinned-free": StateRunning, "legacy-old": StateRunning,
+		"early": StateFreeExhausted, "legacy-today": StateFreeExhausted,
+		"pinned-paid": StateFreeExhausted, "pinned-gone": StateFreeExhausted,
+	}
+	for id, state := range want {
+		if it, _ := h.st.Get(id); it.State != state {
+			t.Errorf("%s: state = %s, want %s", id, it.State, state)
+		}
+	}
+
+	paidOnly := newHarness(t, paidKey("p1"))
+	paidOnly.r.opts.Now = func() time.Time { return now }
+	park(paidOnly, "due", "", past, past)
+	paidOnly.r.resumeExhausted(paidOnly.st.List(""))
+	if it, _ := paidOnly.st.Get("due"); it.State != StateFreeExhausted {
+		t.Errorf("without a free key: state = %s, want it parked", it.State)
+	}
+}
+
 func TestBatchPartialFailureThenRetry(t *testing.T) {
 	h := newHarness(t, paidKey("p1"))
 	h.media.pieces = 3

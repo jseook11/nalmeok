@@ -266,6 +266,8 @@
   "pane.moved": "Original file not found; showing archived copy",
   "pane.otherModels": "Partly {models}",
   "pane.progress": "{percent}% done",
+  "pane.resumesToday": "Resumes free today at {time}",
+  "pane.resumesTomorrow": "Resumes free tomorrow at {time}",
   "pane.toggle": "Show transcript",
   "pane.truncated": "File is large; showing the beginning",
   "pane.waitingNote": "Usually 10 min–1 hr for results · continues after the app closes",
