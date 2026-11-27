@@ -92,9 +92,9 @@ func RecordedSpan(path string) (start, end time.Time, ok bool) {
 
 // hasVideo reports whether the MP4-family file at path has a video track.
 // Such a file is a lecture video someone downloaded, not a class recorded
-// on a phone or laptop (nobody films a class to transcribe it), and its
-// times are when it was exported or downloaded (2026-11-27: e-class videos
-// got the week and the class of their download). It has no recording time.
+// on a phone or laptop (nobody films a class to transcribe it). Its times
+// are when it was exported or downloaded, which would give it the week and
+// the class of the download, so it has no recording time.
 func hasVideo(path string) bool {
 	if FormatOf(path) != FormatAACMP4 {
 		return false
@@ -116,7 +116,7 @@ func hasVideo(path string) bool {
 		if trak.typ != "trak" {
 			continue
 		}
-		if hdlr, ok := findBox(trak.body, "mdia", "hdlr"); ok && len(hdlr) >= 12 && string(hdlr[8:12]) == "vide" {
+		if trakHandler(trak.body) == "vide" {
 			return true
 		}
 	}
