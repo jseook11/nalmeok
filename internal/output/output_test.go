@@ -28,21 +28,47 @@ func TestMerge(t *testing.T) {
 }
 
 func TestTargetPath(t *testing.T) {
+	root := filepath.FromSlash("/home/me/Nalmeok")
 	tests := []struct {
 		source string
 		kind   string
 		want   string
 	}{
-		{source: "/lectures/강의09.m4a", kind: "file", want: "/lectures/강의09.md"},
-		{source: "/lectures/ch07", kind: "folder", want: "/lectures/ch07/ch07.md"},
-		{source: "/lectures/notes", kind: "file", want: "/lectures/notes.md"},
-		{source: "/lectures/ch07/", kind: "folder", want: "/lectures/ch07/ch07.md"},
+		{source: "/lectures/강의09.m4a", kind: "file", want: "/home/me/Nalmeok/강의09.md"},
+		{source: "/lectures/ch07", kind: "folder", want: "/home/me/Nalmeok/ch07.md"},
+		{source: "/lectures/notes", kind: "file", want: "/home/me/Nalmeok/notes.md"},
+		{source: "/lectures/ch07/", kind: "folder", want: "/home/me/Nalmeok/ch07.md"},
+		{source: "/lectures/algorithm_09.1", kind: "folder", want: "/home/me/Nalmeok/algorithm_09.1.md"},
 	}
 	for _, tt := range tests {
 		source, want := filepath.FromSlash(tt.source), filepath.FromSlash(tt.want)
-		if got := TargetPath(source, tt.kind); got != want {
+		if got := TargetPath(root, source, tt.kind); got != want {
 			t.Fatalf("TargetPath(%q, %q) = %q, want %q", source, tt.kind, got, want)
 		}
+	}
+}
+
+func TestInside(t *testing.T) {
+	root := filepath.FromSlash("/home/me/Nalmeok")
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/home/me/Nalmeok/a.md", true},
+		{"/home/me/Nalmeok/알고리즘/1주차.md", true},
+		{"/home/me/Nalmeok", false},
+		{"/home/me/Nalmeok2/a.md", false},
+		{"/home/me/Nalmeok/../a.md", false},
+		{"/home/me/a.md", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := Inside(root, filepath.FromSlash(tt.path)); got != tt.want {
+			t.Errorf("Inside(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+	if Inside("", filepath.FromSlash("/a.md")) {
+		t.Error("an empty folder holds nothing")
 	}
 }
 

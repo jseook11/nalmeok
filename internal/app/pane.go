@@ -12,6 +12,7 @@ import (
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"github.com/jseook11/nalmeok/internal/media"
 	"github.com/jseook11/nalmeok/internal/output"
 	"github.com/jseook11/nalmeok/internal/store"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -167,18 +168,56 @@ func (a *App) archiveOutput(item store.Item) {
 	_ = output.Write(archive, string(data))
 }
 
-// archiveFinished copies every finished item's .md that has no archived copy
-// yet. Startup runs it once, so items finished before the archive existed
-// are kept even if their .md moves before the pane ever shows them.
-func (a *App) archiveFinished() {
-	if a.store == nil || a.TranscriptsDir == "" {
+// tidyFinished runs once at startup over every finished item:
+//
+//   - A transcript outside the transcript folder (0.11 and earlier saved it
+//     next to the recording) is copied in and the item points at the copy.
+//     The copy comes from the app's own copy, so the old folder (often in
+//     Desktop or Documents, which make macOS ask permission) is not read;
+//     the old file stays where it is and the app forgets it.
+//   - A transcript with no app copy yet gets one.
+//   - The recording time is read once from audio still on disk and kept
+//     (store.Item.RecordedFrom), so the week and sorting never read it again.
+func (a *App) tidyFinished() {
+	if a.store == nil {
 		return
 	}
+	moved := map[string]string{} // old .md -> its copy, for duplicates
 	for _, item := range a.store.List("") {
-		if item.State == "done" && item.Output != "" {
-			a.archiveOutput(item)
+		if item.State != "done" || item.Output == "" {
+			continue
+		}
+		if a.OutputDir != "" && !output.Inside(a.OutputDir, item.Output) {
+			if path, ok := moved[item.Output]; ok {
+				_ = a.store.Update(item.ID, func(it *store.Item) { it.Output = path })
+				item.Output = path
+			} else if path, err := a.copyIn(item); err == nil {
+				moved[item.Output] = path
+				_ = a.store.Update(item.ID, func(it *store.Item) { it.Output = path })
+				item.Output = path
+			}
+		}
+		a.archiveOutput(item)
+		if item.RecordedFrom.IsZero() {
+			if from, to, ok := media.RecordedSpan(item.Source); ok {
+				_ = a.store.Update(item.ID, func(it *store.Item) { it.RecordedFrom, it.RecordedTo = from, to })
+			}
 		}
 	}
+}
+
+// copyIn writes item's transcript into the transcript folder under the
+// .md's own name and returns the new path. The text is the app's copy, or
+// the .md itself when there is no copy (an item finished before copies
+// were kept).
+func (a *App) copyIn(item store.Item) (string, error) {
+	data, err := os.ReadFile(a.archivePath(item.ID))
+	if err != nil {
+		if data, err = os.ReadFile(item.Output); err != nil {
+			return "", err
+		}
+	}
+	return output.WriteNew(filepath.Join(a.transcriptDir(item), filepath.Base(item.Output)), string(data))
 }
 
 // mdFilter limits file dialogs to Markdown files.
@@ -213,9 +252,9 @@ func (a *App) LocateOutput(id string) error {
 }
 
 // RestoreOutput writes the app's copy of a transcript back out as a .md and
-// points the item at it. It goes where a new result would (next to the
-// source, numbered rather than replacing a file); when that folder is gone
-// too, the user picks a place. Canceling changes nothing.
+// points the item at it. It goes where the transcript belongs in the
+// transcript folder (see transcriptDir), numbered rather than replacing a
+// file.
 func (a *App) RestoreOutput(id string) error {
 	item, err := a.finishedItem(id)
 	if err != nil {
@@ -232,35 +271,25 @@ func (a *App) RestoreOutput(id string) error {
 	if err != nil {
 		return i18n.Error("error.noArchive")
 	}
-	target := output.TargetPath(item.Source, item.Kind)
-	var path string
-	if isDir(filepath.Dir(target)) {
-		path, err = output.WriteNew(target, string(data))
-		if err != nil {
-			return i18n.Error("error.saveFailed", "error", err)
-		}
-	} else {
-		ctx := a.context()
-		if ctx == nil {
-			return errNotReady
-		}
-		path, err = wailsruntime.SaveFileDialog(ctx, wailsruntime.SaveDialogOptions{
-			Title:           i18n.T("dialog.restoreTitle"),
-			DefaultFilename: restoreName(item) + ".md",
-			Filters:         mdFilter(),
-		})
-		if err != nil {
-			return err
-		}
-		if path == "" {
-			return nil
-		}
-		// The save dialog has already asked before replacing a file.
-		if err := output.Write(path, string(data)); err != nil {
-			return i18n.Error("error.saveFailed", "error", err)
-		}
+	if a.OutputDir == "" {
+		return errNotReady
 	}
-	return a.store.Update(id, func(it *store.Item) { it.Output = path })
+	target := filepath.Join(a.transcriptDir(item), restoreName(item)+".md")
+	path, err := output.WriteNew(target, string(data))
+	if err != nil {
+		return i18n.Error("error.saveFailed", "error", err)
+	}
+	return a.updateTranscript(item, func(it *store.Item) { it.Output = path })
+}
+
+// transcriptDir is the folder an item's transcript belongs in: its
+// lecture's folder in the transcript folder once sorted, otherwise the
+// transcript folder itself.
+func (a *App) transcriptDir(item store.Item) string {
+	if item.Sorted == sortedMatched && item.Course != "" {
+		return filepath.Join(a.OutputDir, item.Course)
+	}
+	return a.OutputDir
 }
 
 // restoreName is the item's name without the audio extension it was added

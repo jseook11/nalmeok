@@ -1,6 +1,6 @@
-// Package output merges transcription chunks and writes .md files next to
-// their source without ever overwriting an existing result (see WriteNew),
-// and names the app's own copy of each result (see ArchivePath).
+// Package output merges transcription chunks and writes .md files into the
+// transcript folder without ever overwriting an existing result (see
+// WriteNew), and names the app's own copy of each result (see ArchivePath).
 package output
 
 import (
@@ -32,26 +32,41 @@ func Merge(texts []string) string {
 	return strings.Join(parts, "\n\n") + "\n"
 }
 
-// TargetPath computes the .md location for a source.
-//
-// A file keeps its directory and drops its extension; a folder gets
-// "<folder name>.md" inside itself.
-func TargetPath(source, kind string) string {
-	source = filepath.Clean(source)
+// TargetPath is where a new transcript of source goes: "<root>/<name>.md".
+// A file's name drops its extension; a folder's name is kept as is. Every
+// transcript lands in root rather than next to its recording, so the app
+// never writes into the user's folders (on macOS, Desktop, Documents and
+// Downloads each ask permission).
+func TargetPath(root, source, kind string) string {
+	return filepath.Join(root, Name(source, kind)+".md")
+}
+
+// Name is the transcript name a source gets: a file's name without its
+// extension, or a folder's name as it is ("algorithm_09.1" keeps its ".1").
+func Name(source, kind string) string {
+	base := filepath.Base(filepath.Clean(source))
 	if kind == "folder" {
-		name := filepath.Base(source)
-		return filepath.Join(source, name+".md")
+		return base
 	}
-	dir := filepath.Dir(source)
-	base := filepath.Base(source)
-	ext := filepath.Ext(base)
-	stem := strings.TrimSuffix(base, ext)
-	return filepath.Join(dir, stem+".md")
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// Inside reports whether path is in dir or a folder below it. Both are
+// compared cleaned; an empty dir holds nothing.
+func Inside(dir, path string) bool {
+	if dir == "" || path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // ArchivePath is where the app keeps its copy of an item's transcript,
 // "<dir>/<id>.md". The item ID names it, so renaming or moving the .md next
-// to the source never affects it. An empty dir means no archive ("").
+// to the transcript never affects it. An empty dir means no archive ("").
 func ArchivePath(dir, id string) string {
 	if dir == "" || id == "" {
 		return ""

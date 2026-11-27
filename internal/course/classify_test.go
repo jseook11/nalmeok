@@ -2,6 +2,7 @@ package course
 
 import (
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -76,6 +77,9 @@ func TestWeekFromName(t *testing.T) {
 		"녹음 23":                     0,
 		"2026-11-10":                0,
 		"99주차":                      0,
+		// macOS file names split Hangul into jamo (NFD).
+		norm.NFD.String("컴퓨터구조 13주차-2 (2)"): 13,
+		norm.NFD.String("9주차"):              9,
 	}
 	for name, want := range cases {
 		if got := WeekFromName(name); got != want {

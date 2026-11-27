@@ -116,7 +116,6 @@
   "dialog.locateTitle": "Find moved transcript",
   "dialog.mdFiles": "Markdown files",
   "dialog.pickTitle": "Choose audio files",
-  "dialog.restoreTitle": "Save transcript",
 
   "empty.label": "Choose audio files or a folder",
   "empty.noKey": "Add an API key first",
@@ -193,6 +192,7 @@
   "error.requestKeyMissing": "The paid key that sent the request is missing",
   "error.retryOnlyFailed": "Only failed or canceled items can be retried",
   "error.revealFailed": "Could not open the folder: {error}",
+  "error.noOutputDir": "No folder to save transcripts in",
   "error.saveFailed": "Could not save the result file: {error}",
   "error.stopped": "Transcription stopped ({reason})",
   "error.truncated": "Result truncated (too long)",
@@ -236,7 +236,7 @@
   "help.prompts": "Example questions",
   "help.promptsUrl": "https://github.com/jseook11/nalmeok/blob/master/docs/prompts.md#asking-about-a-transcript",
   "help.result": "Result",
-  "help.resultBody": "Saved as .md next to the source · a folder is merged into one file",
+  "help.resultBody": "Saved as .md in Nalmeok in your home folder · a folder is merged into one file",
   "help.title": "Help",
 
   "key.defaultLabel": "Default",

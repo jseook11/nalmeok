@@ -116,7 +116,6 @@
   "dialog.locateTitle": "옮긴 전사본 찾기",
   "dialog.mdFiles": "마크다운 파일",
   "dialog.pickTitle": "음성 파일 선택",
-  "dialog.restoreTitle": "전사본 저장",
 
   "empty.label": "음성 파일이나 폴더 선택",
   "empty.noKey": "API 키를 먼저 넣어 주세요",
@@ -193,6 +192,7 @@
   "error.requestKeyMissing": "요청을 보낸 유료 키 없음",
   "error.retryOnlyFailed": "실패하거나 취소한 항목만 다시 시도 가능",
   "error.revealFailed": "폴더 열기 실패: {error}",
+  "error.noOutputDir": "전사본을 저장할 폴더가 없어요",
   "error.saveFailed": "결과 파일 저장 실패: {error}",
   "error.stopped": "전사 중단됨 ({reason})",
   "error.truncated": "결과가 길어 잘림",
@@ -236,7 +236,7 @@
   "help.prompts": "질문 예시 보기",
   "help.promptsUrl": "https://github.com/jseook11/nalmeok/blob/master/docs/prompts.md",
   "help.result": "결과",
-  "help.resultBody": "원본 옆에 .md로 저장 · 폴더는 한 파일로 합침",
+  "help.resultBody": "홈 폴더의 Nalmeok에 .md로 저장 · 폴더는 한 파일로 합침",
   "help.title": "도움말",
 
   "key.defaultLabel": "기본",

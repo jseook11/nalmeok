@@ -25,11 +25,6 @@ import (
 	"github.com/jseook11/nalmeok/internal/output"
 )
 
-// folderName is the last part of Dir. It is a file path, not interface text,
-// so it stays the same in every language: changing the UI language must not
-// move where recordings are saved.
-const folderName = "Voice Memos"
-
 // batchDelay is how long the collector waits after the last received file
 // before handing the batch on. Promised files arrive one at a time.
 const batchDelay = 300 * time.Millisecond
@@ -38,15 +33,6 @@ const batchDelay = 300 * time.Millisecond
 // sits inside the destination so the move into place is a rename on the same
 // volume.
 const stagePrefix = ".receiving-"
-
-// Dir is where received recordings are kept: ~/Documents/Nalmeok/Voice Memos.
-func Dir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, "Documents", "Nalmeok", folderName), nil
-}
 
 // newStageDir makes the destination when needed and a fresh hidden folder in
 // it for one promise. The source writes the file there under its own name.

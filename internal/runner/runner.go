@@ -131,6 +131,13 @@ type Options struct {
 	// TranscriptsDir keeps the app's copy of each finished transcript
 	// (<config dir>/transcripts, see output.ArchivePath); empty keeps none.
 	TranscriptsDir string
+	// OutputDir is where finished transcripts are written
+	// (config.OutputDir, ~/Nalmeok), never next to the source.
+	OutputDir string
+	// ReceivedDirs hold recordings the app saved itself (dragged from
+	// Voice Memos). A source in one of them is deleted once its transcript
+	// is saved or its item is removed.
+	ReceivedDirs []string
 	// LogPath is the log file; empty disables logging.
 	LogPath string
 	// Notify shows an OS notification when an item finishes. nil shows
@@ -492,8 +499,8 @@ func (r *Runner) Cancel(id string) error {
 	}
 }
 
-// Remove cancels any in-flight work for id and deletes its work directory.
-// The caller is responsible for dropping the item from the store afterwards.
+// Remove cancels any in-flight work for id and deletes its work directory
+// and a recording the app received for it (see removeReceived). The caller is responsible for dropping the item from the store afterwards.
 func (r *Runner) Remove(id string) error {
 	item, ok := r.opts.Store.Get(id)
 	if !ok {
@@ -506,6 +513,7 @@ func (r *Runner) Remove(id string) error {
 		}
 	}
 	r.waitInactive(id, 2*time.Second)
+	r.removeReceived(id, item.Source)
 	if r.opts.WorkDir == "" {
 		return nil
 	}

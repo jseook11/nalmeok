@@ -12,20 +12,6 @@ import (
 	"time"
 )
 
-func TestDirIsUnderDocuments(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
-	dir, err := Dir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(home, "Documents", "Nalmeok", "Voice Memos"); dir != want {
-		t.Fatalf("Dir() = %q, want %q", dir, want)
-	}
-}
-
-// receive stands in for the source writing a promised file.
 func receive(t *testing.T, dest, name, body string) string {
 	t.Helper()
 	stage, err := newStageDir(dest)

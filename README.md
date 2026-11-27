@@ -4,7 +4,7 @@
 
 > **시작하기** — [내려받기](https://seook.dev/nalmeok/#downloads) · [Microsoft Store](https://apps.microsoft.com/detail/9nsznrd8lv5q?cid=github) · [무료 API 키 발급](docs/gemini-api-key.md) · [Google AI Pro 크레딧으로 유료 키](docs/google-ai-pro-credit.md)
 
-음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 원본 옆에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
+음성 파일이나 폴더를 창에 놓으면 전사한 `.md`가 홈 폴더의 `Nalmeok` 폴더에 생겨요. 강의 전사본을 ChatGPT 프로젝트에 올려 쓰려고 만든 앱이에요.
 
 - `.m4a`, `.mp4`, `.mov`, `.mp3`, `.wav`, `.flac`, `.ogg`·`.opus`, `.aiff`, `.aac`를 받아요.
 - 폴더를 놓으면 안의 오디오를 이름 순서로 이어 `.md` 하나로 만들어요.
@@ -51,13 +51,13 @@ scoop install nalmeok/nalmeok
 1. 앱을 열어요. 키가 없으면 **API 키** 시트가 먼저 열려요.
 2. **무료** 또는 **유료**를 고르고 **API 키 붙여넣기** 칸에 Gemini API 키를 넣어요. **저장**을 누르면 키를 확인하고 저장해요.
 3. 음성 파일이나 폴더를 창에 놓아요. 확인 없이 바로 시작해요.
-4. 끝나면 원본 옆에 `.md`가 생겨요. 끝난 행에서 **Finder에서 보기**(Windows는 **탐색기에서 보기**)를 누르면 파일 위치가 열려요.
+4. 끝나면 `~/Nalmeok`(Windows는 `C:\Users\<사용자>\Nalmeok`)에 `.md`가 생겨요. 끝난 행에서 **Finder에서 보기**(Windows는 **탐색기에서 보기**)를 누르면 파일 위치가 열려요.
 
 <img src="docs/images/app/api-keys.png" alt="무료 키와 유료 키를 등록한 API 키 시트" width="60%">
 
 키 발급과 등록은 [무료 Gemini API 키 발급과 등록](docs/gemini-api-key.md)에 사진과 함께 있어요. 무료 키는 바로 전사에, 유료 키는 Batch(대기 후 처리)에 써요. 두 종류를 모두 넣으면 위쪽 **무료** / **유료** 토글로 골라요. Google AI Pro 구독자라면 [월 $10 크레딧으로 유료 키를 쓸 수 있어요](docs/google-ai-pro-credit.md).
 
-파일은 `강의09.m4a`를 놓으면 `강의09.md`, 폴더는 `ch07`을 놓으면 `ch07/ch07.md`로 원본 옆에 저장돼요.
+파일은 `강의09.m4a`를 놓으면 `강의09.md`, 폴더는 `ch07`을 놓으면 `ch07.md`로 `Nalmeok` 폴더에 저장돼요. 원본이 있는 폴더에는 아무것도 쓰지 않아서, macOS에서 데스크탑·문서·다운로드 폴더 접근 권한을 묻지 않아요.
 
 ## 더 알아보기
 
