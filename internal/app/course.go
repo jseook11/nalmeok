@@ -219,24 +219,28 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	}
 	name := recordingName(item)
 	week, _ := a.weeks.of(item, start)
-	// A recording made during a class on the timetable is that class (the
-	// one it shares the most time with): the classifier then only names the
-	// topic.
+	// A lecture the user picked, else a recording made during a class on
+	// the timetable (the one it shares the most time with), is that class:
+	// the model then only names the topic, with a prompt that does not ask
+	// for the course. A picked lecture since removed from the list is
+	// sorted as usual.
 	var slot config.Course
 	var timed bool
-	if from, to, ok := recordedSpan(item); ok {
+	if item.CourseSet {
+		slot, timed = courseNamed(courses, item.Course)
+	}
+	if from, to, ok := recordedSpan(item); ok && !timed {
 		slot, timed = course.ByTime(courses, from, to)
 	}
-	ask := courses
-	if timed {
-		ask = []config.Course{slot}
-	}
-	res, err := clients.classify(ctx, text, name, ask)
+	res, err := clients.ask(func(client gemini.Client) (course.Result, error) {
+		if !timed {
+			return course.Classify(ctx, client, text, name, courses)
+		}
+		topic, err := course.Topic(ctx, client, text, name, slot)
+		return course.Result{Course: slot.Name, Topic: topic}, err
+	})
 	if err != nil {
 		return false, err
-	}
-	if timed {
-		res.Course = slot.Name
 	}
 	if res.Course == "" {
 		return false, a.updateTranscript(item, func(it *store.Item) { it.Sorted = sortedNone })
@@ -382,6 +386,67 @@ func (a *App) SetWeek(id string, week int) error {
 	return a.updateTranscript(item, func(it *store.Item) { it.WeekSet = week })
 }
 
+// courseNamed is the listed lecture called name.
+func courseNamed(courses []config.Course, name string) (config.Course, bool) {
+	for _, c := range courses {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return config.Course{}, false
+}
+
+// SetCourse puts item id's transcript in a listed lecture by hand, moving
+// its .md into that lecture's folder under the same name. Copies of the same
+// transcript follow. Sorting it again keeps the lecture and only renames
+// it. An empty name only drops the pick: the transcript stays where it is
+// until it is sorted again.
+func (a *App) SetCourse(id, name string) error {
+	item, err := a.finishedItem(id)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		return a.updateTranscript(item, func(it *store.Item) { it.CourseSet = false })
+	}
+	a.mu.Lock()
+	var courses []config.Course
+	if a.cfg != nil {
+		courses = a.cfg.Courses()
+	}
+	a.mu.Unlock()
+	if _, ok := courseNamed(courses, name); !ok {
+		return i18n.Error("error.unknownCourse", "name", name)
+	}
+	if !isFile(item.Output) {
+		return errNoOutput
+	}
+	if a.OutputDir == "" {
+		return errNotReady
+	}
+	text, err := a.outputText(item)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(a.OutputDir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return i18n.Wrap("error.renameFailed", err)
+	}
+	target := filepath.Join(dir, filepath.Base(item.Output))
+	if target != item.Output {
+		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
+			return i18n.Wrap("error.renameFailed", err)
+		}
+	}
+	return a.updateTranscript(item, func(it *store.Item) {
+		it.Output = target
+		it.Name = strings.TrimSuffix(filepath.Base(target), ".md")
+		it.Course = name
+		it.CourseSet = true
+		it.Sorted = sortedMatched
+	})
+}
+
 func (a *App) semesterStart() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -439,7 +504,9 @@ type classifierKeys struct {
 
 func (c *classifierKeys) exhausted() bool { return c.next >= len(c.keys) }
 
-func (c *classifierKeys) classify(ctx context.Context, text, name string, courses []config.Course) (course.Result, error) {
+// ask runs fn with the current key's client, moving on to the next key when
+// one is limited or rejected.
+func (c *classifierKeys) ask(fn func(gemini.Client) (course.Result, error)) (course.Result, error) {
 	var last error
 	for !c.exhausted() {
 		if c.client == nil {
@@ -451,7 +518,7 @@ func (c *classifierKeys) classify(ctx context.Context, text, name string, course
 			}
 			c.client = client
 		}
-		res, err := course.Classify(ctx, c.client, text, name, courses)
+		res, err := fn(c.client)
 		if err == nil {
 			return res, nil
 		}

@@ -2494,6 +2494,9 @@
     // Renaming a finished item renames its .md, which a moved one lacks.
     if (!(item.State === "done" && item.OutputMissing)) add("rename", t("action.rename"), "edit");
     add("week", t("action.setWeek"), "edit");
+    if (item.State === "done" && !item.OutputMissing && state.courses.length) {
+      add("course", t("action.setCourse"), "edit");
+    }
     add("delete", t("action.delete"), "edit", { danger: true });
     return actions;
   }
@@ -2544,6 +2547,9 @@
           return;
         case "week":
           startWeekEdit(id);
+          return;
+        case "course":
+          openCourseMenu(id);
           return;
         case "sort":
           await runSort(id);
@@ -3044,6 +3050,47 @@
     }
   }
 
+  // The lecture picker lists the lectures with the item's checked, and
+  // "automatic" to drop a hand-picked lecture and sort the item again.
+  function openCourseMenu(id) {
+    const item = itemByID(id);
+    const rowEl = rowCache.get(id)?.el;
+    if (!item || !rowEl) return;
+    closeMenu();
+    const entry = (name, label, selected) => `<button type="button" role="menuitemradio"
+      aria-checked="${selected}" data-course-pick="${esc(name)}"><span class="menu-check">${selected ? GLYPHS.check : ""}</span>${esc(label)}</button>`;
+    menu.innerHTML = state.courses.map((c) => entry(c.name, c.name, item.CourseSet && item.Course === c.name)).join("")
+      + "<hr>" + entry("", t("course.auto"), !item.CourseSet);
+    menu.classList.add("has-checks");
+    menu.dataset.id = id;
+    openSurface(menu, { trap: false });
+    setMenuRow(rowEl);
+    rowEl.classList.add("is-menu");
+    const at = rowMenuPoint(rowEl);
+    const rect = menu.getBoundingClientRect();
+    const x = Math.min(at.clientX, window.innerWidth - rect.width - 6);
+    const y = at.clientY + rect.height > window.innerHeight - 6 ? Math.max(6, at.clientY - rect.height) : at.clientY;
+    menu.style.left = `${Math.max(6, x)}px`;
+    menu.style.top = `${y}px`;
+  }
+
+  async function setCourse(id, name) {
+    const item = itemByID(id);
+    if (!item) return;
+    if (name === "" && !item.CourseSet) return;
+    if (name !== "" && item.CourseSet && item.Course === name) return;
+    try {
+      await call("SetCourse", id, name);
+      if (name === "") {
+        await runSort(id); // back to automatic: sort it again now
+        return;
+      }
+      await refreshItems();
+    } catch (error) {
+      showToast(errorText(error));
+    }
+  }
+
   function openGroupMenu() {
     if (menuRow === groupButton) {
       closeMenu();
@@ -3510,6 +3557,13 @@
       if (groupPick) {
         closeMenu();
         setGroup(groupPick.dataset.group);
+        return;
+      }
+      const coursePick = event.target.closest("button[data-course-pick]");
+      if (coursePick) {
+        const id = menu.dataset.id;
+        closeMenu();
+        setCourse(id, coursePick.dataset.coursePick);
         return;
       }
       const pick = event.target.closest("button[data-pick]");

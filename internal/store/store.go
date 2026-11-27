@@ -84,6 +84,9 @@ type Item struct {
 	// WeekSet is the semester week the user set by hand; 0 means counted
 	// from the recording time or name.
 	WeekSet int `json:"WeekSet,omitempty"`
+	// CourseSet marks that the user put the transcript in Course by hand;
+	// sorting it again keeps that lecture and only names the topic.
+	CourseSet bool `json:"CourseSet,omitempty"`
 	// RecordedFrom and RecordedTo are when the recording ran
 	// (media.RecordedSpan), kept when the item finishes so sorting and the
 	// week need not read the audio again: a Voice Memos copy is deleted
