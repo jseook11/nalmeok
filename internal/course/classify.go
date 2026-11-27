@@ -205,15 +205,13 @@ func FileBase(week int, topic string) string {
 	return topic
 }
 
-// weekInName matches a week the user wrote in a file name: "9주차",
-// "week 9", "Week10", "w9".
+// weekInName matches a week in a name: "9주차", "week 9", "Week10", "w9".
 var weekInName = regexp.MustCompile(`(?i)(?:^|[^0-9])([0-9]{1,2})\s*\x{C8FC}\x{CC28}|\bw(?:eek)?\s*([0-9]{1,2})\b`)
 
-// WeekFromName is the week written in a recording's file name, or 0. The
-// user's own label beats a week counted from the recording time, which a
-// make-up class or a copied file gets wrong. The name is composed (NFC)
-// first: macOS hands out file names with Hangul split into jamo (NFD), which
-// "주차" would not match.
+// WeekFromName is the week written in name, or 0: the week FileBase put in
+// a sorted transcript's name. The name is composed (NFC) first: macOS hands
+// out file names with Hangul split into jamo (NFD), which "주차" would not
+// match.
 func WeekFromName(name string) int {
 	m := weekInName.FindStringSubmatch(norm.NFC.String(name))
 	if m == nil {
