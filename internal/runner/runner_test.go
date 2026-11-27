@@ -1613,3 +1613,23 @@ func TestReceivedRecordingKeptForUnfinishedTwin(t *testing.T) {
 		t.Fatalf("another item still needs the recording: %v", err)
 	}
 }
+
+func TestReceivedRecordingKeptForFolderHoldingIt(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	folder := filepath.Join(h.dir, "received")
+	received := filepath.Join(folder, "rec.m4a")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(received, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := h.addOne(received, "free")
+	h.addOne(folder, "free") // not finished: it still reads rec.m4a
+	if err := h.r.Remove(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(received); err != nil {
+		t.Fatalf("a folder item still needs the recording: %v", err)
+	}
+}

@@ -41,7 +41,7 @@
   | 정리 실패를 짧은 문장으로 | `internal/app` `errorMessage` |
   | Gemini 오류 가르기 | `gemini.Is429`, `IsAuth`, `IsTransient`, `IsUnavailable`, `IsNotFound`, `IsEmptyResponse`, `StatusCode` |
   | 전사본 위치, 보관본 위치, 폴더 안인가 | `output.TargetPath(root, source, kind)`, `output.ArchivePath(dir, id)`, `output.Inside(dir, path)`. 전사본 폴더는 `config.OutputDir`(`App.OutputDir`, `runner.Options.OutputDir`), 정리된 항목의 폴더는 `App.transcriptDir` |
-  | 겹치지 않는 이름 (`name (2).md`) | 새로 쓸 때 `output.WriteNew`, 다른 프로세스와 겹칠 수 있는 옮기기는 `output.Reserve`(배타적 생성으로 이름을 잡음) 뒤 rename, 앱 안에서만 옮길 때 `output.UniquePath` |
+  | 겹치지 않는 이름 (`name (2).md`) | 새로 쓸 때 `output.WriteNew`, 옮기기는 `output.Reserve`(배타적 생성으로 이름을 잡음) 뒤 rename(강의 정리 `placeSorted`). `output.UniquePath`는 같은 폴더에 동시에 쓰는 코드가 없을 때만(이름 바꾸기) |
   | 파일이 있는가 | `internal/app` `isFile` |
   | 끝난 항목 하나 꺼내기, 그 전사본 읽기 | `App.finishedItem`, `App.outputText` |
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
@@ -151,7 +151,9 @@
   `store.Get`으로 다시 읽고, 끝난 결과를 덮지 않는다. 강의별 정리도 같다: 같은 실행에서 중복 항목이 이미 옮긴
   전사본은 건너뛴다(`sortItems`).
 - **같은 이름, 같은 파일.** 같은 녹음을 두 번 넣은 항목, 같은 이름의 결과 파일, 음성 메모 이름 겹침. 파일을 만들거나
-  옮기는 새 코드는 `WriteNew`/`Reserve`/`UniquePath`를 쓰고, 같은 `Output`을 가진 다른 항목도 같이 바꾸는가.
+  옮기는 새 코드는 `WriteNew`/`Reserve`를 쓰는가. `UniquePath`는 확인과 쓰기 사이가 비므로, 같은 폴더에 동시에 쓰는
+  코드(시작 때 복사 `tidyFinished`, 실행기)가 있으면 쓰지 않는다. 같은 `Output`을 가진 다른 항목도 `updateTranscript`로
+  한 번에 바꾸는가. 항목마다 따로 바꾸면 그 사이에 정리가 끼어 한쪽이 사라진 파일을 가리킨다.
 - **config를 덮어써 다른 값이 사라짐.** CLI나 다른 프로세스가 쓴 값, 형식이 조금 다른 값. 저장하는 새 코드는
   `reload` 뒤에 바꾸고, 모르는 값을 지우지 않는가.
 - **Windows에서만 깨짐.** 콘솔 출력(한글), `explorer` 명령줄, 닫지 않은 파일 때문에 지워지지 않는 임시 폴더, 리소스

@@ -257,8 +257,7 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	}
 	target := filepath.Join(dir, base+".md")
 	if target != item.Output {
-		target = output.UniquePath(target)
-		if err := os.Rename(item.Output, target); err != nil {
+		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
 			return false, i18n.Wrap("error.renameFailed", err)
 		}
 	}
@@ -268,6 +267,28 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 		it.Course = res.Course
 		it.Sorted = sortedMatched
 	})
+}
+
+// placeSorted puts a sorted transcript at target, or a numbered name when
+// that is taken, and returns where it went. The name is claimed first
+// (output.Reserve), so the startup copy writing the same name meanwhile is
+// never replaced. A .md in the transcript folder moves. One outside it (an
+// older result the startup copy has not taken in, a file picked with
+// "locate") is written anew from text and left where it is: it may sit on
+// another drive, where a rename fails, or in a folder macOS guards.
+func placeSorted(root, from, target, text string) (string, error) {
+	if !output.Inside(root, from) {
+		return output.WriteNew(target, text)
+	}
+	claimed, err := output.Reserve(target)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(from, claimed); err != nil {
+		_ = os.Remove(claimed)
+		return "", err
+	}
+	return claimed, nil
 }
 
 // updateTranscript applies fn to item and to every other item writing to the

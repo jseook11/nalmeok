@@ -182,18 +182,17 @@ func (a *App) tidyFinished() {
 	if a.store == nil {
 		return
 	}
-	moved := map[string]string{} // old .md -> its copy, for duplicates
-	for _, item := range a.store.List("") {
-		if item.State != "done" || item.Output == "" {
+	for _, listed := range a.store.List("") {
+		// Read again: an earlier copy may have moved this item along with
+		// its twin, and sorting may have run since the list was taken.
+		item, ok := a.store.Get(listed.ID)
+		if !ok || item.State != "done" || item.Output == "" {
 			continue
 		}
 		if a.OutputDir != "" && !output.Inside(a.OutputDir, item.Output) {
-			if path, ok := moved[item.Output]; ok {
-				_ = a.store.Update(item.ID, func(it *store.Item) { it.Output = path })
-				item.Output = path
-			} else if path, err := a.copyIn(item); err == nil {
-				moved[item.Output] = path
-				_ = a.store.Update(item.ID, func(it *store.Item) { it.Output = path })
+			// Every item on the same .md moves to the one copy at once.
+			if path, err := a.copyIn(item); err == nil {
+				_ = a.updateTranscript(item, func(it *store.Item) { it.Output = path })
 				item.Output = path
 			}
 		}
