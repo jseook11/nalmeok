@@ -47,7 +47,8 @@
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
   | 모드·등급 값, 등급에서 모드, 값 검사 | `config.ModeFree`·`ModeBatch`·`TierFree`·`TierPaid`, `config.ModeForTier`, `IsMode`, `IsTier`. 다음 항목이 쓸 모드는 `Config.EffectiveMode`, runner의 키 고르기는 `resolveMode`·`availableMode`(`runner/keys.go`)와 `backend.candidates`. 문자열 `"free"`를 직접 쓰지 않는다 |
   | config 한 값 바꾸기 | 키는 `Config.editKey`, `gui` 아래 값은 `Config.setGUI`. 바꾸기 직전에 `reload`를 부른다(직접 고칠 때도) |
-  | 녹음 시각, 학기 주차 | 항목에 저장된 `Item.RecordedFrom`/`RecordedTo`를 먼저 쓰는 `recordedSpan`(없을 때만 `media.RecordedSpan`), `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of` |
+  | 녹음 시각, 학기 주차 | 항목에 저장된 `Item.RecordedFrom`/`RecordedTo`를 먼저 쓰는 `recordedSpan`(없을 때만 `media.RecordedSpan`), `course.SemesterStart`, `course.Week`, 이름의 주차 `course.WeekFromName`. 항목의 주차는 `App.weeks.of`. 영상이 든 파일은 `RecordedSpan`이 시각 없음으로 낸다 |
+  | MP4 트랙 종류(음성·영상) | `media.trakHandler` (`"soun"`, `"vide"`) |
   | 녹음 이름 (확장자 뺀 파일 이름, 폴더 이름 그대로) | Go `output.Name`(항목은 `recordingName`), 화면 `displayName` |
   | 앱이 받아 둔 녹음인가, 지우기 | `runner.received`, `runner.removeReceived` |
   | 자연 순서 정렬 (`2`가 `10` 앞) | `media.SortNatural`, `media.NaturalLess` |

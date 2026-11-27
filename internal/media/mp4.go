@@ -202,8 +202,7 @@ func parseMP4(path string) (*mp4Track, error) {
 		if trak.typ != "trak" {
 			continue
 		}
-		hdlr, ok := findBox(trak.body, "mdia", "hdlr")
-		if !ok || len(hdlr) < 12 || string(hdlr[8:12]) != "soun" {
+		if trakHandler(trak.body) != "soun" {
 			continue
 		}
 		tr, err := parseAudioTrak(trak.body, len(moofs) > 0)
@@ -222,6 +221,16 @@ func parseMP4(path string) (*mp4Track, error) {
 		return tr, nil
 	}
 	return nil, errMP4(i18n.T("mp4.noAudioTrack"))
+}
+
+// trakHandler is a trak's handler type: "soun" for audio, "vide" for video,
+// "" when it has none.
+func trakHandler(trak []byte) string {
+	hdlr, ok := findBox(trak, "mdia", "hdlr")
+	if !ok || len(hdlr) < 12 {
+		return ""
+	}
+	return string(hdlr[8:12])
 }
 
 // smpbSamples reads the valid sample count from iTunes gapless metadata

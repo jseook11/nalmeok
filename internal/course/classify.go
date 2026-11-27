@@ -212,8 +212,8 @@ var weekInName = regexp.MustCompile(`(?i)(?:^|[^0-9])([0-9]{1,2})\s*\x{C8FC}\x{C
 // WeekFromName is the week written in a name, or 0: what someone typed in a
 // recording's file name, used when it has no recording time (a downloaded
 // lecture video), and what sorting put in a transcript's name. The name is
-// composed (NFC) first: macOS hands out file names with Hangul split into jamo (NFD), which
-// "주차" would not match.
+// composed (NFC) first: macOS hands out file names with Hangul split into
+// jamo (NFD), which "주차" would not match.
 func WeekFromName(name string) int {
 	m := weekInName.FindStringSubmatch(norm.NFC.String(name))
 	if m == nil {
