@@ -8,6 +8,8 @@
   "action.locate": "다시 찾기…",
   "action.rename": "이름 변경",
   "action.setWeek": "주차 지정",
+  "action.setCourse": "강의 지정",
+  "course.auto": "자동 (다시 분류)",
   "action.restore": "다시 저장",
   "action.retry": "다시 시도",
 
@@ -162,6 +164,7 @@
   "error.keyRequired": "API 키 필요",
   "error.locked": "Nalmeok이 이미 실행 중",
   "error.weekRange": "주차는 1–{max} 사이 숫자로 입력",
+  "error.unknownCourse": "\"{name}\"은(는) 강의 목록에 없음",
   "error.nameBadChars": "이름에 / \\ : 사용 불가",
   "error.nameRequired": "이름 입력",
   "error.geminiBusy": "Gemini 혼잡 지속",

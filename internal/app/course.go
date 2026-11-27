@@ -219,12 +219,17 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	}
 	name := recordingName(item)
 	week, _ := a.weeks.of(item, start)
-	// A recording made during a class on the timetable is that class (the
-	// one it shares the most time with): the model then only names the
-	// topic, with a prompt that does not ask for the course.
+	// A lecture the user picked, else a recording made during a class on
+	// the timetable (the one it shares the most time with), is that class:
+	// the model then only names the topic, with a prompt that does not ask
+	// for the course. A picked lecture since removed from the list is
+	// sorted as usual.
 	var slot config.Course
 	var timed bool
-	if from, to, ok := recordedSpan(item); ok {
+	if item.CourseSet {
+		slot, timed = courseNamed(courses, item.Course)
+	}
+	if from, to, ok := recordedSpan(item); ok && !timed {
 		slot, timed = course.ByTime(courses, from, to)
 	}
 	res, err := clients.ask(func(client gemini.Client) (course.Result, error) {
@@ -379,6 +384,67 @@ func (a *App) SetWeek(id string, week int) error {
 		return store.ErrNotFound
 	}
 	return a.updateTranscript(item, func(it *store.Item) { it.WeekSet = week })
+}
+
+// courseNamed is the listed lecture called name.
+func courseNamed(courses []config.Course, name string) (config.Course, bool) {
+	for _, c := range courses {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return config.Course{}, false
+}
+
+// SetCourse puts item id's transcript in a listed lecture by hand, moving
+// its .md into that lecture's folder under the same name. Copies of the same
+// transcript follow. Sorting it again keeps the lecture and only renames
+// it. An empty name only drops the pick: the transcript stays where it is
+// until it is sorted again.
+func (a *App) SetCourse(id, name string) error {
+	item, err := a.finishedItem(id)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		return a.updateTranscript(item, func(it *store.Item) { it.CourseSet = false })
+	}
+	a.mu.Lock()
+	var courses []config.Course
+	if a.cfg != nil {
+		courses = a.cfg.Courses()
+	}
+	a.mu.Unlock()
+	if _, ok := courseNamed(courses, name); !ok {
+		return i18n.Error("error.unknownCourse", "name", name)
+	}
+	if !isFile(item.Output) {
+		return errNoOutput
+	}
+	if a.OutputDir == "" {
+		return errNotReady
+	}
+	text, err := a.outputText(item)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(a.OutputDir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return i18n.Wrap("error.renameFailed", err)
+	}
+	target := filepath.Join(dir, filepath.Base(item.Output))
+	if target != item.Output {
+		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
+			return i18n.Wrap("error.renameFailed", err)
+		}
+	}
+	return a.updateTranscript(item, func(it *store.Item) {
+		it.Output = target
+		it.Name = strings.TrimSuffix(filepath.Base(target), ".md")
+		it.Course = name
+		it.CourseSet = true
+		it.Sorted = sortedMatched
+	})
 }
 
 func (a *App) semesterStart() string {

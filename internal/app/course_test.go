@@ -571,3 +571,46 @@ func TestSortCopiesTranscriptFromOutside(t *testing.T) {
 		t.Fatal("the transcript outside the folder must stay")
 	}
 }
+
+// A lecture picked by hand moves the transcript under its name, and sorting
+// it again keeps that lecture, only asking for the topic.
+func TestSetCourseByHand(t *testing.T) {
+	ta, item := sortFixture(t, "오늘은 출석만 부르고 끝")
+	ta.setCourses(t, "", "선형대수학", "알고리즘")
+	if err := ta.app.SetCourse(item.ID, "물리학"); err == nil {
+		t.Error("unknown lecture accepted")
+	}
+	if err := ta.app.SetCourse(item.ID, "알고리즘"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := ta.app.store.Get(item.ID)
+	want := filepath.Join(ta.app.OutputDir, "알고리즘", "녹음 23.md")
+	if got.Output != want || got.Course != "알고리즘" || !got.CourseSet || got.Sorted != sortedMatched || !isFile(want) {
+		t.Fatalf("item = %q %q %v %q", got.Output, got.Course, got.CourseSet, got.Sorted)
+	}
+
+	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
+		t.Fatal(err)
+	}
+	var prompts, systems []string
+	ta.app.NewClient = func(string) (gemini.Client, error) {
+		return &promptRecorder{prompts: &prompts, systems: &systems, answer: `{"topic":"정렬"}`}, nil
+	}
+	if sum, err := ta.app.SortCourse(item.ID); err != nil || sum.Matched != 1 {
+		t.Fatalf("SortCourse = %+v, %v", sum, err)
+	}
+	got, _ = ta.app.store.Get(item.ID)
+	if want := filepath.Join(ta.app.OutputDir, "알고리즘", course.FileBase(11, "정렬")+".md"); got.Output != want || got.Course != "알고리즘" {
+		t.Fatalf("after sorting again: %q %q", got.Output, got.Course)
+	}
+	if len(systems) != 1 || strings.Contains(systems[0], "confident") || strings.Contains(prompts[0], "선형대수학") {
+		t.Errorf("picked lecture was asked again: %q %q", systems, prompts)
+	}
+
+	if err := ta.app.SetCourse(item.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = ta.app.store.Get(item.ID); got.CourseSet || got.Course != "알고리즘" {
+		t.Errorf("after clearing: %q %v", got.Course, got.CourseSet)
+	}
+}
