@@ -2614,7 +2614,12 @@
     openSurface(menu, { trap: false });
     setMenuRow(rowEl);
     rowEl.classList.add("is-menu");
+    placeMenu(at);
+  }
 
+  // placeMenu puts the open menu at `at`, kept on screen: above the point
+  // when there is no room below.
+  function placeMenu(at) {
     const { innerWidth, innerHeight } = window;
     const rect = menu.getBoundingClientRect();
     const x = Math.min(at.clientX, innerWidth - rect.width - 6);
@@ -3066,21 +3071,16 @@
     openSurface(menu, { trap: false });
     setMenuRow(rowEl);
     rowEl.classList.add("is-menu");
-    const at = rowMenuPoint(rowEl);
-    const rect = menu.getBoundingClientRect();
-    const x = Math.min(at.clientX, window.innerWidth - rect.width - 6);
-    const y = at.clientY + rect.height > window.innerHeight - 6 ? Math.max(6, at.clientY - rect.height) : at.clientY;
-    menu.style.left = `${Math.max(6, x)}px`;
-    menu.style.top = `${y}px`;
+    placeMenu(rowMenuPoint(rowEl));
   }
 
-  async function setCourse(id, name) {
+  async function setItemCourse(id, name) {
     const item = itemByID(id);
     if (!item) return;
     if (name === "" && !item.CourseSet) return;
     if (name !== "" && item.CourseSet && item.Course === name) return;
     try {
-      await call("SetCourse", id, name);
+      await call("SetItemCourse", id, name);
       if (name === "") {
         await runSort(id); // back to automatic: sort it again now
         return;
@@ -3563,7 +3563,7 @@
       if (coursePick) {
         const id = menu.dataset.id;
         closeMenu();
-        setCourse(id, coursePick.dataset.coursePick);
+        setItemCourse(id, coursePick.dataset.coursePick);
         return;
       }
       const pick = event.target.closest("button[data-pick]");

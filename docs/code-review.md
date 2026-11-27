@@ -41,7 +41,7 @@
   | 정리 실패를 짧은 문장으로 | `internal/app` `errorMessage` |
   | Gemini 오류 가르기 | `gemini.Is429`, `IsAuth`, `IsTransient`, `IsUnavailable`, `IsNotFound`, `IsEmptyResponse`, `StatusCode` |
   | 전사본 위치, 보관본 위치, 폴더 안인가 | `output.TargetPath(root, source, kind)`, `output.ArchivePath(dir, id)`, `output.Inside(dir, path)`. 전사본 폴더는 `config.OutputDir`(`App.OutputDir`, `runner.Options.OutputDir`), 정리된 항목의 폴더는 `App.transcriptDir` |
-  | 겹치지 않는 이름 (`name (2).md`) | 새로 쓸 때 `output.WriteNew`, 옮기기는 `output.Reserve`(배타적 생성으로 이름을 잡음) 뒤 rename(강의 정리 `placeSorted`). `output.UniquePath`는 같은 폴더에 동시에 쓰는 코드가 없을 때만(이름 바꾸기) |
+  | 겹치지 않는 이름 (`name (2).md`) | 새로 쓸 때 `output.WriteNew`, 옮기기는 `output.Reserve`(배타적 생성으로 이름을 잡음) 뒤 rename(강의 정리 `placeSorted`). 전사본을 강의 폴더로 옮기고 항목에 적기는 `App.fileUnder`(정리와 강의 지정이 같이 씀). `output.UniquePath`는 같은 폴더에 동시에 쓰는 코드가 없을 때만(이름 바꾸기) |
   | 파일이 있는가 | `internal/app` `isFile` |
   | 끝난 항목 하나 꺼내기, 그 전사본 읽기 | `App.finishedItem`, `App.outputText` |
   | 항목 바꾸기 | `store.Update(id, fn)`. 같은 `.md`를 쓰는 항목 전부면 `App.updateTranscript` |
@@ -53,7 +53,7 @@
   | 자연 순서 정렬 (`2`가 `10` 앞) | `media.SortNatural`, `media.NaturalLess` |
   | 화면에서 Go 부르기 | `app.js` `call("메서드", ...)`. 오류 문장은 `errorText` |
   | HTML에 값 넣기 | `esc` |
-  | 시트·메뉴 열고 닫기, 포커스 가두기 | `openSurface`, `closeSurface`, `trapSurface`, `restoreFocus` |
+  | 시트·메뉴 열고 닫기, 포커스 가두기, 메뉴 위치 | `openSurface`, `closeSurface`, `trapSurface`, `restoreFocus`, `placeMenu` |
   | 알림 줄, 화면 낭독 | `showToast`, `announce` |
   | 지우고 되돌리기 | `removeWithUndo`(항목), `deleteKeyWithUndo`(키) |
   | 날짜 묶음·완료 시각 | `dayKey`, `dayLabel`, `finishStamp`, `finishedAt` |

@@ -9,7 +9,7 @@
   "action.rename": "Rename",
   "action.setWeek": "Set Week",
   "action.setCourse": "Set Lecture",
-  "course.auto": "Automatic (sort again)",
+  "course.auto": "Automatic",
   "action.restore": "Save again",
   "action.retry": "Retry",
 
