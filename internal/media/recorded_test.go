@@ -37,7 +37,7 @@ func TestRecordedSpan(t *testing.T) {
 		t.Fatalf("folder span = %v – %v, %v", start, end, ok)
 	}
 
-	// Unreadable length: one moment, as RecordedAt.
+	// Unreadable length: one moment, as fileRecordedAt.
 	bad := filepath.Join(t.TempDir(), "c.m4a")
 	if err := os.WriteFile(bad, []byte("not audio"), 0o600); err != nil {
 		t.Fatal(err)

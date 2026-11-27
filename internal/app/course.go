@@ -292,11 +292,9 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 // written in the recording's name ("9주차", "week 9"), else in the item's
 // name, which sorting set to "<n>주차 - <topic>".
 func weekOf(item store.Item, start string) (int, time.Time) {
-	at := item.RecordedFrom
-	if at.IsZero() {
-		at, _ = media.RecordedAt(item.Source)
-	}
-	if !at.IsZero() {
+	// The start, as sorting uses: a recording that runs past midnight on
+	// Sunday belongs to the week it began in.
+	if at, _, ok := recordedSpan(item); ok && !at.IsZero() {
 		return course.Week(at, course.SemesterStart(at, start)), at
 	}
 	if week := course.WeekFromName(recordingName(item)); week > 0 {
