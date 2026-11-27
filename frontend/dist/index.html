@@ -107,62 +107,112 @@
     <button class="text-button" type="button" data-close data-i18n="sheet.done"></button>
   </header>
   <div class="sheet-body">
-    <p class="sheet-intro" id="keys-intro" hidden>
-      <span data-i18n="keys.intro"></span>
-      <button class="text-button" id="key-source" type="button" data-i18n="keys.source"></button>
-    </p>
-    <p class="key-caption" id="key-caption" data-i18n="keys.caption" hidden></p>
-    <div class="key-list" id="key-list"></div>
-    <form class="key-form" id="key-form" novalidate>
-      <div class="segmented segmented-small" id="key-tier" role="tablist" data-i18n-aria-label="keys.tier">
-        <button type="button" role="tab" data-tier="free" aria-selected="true" data-i18n="tier.free"></button>
-        <button type="button" role="tab" data-tier="paid" aria-selected="false" data-i18n="tier.paid"></button>
-      </div>
-      <input class="field" id="key-value" type="password" data-i18n-placeholder="keys.placeholder"
-             autocomplete="new-password" spellcheck="false" data-i18n-aria-label="keys.title">
-      <p class="form-error" id="key-error" role="alert" hidden></p>
-      <button class="primary-button" id="key-save" type="submit" data-i18n="keys.save"></button>
-    </form>
-    <div class="setting" id="signals-setting" hidden>
-      <div class="setting-row">
-        <label class="setting-label" for="signals-switch" data-i18n="signals.label"></label>
-        <button class="info-button" id="signals-about" type="button" aria-expanded="false" aria-controls="signals-body"
-                data-i18n-aria-label="signals.about" data-i18n-title="signals.about">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-               stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.4"/>
-            <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
-            <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
-          </svg>
-        </button>
-        <input class="switch" id="signals-switch" type="checkbox" role="switch">
-      </div>
-      <p class="setting-note" id="signals-body" data-i18n="signals.body" hidden></p>
+    <div class="segmented settings-tabs" id="settings-tabs" role="tablist" data-i18n-aria-label="settings.title">
+      <button type="button" role="tab" id="tab-timetable" data-tab="timetable" aria-controls="pane-timetable" aria-selected="true" data-i18n="timetable.label"></button>
+      <button type="button" role="tab" id="tab-keys" data-tab="keys" aria-controls="pane-keys" aria-selected="false" tabindex="-1" data-i18n="settings.keysTab"></button>
     </div>
-    <div class="setting courses-setting" id="courses-setting">
-      <div class="setting-row">
-        <span class="setting-label" data-i18n="courses.label"></span>
-        <button class="info-button" id="courses-about" type="button" aria-expanded="false" aria-controls="courses-body"
-                data-i18n-aria-label="courses.about" data-i18n-title="courses.about">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-               stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.4"/>
-            <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
-            <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
-          </svg>
-        </button>
+    <div class="settings-pane" id="pane-timetable" role="tabpanel" aria-labelledby="tab-timetable">
+      <div class="setting courses-setting" id="courses-setting">
+        <form class="entry-form" id="entry-form" novalidate>
+          <input class="field" id="entry" type="text" autocomplete="off" spellcheck="false"
+                 aria-describedby="entry-help" data-i18n-placeholder="timetable.entryPlaceholder"
+                 data-i18n-aria-label="timetable.entryLabel">
+          <button class="primary-button entry-add" id="entry-add" type="submit" data-i18n="timetable.entryAdd"></button>
+          <button class="info-button" id="entry-about" type="button" aria-expanded="false" aria-controls="entry-help"
+                  data-i18n-aria-label="timetable.entryAbout" data-i18n-title="timetable.entryTip">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                 stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.4"/>
+              <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
+              <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
+        </form>
+        <div class="entry-help" id="entry-help" hidden>
+          <p data-i18n="timetable.help.intro"></p>
+          <ul>
+            <li><code data-i18n="timetable.help.ex1"></code></li>
+            <li><code data-i18n="timetable.help.ex2"></code> <span data-i18n="timetable.help.ex2note"></span></li>
+            <li><code data-i18n="timetable.help.ex3"></code> <span data-i18n="timetable.help.ex3note"></span></li>
+            <li><code data-i18n="timetable.help.ex4"></code> <span data-i18n="timetable.help.ex4note"></span></li>
+            <li><code data-i18n="timetable.help.ex5"></code> <span data-i18n="timetable.help.ex5note"></span></li>
+          </ul>
+          <p data-i18n="timetable.help.rules"></p>
+        </div>
+        <p class="setting-note" data-i18n="timetable.note"></p>
+        <div class="timetable" id="timetable" role="group" data-i18n-aria-label="timetable.label"></div>
+        <div class="tt-legend" id="tt-legend"></div>
+        <div class="setting-row semester-row">
+          <label class="setting-label" for="semester-start" data-i18n="courses.semester"></label>
+          <input class="field field-date" id="semester-start" type="text" inputmode="numeric" spellcheck="false"
+                 data-i18n-placeholder="courses.semesterPlaceholder">
+        </div>
+        <p class="setting-note" data-i18n="courses.semesterNote"></p>
       </div>
-      <p class="setting-note" id="courses-body" data-i18n="courses.body" hidden></p>
-      <div class="course-list" id="course-list"></div>
-      <button class="text-button course-add" id="course-add" type="button" data-i18n="courses.add"></button>
-      <div class="setting-row semester-row">
-        <label class="setting-label" for="semester-start" data-i18n="courses.semester"></label>
-        <input class="field field-date" id="semester-start" type="text" inputmode="numeric" spellcheck="false"
-               data-i18n-placeholder="courses.semesterPlaceholder">
+    </div>
+    <div class="settings-pane" id="pane-keys" role="tabpanel" aria-labelledby="tab-keys" hidden>
+      <p class="sheet-intro" id="keys-intro" hidden>
+        <span data-i18n="keys.intro"></span>
+        <button class="text-button" id="key-source" type="button" data-i18n="keys.source"></button>
+      </p>
+      <p class="key-caption" id="key-caption" data-i18n="keys.caption" hidden></p>
+      <div class="key-list" id="key-list"></div>
+      <form class="key-form" id="key-form" novalidate>
+        <div class="segmented segmented-small" id="key-tier" role="tablist" data-i18n-aria-label="keys.tier">
+          <button type="button" role="tab" data-tier="free" aria-selected="true" data-i18n="tier.free"></button>
+          <button type="button" role="tab" data-tier="paid" aria-selected="false" data-i18n="tier.paid"></button>
+        </div>
+        <input class="field" id="key-value" type="password" data-i18n-placeholder="keys.placeholder"
+               autocomplete="new-password" spellcheck="false" data-i18n-aria-label="keys.title">
+        <p class="form-error" id="key-error" role="alert" hidden></p>
+        <button class="primary-button" id="key-save" type="submit" data-i18n="keys.save"></button>
+      </form>
+      <div class="setting" id="signals-setting" hidden>
+        <div class="setting-row">
+          <label class="setting-label" for="signals-switch" data-i18n="signals.label"></label>
+          <button class="info-button" id="signals-about" type="button" aria-expanded="false" aria-controls="signals-body"
+                  data-i18n-aria-label="signals.about" data-i18n-title="signals.about">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                 stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.4"/>
+              <path d="M6.3 6.3a1.75 1.75 0 1 1 2.5 1.6c-.5.3-.8.6-.8 1.2v.3"/>
+              <circle cx="8" cy="11.3" r=".35" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
+          <input class="switch" id="signals-switch" type="checkbox" role="switch">
+        </div>
+        <p class="setting-note" id="signals-body" data-i18n="signals.body" hidden></p>
       </div>
-      <p class="setting-note" data-i18n="courses.semesterNote"></p>
     </div>
   </div>
+</div>
+
+<div class="slot-layer" id="slot-layer" hidden>
+  <form class="slot-pop" id="slot-pop" role="dialog" aria-modal="true" aria-labelledby="slot-title" tabindex="-1" novalidate>
+    <h3 class="slot-title" id="slot-title"></h3>
+    <label class="slot-label" for="slot-course" data-i18n="timetable.course"></label>
+    <div class="slot-combo">
+      <input class="field" id="slot-course" type="text" role="combobox" aria-autocomplete="list"
+             aria-expanded="false" aria-controls="slot-suggest" autocomplete="off" spellcheck="false"
+             data-i18n-placeholder="courses.namePlaceholder">
+      <div class="slot-suggest" id="slot-suggest" role="listbox" data-i18n-aria-label="timetable.course" hidden></div>
+    </div>
+    <p class="setting-note slot-new-note" id="slot-new-note" aria-live="polite" hidden></p>
+    <span class="slot-label" id="slot-days-label" data-i18n="timetable.days"></span>
+    <div class="slot-days" id="slot-days" role="group" aria-labelledby="slot-days-label"></div>
+    <span class="slot-label" id="slot-time-label" data-i18n="timetable.time"></span>
+    <div class="slot-times" role="group" aria-labelledby="slot-time-label">
+      <input class="field slot-time" id="slot-start" type="time" step="300" data-i18n-aria-label="timetable.start">
+      <span aria-hidden="true">–</span>
+      <select class="field slot-time" id="slot-end" data-i18n-aria-label="timetable.end"></select>
+    </div>
+    <p class="form-error" id="slot-error" role="alert" hidden></p>
+    <div class="modal-actions slot-actions">
+      <button class="slot-delete" id="slot-delete" type="button" data-i18n="timetable.delete"></button>
+      <button class="secondary-button" id="slot-cancel" type="button" data-i18n="timetable.cancel"></button>
+      <button class="primary-button" id="slot-save" type="submit" data-i18n="timetable.save"></button>
+    </div>
+  </form>
 </div>
 
 <div class="sheet" id="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1" hidden>

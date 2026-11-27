@@ -41,6 +41,19 @@
   --level-shaky: #c9a43a;
   --level-poor: #d4843a;
   --level-bad: #c9524c;
+  /* Timetable lecture colours, Calendar-like: a bar in the colour and a
+     light tint of it behind the name. */
+  --course-0: #e0614f;
+  --course-1: #2f9e8f;
+  --course-2: #4a7fd6;
+  --course-3: #d99a1e;
+  --course-4: #8a63d2;
+  --course-5: #e07a2f;
+  --course-6: #5a9e3a;
+  --course-7: #c9529a;
+  --course-8: #3a95c9;
+  --course-9: #9a7b4f;
+  --course-tint: 20%;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -81,6 +94,17 @@
     --level-shaky: #d6b552;
     --level-poor: #e09550;
     --level-bad: #e0665f;
+    --course-0: #f07a69;
+    --course-1: #47b8a8;
+    --course-2: #6b9bf0;
+    --course-3: #e6b04a;
+    --course-4: #a685ea;
+    --course-5: #f0944f;
+    --course-6: #77bb55;
+    --course-7: #e070b2;
+    --course-8: #5ab3e6;
+    --course-9: #c09a68;
+    --course-tint: 30%;
   }
 }
 
@@ -1505,45 +1529,456 @@ button {
   font-size: 12px;
 }
 
-/* Lecture list: a name and an optional hint per line, removed with "−". */
-.course-list {
-  display: grid;
-  gap: 6px;
-  margin-top: 10px;
+/* Settings tabs: the timetable and API keys, in the toolbar's segmented
+   control, centred. The first setting of a pane
+   sits right under the tabs, without the divider settings have between
+   them. */
+.settings-tabs {
+  display: flex;
+  width: max-content;
+  margin: 0 auto 20px;
 }
 
-.course-list:empty {
-  display: none;
+.settings-pane > .setting:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
-.course-item {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 22px;
+/* Timetable entry: one line typed, "프로그래밍, 화 1500~1900", with its
+   help folded under the "?". */
+.entry-form {
+  display: flex;
   gap: 6px;
   align-items: center;
 }
 
-.course-remove {
+.entry-form .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.entry-add {
+  flex: 0 0 auto;
+  min-width: 56px;
+}
+
+.field[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
+}
+
+.entry-help {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill-faint);
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.entry-help p {
+  margin: 0;
+}
+
+.entry-help ul {
+  margin: 6px 0;
+  padding-left: 16px;
+}
+
+.entry-help code {
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+/* Timetable: day columns over an hour gutter, one --tt-hour per hour.
+   Blocks are buttons placed by minute; a drag draws a ghost first. */
+.timetable {
+  --tt-gutter: 22px;
+  margin-top: 10px;
+  border: var(--hairline) solid var(--separator);
+  border-radius: 8px;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tt-head {
+  display: grid;
+  grid-template-columns: var(--tt-gutter) repeat(var(--tt-days), minmax(0, 1fr));
+  border-bottom: var(--hairline) solid var(--separator);
+  background: var(--fill-faint);
+}
+
+.tt-day {
+  padding: 5px 0;
+  color: var(--secondary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.tt-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--tt-gutter) repeat(var(--tt-days), minmax(0, 1fr));
+}
+
+.tt-gutter {
+  display: grid;
+  grid-auto-rows: var(--tt-hour);
+}
+
+.tt-hour {
+  padding: 2px 4px 0 0;
+  color: var(--tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.tt-col {
+  position: relative;
+  border-left: var(--hairline) solid var(--separator);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 calc(var(--tt-hour) - 1px),
+    var(--separator) calc(var(--tt-hour) - 1px) var(--tt-hour)
+  );
+  cursor: crosshair;
+}
+
+.tt-block,
+.tt-ghost {
+  position: absolute;
+  right: 2px;
+  left: 2px;
+  border-radius: 5px;
+}
+
+.tt-block {
+  --c: var(--course-0);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: stretch;
+  padding: 3px 4px 3px 6px;
+  overflow: hidden;
+  border: none;
+  border-left: 3px solid var(--c);
+  background: color-mix(in srgb, var(--c) var(--course-tint), var(--bg));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tt-block.is-hover {
+  background: color-mix(in srgb, var(--c) calc(var(--course-tint) + 10%), var(--bg));
+}
+
+.tt-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tt-block[data-color="1"],
+.tt-chip[data-color="1"] { --c: var(--course-1); }
+.tt-block[data-color="2"],
+.tt-chip[data-color="2"] { --c: var(--course-2); }
+.tt-block[data-color="3"],
+.tt-chip[data-color="3"] { --c: var(--course-3); }
+.tt-block[data-color="4"],
+.tt-chip[data-color="4"] { --c: var(--course-4); }
+.tt-block[data-color="5"],
+.tt-chip[data-color="5"] { --c: var(--course-5); }
+.tt-block[data-color="6"],
+.tt-chip[data-color="6"] { --c: var(--course-6); }
+.tt-block[data-color="7"],
+.tt-chip[data-color="7"] { --c: var(--course-7); }
+.tt-block[data-color="8"],
+.tt-chip[data-color="8"] { --c: var(--course-8); }
+.tt-block[data-color="9"],
+.tt-chip[data-color="9"] { --c: var(--course-9); }
+
+.tt-name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Resize grips: thin strips along the top and bottom edges, with a small
+   bar that shows on hover. */
+.tt-handle {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.tt-handle.is-top {
+  top: 0;
+}
+
+.tt-handle.is-bottom {
+  bottom: 0;
+}
+
+.tt-handle::after {
+  position: absolute;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c);
+  content: "";
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.tt-handle.is-top::after {
+  top: 2px;
+}
+
+.tt-handle.is-bottom::after {
+  bottom: 2px;
+}
+
+.tt-block.is-hover .tt-handle::after,
+.tt-block.is-resizing .tt-handle::after {
+  opacity: 0.9;
+}
+
+.tt-block.is-resizing {
+  z-index: 2;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: ns-resize;
+}
+
+.tt-block.is-short .tt-name {
+  -webkit-line-clamp: 1;
+}
+
+.tt-time {
+  color: var(--secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tt-block.is-new {
+  animation: tt-new 1.6s ease-out;
+}
+
+@keyframes tt-new {
+  0%, 30% {
+    box-shadow: 0 0 0 2px var(--c);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+.tt-ghost {
+  border: 1.5px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}
+
+/* Class time editor: a popover card beside the block, over a clear layer
+   that closes it on a click outside. Above the settings sheet (60), under
+   the quit and PDF dialogs (70) that can open over it. */
+.slot-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+}
+
+.slot-pop {
+  position: absolute;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  box-sizing: border-box;
+  width: 320px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+  animation: fade-in 0.12s ease-out;
+}
+
+.slot-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.slot-label {
+  margin-top: 4px;
+  color: var(--secondary);
+  font-size: 11px;
+}
+
+.slot-combo {
+  position: relative;
+}
+
+.slot-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 1;
+  max-height: 180px;
+  padding: 4px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.slot-option {
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.slot-option:hover,
+.slot-option[aria-selected="true"] {
+  background: var(--accent-fill);
+  color: #ffffff;
+}
+
+.slot-new-note {
+  margin: 0;
+}
+
+.slot-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.slot-day {
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.slot-day[aria-pressed="true"] {
+  background: var(--accent-fill);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.slot-times {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--secondary);
+}
+
+.slot-time {
+  flex: 1 1 0;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+select.slot-time {
+  flex-grow: 1.6;
+}
+
+.slot-actions {
+  margin-top: 8px;
+}
+
+.slot-delete {
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--danger-text);
+  font-size: 13px;
+}
+
+.slot-delete:hover {
+  opacity: 0.75;
+}
+
+
+/* Lectures under the grid: a dot in the lecture's colour, its name, and a
+   remove button. One with no times yet is dimmed. */
+.tt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tt-legend:empty {
+  display: none;
+}
+
+.tt-chip {
+  --c: var(--course-0);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 12px;
+}
+
+.tt-chip.is-empty {
+  color: var(--secondary);
+}
+
+.tt-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.tt-chip-remove {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: none;
   color: var(--tertiary);
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1;
 }
 
-.course-remove.is-hover {
+.tt-chip-remove.is-hover {
+  background: var(--fill-strong);
   color: var(--danger-text);
 }
 
-.course-add {
-  margin-top: 8px;
-  padding: 0;
+.tt-ghost.is-clash {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .semester-row {
