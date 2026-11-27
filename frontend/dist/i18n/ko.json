@@ -9,7 +9,7 @@
   "action.rename": "이름 변경",
   "action.setWeek": "주차 지정",
   "action.setCourse": "강의 지정",
-  "course.auto": "자동 (다시 분류)",
+  "course.auto": "자동",
   "action.restore": "다시 저장",
   "action.retry": "다시 시도",
 

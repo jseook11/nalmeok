@@ -245,31 +245,43 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if res.Course == "" {
 		return false, a.updateTranscript(item, func(it *store.Item) { it.Sorted = sortedNone })
 	}
-	if !isFile(item.Output) {
-		return false, errNoOutput
-	}
 	base := course.FileBase(week, res.Topic)
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
-	if a.OutputDir == "" {
-		return false, errNotReady
+	return true, a.fileUnder(item, res.Course, base, text, false)
+}
+
+// fileUnder moves item's transcript to <transcript folder>/<lecture>/<base>.md
+// (a numbered name when that is taken) and records it as sorted into that
+// lecture, on every item sharing the .md. picked marks a lecture the user
+// chose; sorting keeps whatever pick there was.
+func (a *App) fileUnder(item store.Item, lecture, base, text string, picked bool) error {
+	if !isFile(item.Output) {
+		return errNoOutput
 	}
-	dir := filepath.Join(a.OutputDir, res.Course)
+	if a.OutputDir == "" {
+		return errNotReady
+	}
+	dir := filepath.Join(a.OutputDir, lecture)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, i18n.Wrap("error.renameFailed", err)
+		return i18n.Wrap("error.renameFailed", err)
 	}
 	target := filepath.Join(dir, base+".md")
 	if target != item.Output {
+		var err error
 		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
-			return false, i18n.Wrap("error.renameFailed", err)
+			return i18n.Wrap("error.renameFailed", err)
 		}
 	}
-	return true, a.updateTranscript(item, func(it *store.Item) {
+	return a.updateTranscript(item, func(it *store.Item) {
 		it.Output = target
 		it.Name = strings.TrimSuffix(filepath.Base(target), ".md")
-		it.Course = res.Course
+		it.Course = lecture
 		it.Sorted = sortedMatched
+		if picked {
+			it.CourseSet = true
+		}
 	})
 }
 
@@ -396,12 +408,12 @@ func courseNamed(courses []config.Course, name string) (config.Course, bool) {
 	return config.Course{}, false
 }
 
-// SetCourse puts item id's transcript in a listed lecture by hand, moving
+// SetItemCourse puts item id's transcript in a listed lecture by hand, moving
 // its .md into that lecture's folder under the same name. Copies of the same
 // transcript follow. Sorting it again keeps the lecture and only renames
 // it. An empty name only drops the pick: the transcript stays where it is
 // until it is sorted again.
-func (a *App) SetCourse(id, name string) error {
+func (a *App) SetItemCourse(id, name string) error {
 	item, err := a.finishedItem(id)
 	if err != nil {
 		return err
@@ -418,33 +430,11 @@ func (a *App) SetCourse(id, name string) error {
 	if _, ok := courseNamed(courses, name); !ok {
 		return i18n.Error("error.unknownCourse", "name", name)
 	}
-	if !isFile(item.Output) {
-		return errNoOutput
-	}
-	if a.OutputDir == "" {
-		return errNotReady
-	}
 	text, err := a.outputText(item)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(a.OutputDir, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return i18n.Wrap("error.renameFailed", err)
-	}
-	target := filepath.Join(dir, filepath.Base(item.Output))
-	if target != item.Output {
-		if target, err = placeSorted(a.OutputDir, item.Output, target, text); err != nil {
-			return i18n.Wrap("error.renameFailed", err)
-		}
-	}
-	return a.updateTranscript(item, func(it *store.Item) {
-		it.Output = target
-		it.Name = strings.TrimSuffix(filepath.Base(target), ".md")
-		it.Course = name
-		it.CourseSet = true
-		it.Sorted = sortedMatched
-	})
+	return a.fileUnder(item, name, strings.TrimSuffix(filepath.Base(item.Output), ".md"), text, true)
 }
 
 func (a *App) semesterStart() string {

@@ -577,10 +577,10 @@ func TestSortCopiesTranscriptFromOutside(t *testing.T) {
 func TestSetCourseByHand(t *testing.T) {
 	ta, item := sortFixture(t, "오늘은 출석만 부르고 끝")
 	ta.setCourses(t, "", "선형대수학", "알고리즘")
-	if err := ta.app.SetCourse(item.ID, "물리학"); err == nil {
+	if err := ta.app.SetItemCourse(item.ID, "물리학"); err == nil {
 		t.Error("unknown lecture accepted")
 	}
-	if err := ta.app.SetCourse(item.ID, "알고리즘"); err != nil {
+	if err := ta.app.SetItemCourse(item.ID, "알고리즘"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
@@ -607,7 +607,7 @@ func TestSetCourseByHand(t *testing.T) {
 		t.Errorf("picked lecture was asked again: %q %q", systems, prompts)
 	}
 
-	if err := ta.app.SetCourse(item.ID, ""); err != nil {
+	if err := ta.app.SetItemCourse(item.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ = ta.app.store.Get(item.ID); got.CourseSet || got.Course != "알고리즘" {
