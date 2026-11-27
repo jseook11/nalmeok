@@ -13,6 +13,7 @@ import (
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/gemini"
 	"github.com/jseook11/nalmeok/internal/i18n"
+	"golang.org/x/text/unicode/norm"
 	"google.golang.org/genai"
 )
 
@@ -170,9 +171,11 @@ var weekInName = regexp.MustCompile(`(?i)(?:^|[^0-9])([0-9]{1,2})\s*\x{C8FC}\x{C
 
 // WeekFromName is the week written in a recording's file name, or 0. The
 // user's own label beats a week counted from the recording time, which a
-// make-up class or a copied file gets wrong.
+// make-up class or a copied file gets wrong. The name is composed (NFC)
+// first: macOS hands out file names with Hangul split into jamo (NFD), which
+// "주차" would not match.
 func WeekFromName(name string) int {
-	m := weekInName.FindStringSubmatch(name)
+	m := weekInName.FindStringSubmatch(norm.NFC.String(name))
 	if m == nil {
 		return 0
 	}
