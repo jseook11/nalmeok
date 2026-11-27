@@ -10,7 +10,6 @@ import (
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
-	"github.com/jseook11/nalmeok/internal/media/mediatest"
 	"github.com/jseook11/nalmeok/internal/store"
 )
 
@@ -250,8 +249,11 @@ func TestTidyFinishedCopiesOldTranscriptsIn(t *testing.T) {
 func TestTidyFinishedKeepsRecordingTime(t *testing.T) {
 	ta := newTestApp(t)
 	src := filepath.Join(ta.dir, "lec.m4a")
+	writeText(t, src, "audio")
 	stamp := time.Date(2026, 10, 6, 15, 30, 0, 0, time.Local)
-	mediatest.WriteClocked(t, src, stamp)
+	if err := os.Chtimes(src, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(ta.app.OutputDir, "lec.md")
 	writeText(t, path, "본문\n")
 	item := store.Item{ID: "done-1", Name: "lec", Kind: "file", Source: src, State: "done", Output: path}

@@ -436,8 +436,20 @@ func checkM4A(t *testing.T, src string, pieces []Piece) {
 // TestPrepareDropsVideo adds a (fake) video track before the audio track and
 // checks that the pieces carry only the audio.
 func TestPrepareDropsVideo(t *testing.T) {
-	fx := fixtures(t)
-	orig := filepath.Join(fx, "x.mp4")
+	src := filepath.Join(t.TempDir(), "video.mp4")
+	os.WriteFile(src, withVideoTrack(t, filepath.Join(fixtures(t), "x.mp4")), 0o644)
+
+	pieces, err := Prepare(Track{Path: src, Format: FormatAACMP4}, t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkM4A(t, src, pieces)
+}
+
+// withVideoTrack is the MP4 at orig with a (fake) video track added before
+// its audio track.
+func withVideoTrack(t *testing.T, orig string) []byte {
+	t.Helper()
 	data := moovAtEnd(t, mustRead(t, orig)) // moov last: growing it moves no chunk
 	top, _ := childBoxes(data)
 	last := top[len(top)-1]
@@ -454,15 +466,7 @@ func TestPrepareDropsVideo(t *testing.T) {
 		body = append(body, mp4Box(c.typ, c.body)...)
 	}
 	moovLen := len(mp4Box("moov", last.body))
-	data = slices.Concat(data[:len(data)-moovLen], mp4Box("moov", body))
-	src := filepath.Join(t.TempDir(), "video.mp4")
-	os.WriteFile(src, data, 0o644)
-
-	pieces, err := Prepare(Track{Path: src, Format: FormatAACMP4}, t.TempDir(), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkM4A(t, src, pieces)
+	return slices.Concat(data[:len(data)-moovLen], mp4Box("moov", body))
 }
 
 func TestPrepareWAV(t *testing.T) {

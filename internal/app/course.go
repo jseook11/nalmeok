@@ -324,21 +324,20 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 
 // weekOf is the semester week item's recording belongs to, or 0, and when it
 // was recorded (zero when that cannot be read). The week is counted from the
-// recording time: kept on the item, else read from the audio. When neither
-// is there (the audio was deleted before the time was kept), a sorted item
-// keeps the week sorting put in its name ("Week 9 - <topic>"). The
-// recording's own file name is never read: what a person or the LMS typed
-// there is no recording time, and no week beats a wrong one.
+// recording time: kept on the item, else read from the audio. When there is
+// none (a downloaded video, or audio deleted before the time was kept), it
+// is the week someone wrote in the recording's name ("9주차", "week 9"),
+// else in the item's name, which sorting set to "<n>주차 - <topic>".
 func weekOf(item store.Item, start string) (int, time.Time) {
 	// The start, as sorting uses: a recording that runs past midnight on
 	// Sunday belongs to the week it began in.
 	if at, _, ok := recordedSpan(item); ok && !at.IsZero() {
 		return course.Week(at, course.SemesterStart(at, start)), at
 	}
-	if item.Sorted == sortedMatched {
-		return course.WeekFromName(item.Name), time.Time{}
+	if week := course.WeekFromName(recordingName(item)); week > 0 {
+		return week, time.Time{}
 	}
-	return 0, time.Time{}
+	return course.WeekFromName(item.Name), time.Time{}
 }
 
 // weekCache remembers weekOf per item, so a list refresh does not read the
