@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"golang.org/x/text/unicode/norm"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +104,7 @@ func TestSortCoursesMovesIntoLectureFolder(t *testing.T) {
 	}
 	got, _ := ta.app.store.Get(item.ID)
 	base := course.FileBase(11, "부분공간과 생성")
-	want := filepath.Join(ta.dir, "선형대수학", base+".md")
+	want := filepath.Join(ta.app.OutputDir, "선형대수학", base+".md")
 	if got.Output != want || got.Name != base || got.Course != "선형대수학" || got.Sorted != sortedMatched {
 		t.Fatalf("item = %q %q %q %q", got.Output, got.Name, got.Course, got.Sorted)
 	}
@@ -157,7 +158,7 @@ func TestSortCourseAgainMovesBetweenLectures(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "알고리즘", course.FileBase(10, "정렬")+".md"); again.Output != want {
+	if want := filepath.Join(ta.app.OutputDir, "알고리즘", course.FileBase(10, "정렬")+".md"); again.Output != want {
 		t.Fatalf("again = %s, want %s", again.Output, want)
 	}
 }
@@ -232,12 +233,12 @@ func TestSortUsesTheRecordingName(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	if want := filepath.Join(ta.dir, "프로그래밍언어론", course.FileBase(11, "자료형")+".md"); got.Output != want {
+	if want := filepath.Join(ta.app.OutputDir, "프로그래밍언어론", course.FileBase(11, "자료형")+".md"); got.Output != want {
 		t.Fatalf("output = %s, want %s", got.Output, want)
 	}
 }
 
-func TestSortFolderGoesNextToTheFolder(t *testing.T) {
+func TestSortFolderGoesIntoTranscriptFolder(t *testing.T) {
 	ta, item := sortFixture(t, "부분공간 span basis")
 	ta.setCourses(t, "", "선형대수학")
 	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
@@ -274,7 +275,7 @@ func TestSortFolderGoesNextToTheFolder(t *testing.T) {
 	if sum, err := ta.app.SortCourses(); err != nil || sum.Matched != 1 || sum.Failed != 0 {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
-	want := filepath.Join(ta.dir, "선형대수학", course.FileBase(10, "부분공간")+".md")
+	want := filepath.Join(ta.app.OutputDir, "선형대수학", course.FileBase(10, "부분공간")+".md")
 	for _, id := range []string{"i1", "i2"} {
 		got, _ := ta.app.store.Get(id)
 		if got.Output != want || got.Sorted != sortedMatched || got.Course != "선형대수학" {
@@ -282,7 +283,7 @@ func TestSortFolderGoesNextToTheFolder(t *testing.T) {
 		}
 	}
 	if !isFile(want) {
-		t.Error("transcript was not moved next to the folder")
+		t.Error("transcript was not moved into the transcript folder")
 	}
 	if n := ta.app.SortableCount(); n != 0 {
 		t.Errorf("SortableCount after = %d", n)
@@ -405,7 +406,7 @@ func TestSortUsesTheTimetable(t *testing.T) {
 		t.Fatalf("SortCourses = %+v, %v", sum, err)
 	}
 	got, _ := ta.app.store.Get(item.ID)
-	want := filepath.Join(ta.dir, "알고리즘", course.FileBase(11, "정렬 알고리즘")+".md")
+	want := filepath.Join(ta.app.OutputDir, "알고리즘", course.FileBase(11, "정렬 알고리즘")+".md")
 	if got.Course != "알고리즘" || got.Output != want {
 		t.Fatalf("item = %q %q", got.Course, got.Output)
 	}
@@ -493,5 +494,24 @@ func TestCoursesOverlaps(t *testing.T) {
 	// What is read back saves without complaint.
 	if err := cfg.SetCourses(got, ""); err != nil {
 		t.Errorf("saving the cleaned list: %v", err)
+	}
+}
+
+// With the audio deleted and no kept time, the week comes from the names.
+func TestWeekOfWithoutAudio(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	cases := []struct {
+		item store.Item
+		want int
+	}{
+		{store.Item{Kind: "file", Source: filepath.Join(gone, norm.NFD.String("컴퓨터구조 13주차-2.m4a")), Name: "x"}, 13},
+		{store.Item{Kind: "folder", Source: filepath.Join(gone, norm.NFD.String("9주차")), Name: "9주차"}, 9},
+		{store.Item{Kind: "file", Source: filepath.Join(gone, "Chung-Ang University 11.m4a"), Name: "Week 12 - Direct-mapped cache"}, 12},
+		{store.Item{Kind: "file", Source: filepath.Join(gone, "흑석동 8.m4a"), Name: "eigenvalue와 basis 변환"}, 0},
+	}
+	for _, c := range cases {
+		if week, _ := weekOf(c.item, ""); week != c.want {
+			t.Errorf("weekOf(%q, %q) = %d, want %d", c.item.Source, c.item.Name, week, c.want)
+		}
 	}
 }

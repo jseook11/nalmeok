@@ -124,9 +124,14 @@ type App struct {
 	ValidateKey func(ctx context.Context, key string) error
 
 	// TranscriptsDir holds the app's copy of each finished transcript
-	// (output.ArchivePath), read when the .md next to the source is gone.
-	// main sets it before Startup; empty keeps no copies.
+	// (output.ArchivePath), read when the .md is gone. main sets it before
+	// Startup; empty keeps no copies.
 	TranscriptsDir string
+
+	// OutputDir is the transcript folder (config.OutputDir, ~/Nalmeok):
+	// sorting makes lecture folders in it, and a restored or older
+	// transcript is copied into it. main sets it before Startup.
+	OutputDir string
 
 	// Telemetry sends the anonymous free-key health signals and reads the
 	// shared status. main sets it; nil (preview mode, tests) sends nothing.
@@ -164,7 +169,7 @@ func (a *App) Startup(ctx context.Context) {
 	if a.runner != nil {
 		a.runner.Start(ctx)
 	}
-	go a.archiveFinished()
+	go a.tidyFinished()
 }
 
 // Shutdown is called by Wails when the window closes. A runner that holds

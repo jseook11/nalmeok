@@ -84,6 +84,14 @@ type Item struct {
 	// WeekSet is the semester week the user set by hand; 0 means counted
 	// from the recording time or name.
 	WeekSet int `json:"WeekSet,omitempty"`
+	// RecordedFrom and RecordedTo are when the recording ran
+	// (media.RecordedSpan), kept when the item finishes so sorting and the
+	// week need not read the audio again: a Voice Memos copy is deleted
+	// then, and reading audio in Desktop or Documents makes macOS ask
+	// permission. Zero means not known yet; the app fills in older items at
+	// launch while their audio is still there.
+	RecordedFrom time.Time `json:"RecordedFrom,omitzero"`
+	RecordedTo   time.Time `json:"RecordedTo,omitzero"`
 	// PDFChosen marks that the user picked the folder's reference PDFs when
 	// adding it; PDFs is that choice (empty = transcribe without a PDF).
 	// Retries keep using it. Without a choice every PDF in the folder is

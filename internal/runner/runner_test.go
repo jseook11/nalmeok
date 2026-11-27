@@ -374,6 +374,8 @@ func (h *harness) newRunner() *Runner {
 		Keys:           func() []config.Key { return h.keys },
 		WorkDir:        filepath.Join(h.dir, "cfg", "nalmeok", "work"),
 		TranscriptsDir: filepath.Join(h.dir, "cfg", "nalmeok", "transcripts"),
+		OutputDir:      filepath.Join(h.dir, "out"),
+		ReceivedDirs:   []string{filepath.Join(h.dir, "received")},
 		LogPath:        filepath.Join(h.dir, "cfg", "nalmeok", "nalmeok.log"),
 		Notify: func(title, msg string) {
 			h.notesMu.Lock()
@@ -462,7 +464,8 @@ func TestFreeSuccessAcrossTwoUnits(t *testing.T) {
 
 	done := h.wait(item.ID, StateDone)
 	h.waitNotes(1)
-	want := filepath.Join(h.dir, "src", "강의09.md")
+	// Saved in the transcript folder, never next to the recording.
+	want := filepath.Join(h.dir, "out", "강의09.md")
 	if done.Output != want {
 		t.Fatalf("Output = %q, want %q", done.Output, want)
 	}
@@ -845,7 +848,7 @@ func TestMaxTokensWithoutTextFailsUnit(t *testing.T) {
 	if !strings.Contains(failed.Detail, i18n.T("error.truncated")) {
 		t.Errorf("Detail = %q", failed.Detail)
 	}
-	if _, err := os.Stat(filepath.Join(h.dir, "src", "lec.md")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(h.dir, "out", "lec.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Error("no output may be written for a failed item")
 	}
 }
@@ -1282,14 +1285,17 @@ func equalDurations(a, b []time.Duration) bool {
 func TestOutputCollisionGetsNumber(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	src := h.source("강의09.m4a")
-	existing := filepath.Join(h.dir, "src", "강의09.md")
+	existing := filepath.Join(h.dir, "out", "강의09.md")
+	if err := os.MkdirAll(filepath.Dir(existing), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(existing, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h.r.Start(h.ctx)
 	item := h.addOne(src, "free")
 	done := h.wait(item.ID, StateDone)
-	if done.Output != filepath.Join(h.dir, "src", "강의09 (2).md") {
+	if done.Output != filepath.Join(h.dir, "out", "강의09 (2).md") {
 		t.Fatalf("Output = %q", done.Output)
 	}
 	if readFile(t, existing) != "keep" {
@@ -1297,7 +1303,7 @@ func TestOutputCollisionGetsNumber(t *testing.T) {
 	}
 }
 
-func TestFolderOutputInsideFolder(t *testing.T) {
+func TestFolderOutputNamedAfterFolder(t *testing.T) {
 	h := newHarness(t, freeKey("f1"))
 	folder := filepath.Join(h.dir, "src", "ch07")
 	if err := os.MkdirAll(folder, 0o755); err != nil {
@@ -1306,7 +1312,7 @@ func TestFolderOutputInsideFolder(t *testing.T) {
 	h.r.Start(h.ctx)
 	item := h.addOne(folder, "free")
 	done := h.wait(item.ID, StateDone)
-	if done.Output != filepath.Join(folder, "ch07.md") {
+	if done.Output != filepath.Join(h.dir, "out", "ch07.md") {
 		t.Fatalf("Output = %q", done.Output)
 	}
 }
@@ -1537,5 +1543,73 @@ func TestGapMatchesPythonRateLimits(t *testing.T) {
 	}
 	if g := r.gap(130 * 60); g != time.Minute {
 		t.Errorf("130 min gap = %v", g)
+	}
+}
+
+func TestReceivedRecordingRemovedWhenDone(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	received := filepath.Join(h.dir, "received", "New Recording 12.m4a")
+	if err := os.MkdirAll(filepath.Dir(received), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(received, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	own := h.source("강의09.m4a")
+	h.r.Start(h.ctx)
+	a := h.addOne(received, "free")
+	b := h.addOne(own, "free")
+	doneA := h.wait(a.ID, StateDone)
+	h.wait(b.ID, StateDone)
+	if _, err := os.Stat(received); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("received recording kept after its transcript was saved: %v", err)
+	}
+	if _, err := os.Stat(own); err != nil {
+		t.Fatalf("the user's own recording must stay: %v", err)
+	}
+	// The recording time outlives the deleted audio.
+	if doneA.RecordedFrom.IsZero() || doneA.RecordedTo.IsZero() {
+		t.Fatalf("recording time not kept: %v–%v", doneA.RecordedFrom, doneA.RecordedTo)
+	}
+	if got := readFile(t, doneA.Output); got == "" {
+		t.Fatal("transcript empty")
+	}
+}
+
+func TestReceivedRecordingRemovedWithItem(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	received := filepath.Join(h.dir, "received", "rec.m4a")
+	if err := os.MkdirAll(filepath.Dir(received), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(received, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Not started: the item stays queued.
+	item := h.addOne(received, "free")
+	if err := h.r.Remove(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(received); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("received recording kept after its item was removed: %v", err)
+	}
+}
+
+func TestReceivedRecordingKeptForUnfinishedTwin(t *testing.T) {
+	h := newHarness(t, freeKey("f1"))
+	received := filepath.Join(h.dir, "received", "rec.m4a")
+	if err := os.MkdirAll(filepath.Dir(received), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(received, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := h.addOne(received, "free")
+	h.addOne(received, "free")
+	if err := h.r.Remove(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(received); err != nil {
+		t.Fatalf("another item still needs the recording: %v", err)
 	}
 }

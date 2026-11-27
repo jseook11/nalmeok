@@ -128,6 +128,53 @@ func WorkDir() (string, error) {
 	return filepath.Join(dir, "work"), nil
 }
 
+// OutputFolderName is the last part of OutputDir. It is a path, not interface
+// text, so it stays the same in every language.
+const OutputFolderName = "Nalmeok"
+
+// OutputDir is where finished transcripts are saved: ~/Nalmeok
+// (%USERPROFILE%\Nalmeok on Windows). The home folder itself is not one of
+// the folders macOS asks permission for (Desktop, Documents, Downloads), so
+// saving never prompts, and it is outside the Store app's virtualised
+// AppData, so Explorer sees the files. $NALMEOK_OUTPUT_DIR overrides it;
+// with $NALMEOK_CONFIG_DIR set it is <that folder>/Nalmeok, so an
+// experiment's transcripts stay with its history.
+func OutputDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("NALMEOK_OUTPUT_DIR")); dir != "" {
+		return dir, nil
+	}
+	if dir := strings.TrimSpace(os.Getenv("NALMEOK_CONFIG_DIR")); dir != "" {
+		return filepath.Join(dir, OutputFolderName), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, OutputFolderName), nil
+}
+
+// ReceivedDir returns <Dir>/received, where recordings dragged from macOS
+// Voice Memos are written. The app owns these copies and deletes each once
+// its transcript is saved.
+func ReceivedDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "received"), nil
+}
+
+// LegacyReceivedDir is where 0.11 and earlier kept Voice Memos recordings:
+// ~/Documents/Nalmeok/Voice Memos. Recordings there are the app's own
+// copies too.
+func LegacyReceivedDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "Documents", "Nalmeok", "Voice Memos"), nil
+}
+
 // TranscriptsDir returns <Dir>/transcripts, where the app keeps its own copy
 // of every finished transcript (see output.ArchivePath).
 func TranscriptsDir() (string, error) {

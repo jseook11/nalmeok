@@ -34,7 +34,9 @@ func newTestApp(t *testing.T) *testApp {
 	if err != nil {
 		t.Fatalf("store.Load: %v", err)
 	}
-	return &testApp{app: New(cfg, st, NewStubRunner(st)), cfgPath: cfgPath, dir: dir}
+	a := New(cfg, st, NewStubRunner(st))
+	a.OutputDir = filepath.Join(dir, "Nalmeok")
+	return &testApp{app: a, cfgPath: cfgPath, dir: dir}
 }
 
 func TestAddPathsCreatesFailedItems(t *testing.T) {

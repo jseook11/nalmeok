@@ -109,7 +109,12 @@ type sharedRuntime struct {
 	signals        *telemetry.Client
 	workDir        string
 	transcriptsDir string
-	logPath        string
+	outputDir      string
+	// receivedDir is where Voice Memos drops are saved; receivedDirs adds
+	// the folder older versions used. Recordings in either are the app's.
+	receivedDir  string
+	receivedDirs []string
+	logPath      string
 }
 
 // newSharedRuntime loads the pieces both entry points share and starts the
@@ -135,6 +140,18 @@ func newSharedRuntime() (*sharedRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	outputDir, err := config.OutputDir()
+	if err != nil {
+		return nil, err
+	}
+	receivedDir, err := config.ReceivedDir()
+	if err != nil {
+		return nil, err
+	}
+	receivedDirs := []string{receivedDir}
+	if legacy, err := config.LegacyReceivedDir(); err == nil {
+		receivedDirs = append(receivedDirs, legacy)
+	}
 	logPath, err := config.LogPath()
 	if err != nil {
 		return nil, err
@@ -155,6 +172,9 @@ func newSharedRuntime() (*sharedRuntime, error) {
 		signals:        signals,
 		workDir:        workDir,
 		transcriptsDir: transcriptsDir,
+		outputDir:      outputDir,
+		receivedDir:    receivedDir,
+		receivedDirs:   receivedDirs,
 		logPath:        logPath,
 	}, nil
 }
@@ -167,6 +187,8 @@ func (s *sharedRuntime) newRunner() *runner.Runner {
 		NewClient:      gemini.New,
 		WorkDir:        s.workDir,
 		TranscriptsDir: s.transcriptsDir,
+		OutputDir:      s.outputDir,
+		ReceivedDirs:   s.receivedDirs,
 		LogPath:        s.logPath,
 		Notify:         notify.Send,
 		Signal:         s.signals.Record,
@@ -246,6 +268,9 @@ func runGUI() {
 		application = app.New(shared.cfg, shared.store, engine)
 		application.ValidateKey = gemini.ValidateKey
 		application.Telemetry = shared.signals
+		// Preview mode leaves it empty: its seeded history must not be
+		// copied into the real transcript folder.
+		application.OutputDir = shared.outputDir
 	}
 	application.TranscriptsDir = shared.transcriptsDir
 
@@ -272,14 +297,12 @@ func runGUI() {
 		// window forward, like a second launch does.
 		notify.OnClick(func() { showWindow(ctx) })
 		// macOS: recordings dragged from Voice Memos arrive as file promises.
-		// They are saved in ~/Documents/Nalmeok/<voice memos> (the transcript
-		// goes next to them) and then take the normal drop path (OnFileDrop
-		// in internal/app). No-op elsewhere.
-		if dropDir, err := macdrop.Dir(); err == nil {
-			macdrop.Install(dropDir, func(paths []string) {
-				wailsruntime.EventsEmit(ctx, "wails:file-drop", 0, 0, paths)
-			})
-		}
+		// They are saved in the app's received folder and then take the
+		// normal drop path (OnFileDrop in internal/app); the runner deletes
+		// each once its transcript is saved. No-op elsewhere.
+		macdrop.Install(shared.receivedDir, func(paths []string) {
+			wailsruntime.EventsEmit(ctx, "wails:file-drop", 0, 0, paths)
+		})
 	}
 	onShutdown := func(ctx context.Context) {
 		if lockErr == nil {
@@ -628,6 +651,7 @@ func runSort(ids []string) int {
 	defer rt.signals.Close()
 	a := app.New(rt.cfg, rt.store, nil)
 	a.TranscriptsDir = rt.transcriptsDir
+	a.OutputDir = rt.outputDir
 	var sum app.SortSummary
 	if len(ids) == 0 {
 		sum, err = a.SortCourses()

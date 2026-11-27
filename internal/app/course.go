@@ -146,7 +146,7 @@ func (a *App) sortable() []store.Item {
 }
 
 // SortCourses sorts every finished item that was never sorted into the
-// lecture list: the .md moves to "<its folder>/<lecture>/<n>주차-<topic>.md".
+// lecture list: the .md moves to "<transcript folder>/<lecture>/<n>주차-<topic>.md".
 // It runs only when asked. Items that fit no lecture stay where they are and
 // are marked, so the next run skips them; SortCourse redoes one.
 func (a *App) SortCourses() (SortSummary, error) {
@@ -224,7 +224,7 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	// topic.
 	var slot config.Course
 	var timed bool
-	if from, to, ok := media.RecordedSpan(item.Source); ok {
+	if from, to, ok := recordedSpan(item); ok {
 		slot, timed = course.ByTime(courses, from, to)
 	}
 	ask := courses
@@ -248,7 +248,10 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	if base == "" {
 		base = strings.TrimSuffix(filepath.Base(item.Output), ".md")
 	}
-	dir := filepath.Join(sortRoot(item), res.Course)
+	if a.OutputDir == "" {
+		return false, errNotReady
+	}
+	dir := filepath.Join(a.OutputDir, res.Course)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, i18n.Wrap("error.renameFailed", err)
 	}
@@ -284,26 +287,38 @@ func (a *App) updateTranscript(item store.Item, fn func(*store.Item)) error {
 
 // weekOf is the semester week item's recording belongs to, or 0, and when it
 // was recorded (zero when that cannot be read). The week is counted from the
-// recording time, or, when that cannot be read (a folder whose audio is
-// gone), taken from its name ("9주차", "week 9").
+// recording time: kept on the item, else read from the audio. When neither
+// is there (the audio was deleted before the time was kept), it is the week
+// written in the recording's name ("9주차", "week 9"), else in the item's
+// name, which sorting set to "<n>주차 - <topic>".
 func weekOf(item store.Item, start string) (int, time.Time) {
-	if at, ok := media.RecordedAt(item.Source); ok {
+	at := item.RecordedFrom
+	if at.IsZero() {
+		at, _ = media.RecordedAt(item.Source)
+	}
+	if !at.IsZero() {
 		return course.Week(at, course.SemesterStart(at, start)), at
 	}
-	return course.WeekFromName(recordingName(item)), time.Time{}
+	if week := course.WeekFromName(recordingName(item)); week > 0 {
+		return week, time.Time{}
+	}
+	return course.WeekFromName(item.Name), time.Time{}
 }
 
-// weekCache remembers weekOf per item. An entry holds while the item's
-// source and the semester start are the same.
+// weekCache remembers weekOf per item, so a list refresh does not read the
+// audio of an item whose recording time is not kept yet. An entry holds
+// while everything weekOf reads from the item, and the semester start, are
+// the same.
 type weekCache struct {
 	mu sync.Mutex
 	m  map[string]weekEntry
 }
 
 type weekEntry struct {
-	source, start string
-	week          int
-	recorded      time.Time
+	source, name, start string
+	kept                time.Time // item.RecordedFrom when counted
+	week                int
+	recorded            time.Time
 }
 
 // of is item's week and recording time. A week the user set (WeekSet) wins
@@ -312,9 +327,9 @@ func (c *weekCache) of(item store.Item, start string) (int, time.Time) {
 	c.mu.Lock()
 	e, ok := c.m[item.ID]
 	c.mu.Unlock()
-	if !ok || e.source != item.Source || e.start != start {
+	if !ok || e.source != item.Source || e.name != item.Name || !e.kept.Equal(item.RecordedFrom) || e.start != start {
 		week, at := weekOf(item, start)
-		e = weekEntry{source: item.Source, start: start, week: week, recorded: at}
+		e = weekEntry{source: item.Source, name: item.Name, start: start, kept: item.RecordedFrom, week: week, recorded: at}
 		c.mu.Lock()
 		if c.m == nil {
 			c.m = make(map[string]weekEntry)
@@ -368,21 +383,13 @@ func recordingName(item store.Item) string {
 	return name
 }
 
-// sortRoot is the folder the lecture folders go in. A file's transcript sits
-// next to the recording, so that folder. A folder's transcript sits inside
-// the recording folder, and lecture folders made there would nest one
-// lecture inside another ("알고리즘 9주차/알고리즘/..."), so the folder's
-// parent. A transcript sorted before sits in its old lecture's folder; the
-// new folder goes next to that one, not inside it.
-func sortRoot(item store.Item) string {
-	if item.Kind == "folder" {
-		return filepath.Dir(filepath.Clean(item.Source))
+// recordedSpan is when item's recording ran: kept on the item, or read from
+// the audio when an older item has none yet.
+func recordedSpan(item store.Item) (time.Time, time.Time, bool) {
+	if !item.RecordedFrom.IsZero() {
+		return item.RecordedFrom, item.RecordedTo, true
 	}
-	root := filepath.Dir(item.Output)
-	if item.Course != "" && filepath.Base(root) == item.Course {
-		root = filepath.Dir(root)
-	}
-	return root
+	return media.RecordedSpan(item.Source)
 }
 
 func (a *App) newClient() func(string) (gemini.Client, error) {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jseook11/nalmeok/internal/config"
 	"github.com/jseook11/nalmeok/internal/i18n"
@@ -154,51 +155,132 @@ func TestReadOutputArchivesOldItem(t *testing.T) {
 	}
 }
 
-func TestArchiveFinishedCopiesDoneItems(t *testing.T) {
+func TestTidyFinishedArchivesDoneItems(t *testing.T) {
 	ta := newTestApp(t)
 	archive := withArchive(ta)
-	path := filepath.Join(ta.dir, "lec.md")
+	path := filepath.Join(ta.app.OutputDir, "lec.md")
 	writeText(t, path, "본문\n")
 	id := addDone(t, ta, path)
 	failed := store.Item{ID: "failed-1", Name: "x", Kind: "file", State: "failed", Output: path}
 	if err := ta.app.store.Add(failed); err != nil {
 		t.Fatal(err)
 	}
-	ta.app.archiveFinished()
+	ta.app.tidyFinished()
 	if data, err := os.ReadFile(filepath.Join(archive, id+".md")); err != nil || string(data) != "본문\n" {
 		t.Fatalf("archive = %q, %v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(archive, failed.ID+".md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unfinished item archived: %v", err)
 	}
+	if got, _ := ta.app.store.Get(id); got.Output != path {
+		t.Fatalf("a transcript already in the folder moved: %q", got.Output)
+	}
 }
 
-func TestRemoveDeletesArchive(t *testing.T) {
+// Transcripts 0.11 saved next to the recording (a file's beside it, a
+// folder's inside it) are copied into the transcript folder from the app's
+// copy; the old files stay and are forgotten.
+func TestTidyFinishedCopiesOldTranscriptsIn(t *testing.T) {
 	ta := newTestApp(t)
 	archive := withArchive(ta)
-	path := filepath.Join(ta.dir, "lec.md")
-	writeText(t, path, "본문\n")
-	id := addDone(t, ta, path)
-	copyPath := filepath.Join(archive, id+".md")
-	writeText(t, copyPath, "본문\n")
-	if err := ta.app.Remove(id); err != nil {
+	out := ta.app.OutputDir
+	fileMD := filepath.Join(ta.dir, "Desktop", "강의09.md")
+	folderMD := filepath.Join(ta.dir, "Desktop", "알고리즘_09.1", "알고리즘_09.1.md")
+	sortedMD := filepath.Join(ta.dir, "Desktop", "알고리즘", "9주차 - 정렬.md")
+	writeText(t, fileMD, "원본에서 고친 내용\n")
+	writeText(t, folderMD, "폴더 원본\n")
+	writeText(t, sortedMD, "정렬 원본\n")
+	items := []store.Item{
+		{ID: "file", Name: "강의09", Kind: "file", State: "done", Output: fileMD},
+		{ID: "twin", Name: "강의09", Kind: "file", State: "done", Output: fileMD},
+		{ID: "folder", Name: "알고리즘_09.1", Kind: "folder", State: "done", Output: folderMD},
+		{ID: "sorted", Name: "9주차 - 정렬", Kind: "file", State: "done", Output: sortedMD,
+			Course: "알고리즘", Sorted: sortedMatched},
+	}
+	for _, it := range items {
+		if err := ta.app.store.Add(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeText(t, filepath.Join(archive, "file.md"), "보관본\n")
+	writeText(t, filepath.Join(archive, "twin.md"), "보관본\n")
+	writeText(t, filepath.Join(archive, "folder.md"), "폴더 보관본\n")
+	// "sorted" has no app copy: its .md is read instead.
+
+	ta.app.tidyFinished()
+
+	want := map[string][2]string{
+		"file":   {filepath.Join(out, "강의09.md"), "보관본\n"},
+		"twin":   {filepath.Join(out, "강의09.md"), "보관본\n"},
+		"folder": {filepath.Join(out, "알고리즘_09.1.md"), "폴더 보관본\n"},
+		"sorted": {filepath.Join(out, "알고리즘", "9주차 - 정렬.md"), "정렬 원본\n"},
+	}
+	for id, w := range want {
+		got, _ := ta.app.store.Get(id)
+		if got.Output != w[0] {
+			t.Errorf("%s: Output = %q, want %q", id, got.Output, w[0])
+			continue
+		}
+		if data, _ := os.ReadFile(got.Output); string(data) != w[1] {
+			t.Errorf("%s: copy = %q, want %q", id, data, w[1])
+		}
+	}
+	// One recording added twice keeps one transcript.
+	if _, err := os.Stat(filepath.Join(out, "강의09 (2).md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("duplicate copied twice: %v", err)
+	}
+	for _, old := range []string{fileMD, folderMD, sortedMD} {
+		if _, err := os.Stat(old); err != nil {
+			t.Errorf("old transcript %s must stay: %v", old, err)
+		}
+	}
+
+	// A second launch has nothing left to copy.
+	ta.app.tidyFinished()
+	entries, err := os.ReadDir(out)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(copyPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("archive not removed: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("the .md must stay: %v", err)
+	if len(entries) != 3 { // 강의09.md, 알고리즘_09.1.md, 알고리즘/
+		t.Fatalf("second launch copied again: %v", entries)
 	}
 }
 
-func TestRestoreOutputWritesNextToSource(t *testing.T) {
+func TestTidyFinishedKeepsRecordingTime(t *testing.T) {
+	ta := newTestApp(t)
+	src := filepath.Join(ta.dir, "lec.m4a")
+	writeText(t, src, "audio")
+	stamp := time.Date(2026, 10, 6, 15, 30, 0, 0, time.Local)
+	if err := os.Chtimes(src, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(ta.app.OutputDir, "lec.md")
+	writeText(t, path, "본문\n")
+	item := store.Item{ID: "done-1", Name: "lec", Kind: "file", Source: src, State: "done", Output: path}
+	if err := ta.app.store.Add(item); err != nil {
+		t.Fatal(err)
+	}
+	ta.app.tidyFinished()
+	got, _ := ta.app.store.Get(item.ID)
+	if !got.RecordedTo.Equal(stamp) {
+		t.Fatalf("RecordedTo = %v, want %v", got.RecordedTo, stamp)
+	}
+	// The week is counted from the kept time once the audio is gone.
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	if week, at := weekOf(got, "2026-09-01"); week != 6 || at.IsZero() {
+		t.Fatalf("weekOf = %d, %v", week, at)
+	}
+}
+
+func TestRestoreOutputWritesIntoTranscriptFolder(t *testing.T) {
 	ta := newTestApp(t)
 	archive := withArchive(ta)
 	src := filepath.Join(ta.dir, "src", "lec.m4a")
 	writeText(t, src, "audio")
 	// Another file already took the name; the restored copy must not replace it.
-	taken := filepath.Join(ta.dir, "src", "lec.md")
+	taken := filepath.Join(ta.app.OutputDir, "lec.md")
 	writeText(t, taken, "다른 파일\n")
 	item := store.Item{ID: "done-1", Name: "lec.m4a", Kind: "file", Source: src, State: "done",
 		Output: filepath.Join(ta.dir, "moved", "lec.md")}
@@ -210,7 +292,7 @@ func TestRestoreOutputWritesNextToSource(t *testing.T) {
 	if err := ta.app.RestoreOutput(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(ta.dir, "src", "lec (2).md")
+	want := filepath.Join(ta.app.OutputDir, "lec (2).md")
 	got, _ := ta.app.store.Get(item.ID)
 	if got.Output != want {
 		t.Fatalf("Output = %q, want %q", got.Output, want)
@@ -220,6 +302,9 @@ func TestRestoreOutputWritesNextToSource(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(taken); string(data) != "다른 파일\n" {
 		t.Fatal("existing file was replaced")
+	}
+	if _, err := os.Stat(filepath.Join(ta.dir, "src", "lec.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("nothing may be written next to the recording")
 	}
 }
 
