@@ -387,8 +387,8 @@ func TestSetCoursesKeepsSlots(t *testing.T) {
 }
 
 // A recording made during a class on the timetable goes to that class even
-// when the classifier is unsure; the classifier only names the topic, and
-// is shown only that class.
+// without asking the classifier; it only names the topic, and is shown only
+// that class.
 func TestSortUsesTheTimetable(t *testing.T) {
 	ta, item := sortFixture(t, "오늘은 출석만 부르고 끝") // Tuesday 13:00
 	if err := ta.app.SetCourses(CourseSettings{Courses: []config.Course{
@@ -400,9 +400,9 @@ func TestSortUsesTheTimetable(t *testing.T) {
 	if err := ta.app.AddKey("", "free", "AIza"+strings.Repeat("f", 35)); err != nil {
 		t.Fatal(err)
 	}
-	var prompts []string
+	var prompts, systems []string
 	ta.app.NewClient = func(string) (gemini.Client, error) {
-		return &promptRecorder{prompts: &prompts, answer: `{"course":"NONE","confident":false,"topic":"정렬 알고리즘"}`}, nil
+		return &promptRecorder{prompts: &prompts, systems: &systems, answer: `{"topic":"정렬 알고리즘"}`}, nil
 	}
 	sum, err := ta.app.SortCourses()
 	if err != nil || sum.Matched != 1 {
@@ -416,16 +416,23 @@ func TestSortUsesTheTimetable(t *testing.T) {
 	if len(prompts) != 1 || strings.Contains(prompts[0], "선형대수학") {
 		t.Errorf("classifier saw other courses: %q", prompts)
 	}
+	if len(systems) != 1 || strings.Contains(systems[0], "confident") {
+		t.Errorf("timed recording was asked for its course: %q", systems)
+	}
 }
 
 type promptRecorder struct {
 	gemini.Client
 	prompts *[]string
+	systems *[]string
 	answer  string
 }
 
 func (p *promptRecorder) Generate(_ context.Context, req gemini.Request) (gemini.Result, error) {
 	*p.prompts = append(*p.prompts, req.Parts[0].Text)
+	if p.systems != nil {
+		*p.systems = append(*p.systems, req.System)
+	}
 	return gemini.Result{Text: p.answer}, nil
 }
 

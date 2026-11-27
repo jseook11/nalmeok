@@ -220,23 +220,22 @@ func (a *App) sortOne(ctx context.Context, clients *classifierKeys, item store.I
 	name := recordingName(item)
 	week, _ := a.weeks.of(item, start)
 	// A recording made during a class on the timetable is that class (the
-	// one it shares the most time with): the classifier then only names the
-	// topic.
+	// one it shares the most time with): the model then only names the
+	// topic, with a prompt that does not ask for the course.
 	var slot config.Course
 	var timed bool
 	if from, to, ok := recordedSpan(item); ok {
 		slot, timed = course.ByTime(courses, from, to)
 	}
-	ask := courses
-	if timed {
-		ask = []config.Course{slot}
-	}
-	res, err := clients.classify(ctx, text, name, ask)
+	res, err := clients.ask(func(client gemini.Client) (course.Result, error) {
+		if !timed {
+			return course.Classify(ctx, client, text, name, courses)
+		}
+		topic, err := course.Topic(ctx, client, text, name, slot)
+		return course.Result{Course: slot.Name, Topic: topic}, err
+	})
 	if err != nil {
 		return false, err
-	}
-	if timed {
-		res.Course = slot.Name
 	}
 	if res.Course == "" {
 		return false, a.updateTranscript(item, func(it *store.Item) { it.Sorted = sortedNone })
@@ -439,7 +438,9 @@ type classifierKeys struct {
 
 func (c *classifierKeys) exhausted() bool { return c.next >= len(c.keys) }
 
-func (c *classifierKeys) classify(ctx context.Context, text, name string, courses []config.Course) (course.Result, error) {
+// ask runs fn with the current key's client, moving on to the next key when
+// one is limited or rejected.
+func (c *classifierKeys) ask(fn func(gemini.Client) (course.Result, error)) (course.Result, error) {
 	var last error
 	for !c.exhausted() {
 		if c.client == nil {
@@ -451,7 +452,7 @@ func (c *classifierKeys) classify(ctx context.Context, text, name string, course
 			}
 			c.client = client
 		}
-		res, err := course.Classify(ctx, c.client, text, name, courses)
+		res, err := fn(c.client)
 		if err == nil {
 			return res, nil
 		}
